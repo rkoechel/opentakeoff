@@ -64,6 +64,19 @@ function chromeBin() {
   return CHROME_CANDIDATES.find((candidate) => existsSync(candidate)) || "";
 }
 
+const SAMPLE_LABEL_EXPR = String.raw`(() => {
+  const label = (el) => (el.innerText || "").replace(/\s+/g, " ").trim();
+  const button = [...document.querySelectorAll("button")].find((el) => /^(just open the sample plan|load sample plan)$/i.test(label(el)));
+  return button ? label(button) : "";
+})()`;
+
+const SAMPLE_CLICK_EXPR = String.raw`(() => {
+  const label = (el) => (el.innerText || "").replace(/\s+/g, " ").trim();
+  const button = [...document.querySelectorAll("button")].find((el) => /^(just open the sample plan|load sample plan)$/i.test(label(el)));
+  if (!button) return false;
+  button.click();
+  return true;
+})()`;
 const requests = [];
 const consoleText = [];
 let mainFrameId = "";
@@ -176,10 +189,7 @@ async function main() {
     let buttonText = "";
     for (let i = 0; i < 60 && !buttonText; i++) {
       const found = await send("Runtime.evaluate", {
-        expression: `(() => {
-          const button = [...document.querySelectorAll("button")].find((el) => /sample plan/i.test(el.innerText || ""));
-          return button ? button.innerText.trim() : "";
-        })()`,
+        expression: SAMPLE_LABEL_EXPR,
         returnByValue: true,
       });
       buttonText = found.result?.value || "";
@@ -189,12 +199,7 @@ async function main() {
     let clicked = false;
     if (buttonText) {
       const click = await send("Runtime.evaluate", {
-        expression: `(() => {
-          const button = [...document.querySelectorAll("button")].find((el) => /sample plan/i.test(el.innerText || ""));
-          if (!button) return false;
-          button.click();
-          return true;
-        })()`,
+        expression: SAMPLE_CLICK_EXPR,
         returnByValue: true,
       });
       clicked = click.result?.value === true;
@@ -229,6 +234,11 @@ async function main() {
     const pageRequests = requests.filter(isPageRequest);
     const browserRequests = requests.filter((entry) => !isPageRequest(entry));
     const pageUrls = [...pageRequests.map((entry) => entry.url), ...resourceUrls];
+    const pagePaths = [...new Set(pageUrls.map((url) => {
+      if (url.startsWith("blob:")) return "blob:";
+      if (url.startsWith("data:")) return "data:";
+      try { return new URL(url).pathname; } catch { return url; }
+    }))].sort();
     const pageHosts = [...new Set(pageUrls.map(hostOf))].sort();
     const nonSelf = pageHosts.filter((host) => !isSelfHost(host));
     const consoleHosts = [...new Set(consoleText.flatMap(urlsIn).map(hostOf))].filter((host) => host && !isSelfHost(host)).sort();
@@ -241,6 +251,7 @@ async function main() {
       samplePdfRequested: samplePdf,
       sourceLinks: links.result?.value || [],
       pageHosts,
+      pagePaths,
       nonSelfPageHosts: nonSelf,
       consoleNonSelfHosts: consoleHosts,
       browserOnlyHosts: browserHosts,
