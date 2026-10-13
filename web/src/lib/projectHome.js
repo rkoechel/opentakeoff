@@ -8,9 +8,13 @@
 // non-goal: two tabs remembering projects at once race on the single storage
 // key and the last write wins; losing one recency bump is harmless.
 
+import { floor360PrivateBuild } from "./privateBuild.js";
+
 export function projectHomeFolderId() {
   // Vite inlines this at build; empty string = project home off. Guarded read
   // because under node (tests) import.meta.env is undefined.
+  // The private build never opens the Drive project browser.
+  if (floor360PrivateBuild()) return "";
   return (import.meta.env && import.meta.env.VITE_DRIVE_ROOT_FOLDER_ID) || "";
 }
 

@@ -1,24 +1,109 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
+import { execSync } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { PRIVATE_LOCKED_ENV_KEYS } from "./src/lib/privateBuild.js";
 
 // The one source of truth for the app version — package.json — inlined as
 // __APP_VERSION__ so contributions can carry generator_version without a
 // runtime fetch. Guarded with `typeof` at the use site so the Node test
 // runner (no Vite, no define) sees plain undefined instead of a crash.
+const webDir = fileURLToPath(new URL(".", import.meta.url));
+const repoRoot = path.resolve(webDir, "..");
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+
+const SOURCE_REPO = "https://github.com/rkoechel/opentakeoff";
+const BANNED_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cloudflareinsights.com"];
+
+function sourceCommit() {
+  const fromEnv = (process.env.OT_SOURCE_COMMIT || "").trim();
+  if (/^[0-9a-f]{7,40}$/i.test(fromEnv)) return fromEnv.toLowerCase();
+  try {
+    const sha = execSync("git rev-parse HEAD", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /^[0-9a-f]{40}$/i.test(sha) ? sha.toLowerCase() : "";
+  } catch {
+    return "";
+  }
+}
+
+const sha = sourceCommit();
+const sourceHref = sha ? `${SOURCE_REPO}/commit/${sha}` : SOURCE_REPO;
+
+const define = {
+  __APP_VERSION__: JSON.stringify(pkg.version),
+  __OT_FLOOR360_PRIVATE__: "true",
+  __OT_SOURCE_COMMIT__: JSON.stringify(sha),
+  "import.meta.env.VITE_OCR": JSON.stringify("off"),
+};
+for (const key of PRIVATE_LOCKED_ENV_KEYS) {
+  define[`import.meta.env.${key}`] = JSON.stringify("");
+}
+
+function walkDist(dir, hits) {
+  for (const name of readdirSync(dir)) {
+    const abs = path.join(dir, name);
+    if (statSync(abs).isDirectory()) {
+      walkDist(abs, hits);
+      continue;
+    }
+    if (!/\.(html|js|mjs|css|svg|txt|xml|json)$/i.test(name)) continue;
+    const text = readFileSync(abs, "utf8");
+    for (const host of BANNED_HOSTS) {
+      if (text.includes(host)) hits.push(`${path.relative(path.join(webDir, "dist"), abs)} contains ${host}`);
+    }
+  }
+}
 
 // OpenTakeoff is a client-only static app: the takeoff canvas runs entirely in
 // the browser (pdf.js + canvas + the geometry libs), persists to IndexedDB /
 // localStorage, and builds to a static `dist/` you can host anywhere (GitHub
 // Pages, Vercel, Netlify, an S3 bucket).
 //
+// This branch is the FLOOR360 private build. envPrefix hides every VITE_*
+// value from the client bundle, and `define` blanks the sync / contribute /
+// one-click / AI keys and forces VITE_OCR off, so a shell that has those
+// variables set cannot turn the features on or inline a key. Runtime checks
+// in src/lib/privateBuild.js are the second lock.
+//
 // The `/ai` proxy is OPTIONAL — it only matters if you run the bring-your-own-
 // model AI sandbox in `../server` (see server/README.md). Without it, the app
-// works fully; the AI hooks just stay dormant.
+// works fully; the AI hooks just stay dormant. The private CSP only allows
+// connect-src 'self', so a remote AI endpoint is blocked in the browser.
 export default defineConfig({
-  plugins: [react()],
-  define: { __APP_VERSION__: JSON.stringify(pkg.version) },
+  plugins: [
+    react(),
+    {
+      name: "floor360-source-link",
+      transformIndexHtml(html) {
+        return html.replaceAll("__OT_SOURCE_HREF__", sourceHref);
+      },
+    },
+    {
+      name: "floor360-dist",
+      apply: "build",
+      closeBundle() {
+        const dist = path.join(webDir, "dist");
+        copyFileSync(path.join(webDir, "scripts", "floor360-static.mjs"), path.join(dist, "floor360-static.mjs"));
+        copyFileSync(path.join(repoRoot, "LICENSE"), path.join(dist, "LICENSE"));
+        copyFileSync(path.join(repoRoot, "NOTICE"), path.join(dist, "NOTICE"));
+        const hits = [];
+        walkDist(dist, hits);
+        if (hits.length) {
+          throw new Error("FLOOR360 private build still names a third-party host:\n" + hits.join("\n"));
+        }
+      },
+    },
+  ],
+  define,
+  // Nothing in the app uses this prefix, so no VITE_* value from the
+  // environment or a .env file is copied into the client bundle.
+  envPrefix: "VITE_FLOOR360_PRIVATE_ALLOW_",
   // On-device OCR (#469): ppu-paddle-ocr imports the bare `onnxruntime-web`,
   // which would bundle ORT's default (jsep) build and ship a second ~24 MB
   // wasm. Point it at the webgpu entry voice already uses, so both share the

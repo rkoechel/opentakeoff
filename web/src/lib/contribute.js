@@ -16,14 +16,17 @@
 // Contribute button explains it isn't configured rather than sending anything.
 
 import { conditionTotals } from "./totals.js";
+import { floor360PrivateBuild, lockedEndpoint } from "./privateBuild.js";
 
 export function contributeEndpoint() {
+  let storageValue = "";
   try {
-    const override = localStorage.getItem("opentakeoff_contribute_endpoint");
-    if (override) return override;
+    storageValue = localStorage.getItem("opentakeoff_contribute_endpoint") || "";
   } catch { /* private mode */ }
   // Vite inlines this at build; empty string = not configured.
-  return (import.meta.env && import.meta.env.VITE_CONTRIBUTE_ENDPOINT) || "";
+  // The private build ignores both the storage override and the inlined value.
+  const envValue = (import.meta.env && import.meta.env.VITE_CONTRIBUTE_ENDPOINT) || "";
+  return lockedEndpoint(floor360PrivateBuild(), storageValue, envValue);
 }
 
 export function isContributeConfigured() {
@@ -36,6 +39,7 @@ export function isContributeConfigured() {
 // The Contribute modal uses this to say the honest thing: self-capture is
 // keeping your own data, not contributing to anything.
 export function endpointSource() {
+  if (floor360PrivateBuild()) return "";
   try {
     if (localStorage.getItem("opentakeoff_contribute_endpoint")) return "browser";
   } catch { /* private mode */ }

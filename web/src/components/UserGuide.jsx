@@ -14,6 +14,7 @@
 // USER_GUIDE.md §15, which is itself maintained against the code — if a
 // shortcut changes, §15 and this table move together.
 import { oneClickEnabled, commandBoxEnabled } from "../lib/gate.js";
+import { sourceHref, sourceLabel } from "../lib/sourceLink.js";
 import { useEffect, useRef } from "react";
 import { inOtherModal, otherModalOpen } from "../lib/modalKeys";
 import { Z, S } from "../lib/ui.js";
@@ -183,6 +184,7 @@ export default function UserGuide({ onClose, onTour, onConnect }) {
         <nav aria-label="Legal" style={{ display: "flex", gap: 16, marginBottom: 22, fontSize: 12.5 }}>
           <a href="/privacy/" target="_blank" rel="noreferrer">Privacy Policy</a>
           <a href="/terms/" target="_blank" rel="noreferrer">Terms of Service</a>
+          <a href={sourceHref()} target="_blank" rel="noreferrer">{sourceLabel()}</a>
         </nav>
 
         <Section title="Five minutes to a takeoff">

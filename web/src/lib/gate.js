@@ -8,10 +8,22 @@
 // time). Tests and lab drivers can lift it at runtime by setting
 // globalThis.__OT_ONE_CLICK = true before the first call — the check is a
 // function, read at call time, never frozen at import.
+// The FLOOR360 private build refuses both lifts.
+
+import { floor360PrivateBuild } from "./privateBuild.js";
+
+export function oneClickDecision({ privateBuild, runtime, vite }) {
+  if (privateBuild) return false;
+  if (runtime === true) return true;
+  return vite === "1";
+}
 
 export function oneClickEnabled() {
-  try { if (globalThis.__OT_ONE_CLICK === true) return true; } catch { /* no globalThis */ }
-  try { return import.meta.env?.VITE_ONE_CLICK === "1"; } catch { return false; }
+  let runtime = false;
+  try { runtime = globalThis.__OT_ONE_CLICK === true; } catch { /* no globalThis */ }
+  let vite = "";
+  try { vite = import.meta.env?.VITE_ONE_CLICK || ""; } catch { /* node, no import.meta.env */ }
+  return oneClickDecision({ privateBuild: floor360PrivateBuild(), runtime, vite });
 }
 
 // Command box + voice dictation — gated off by default (2026-09-05, Michael:
@@ -33,5 +45,6 @@ export const ONE_CLICK_GATE_MESSAGE =
 // and the stage script ships no models. There's no runtime override; a
 // deployment that stages no models reports "not installed" instead.
 export function ocrEnabled() {
+  if (floor360PrivateBuild()) return false;
   try { return import.meta.env?.VITE_OCR !== "off"; } catch { return true; }
 }

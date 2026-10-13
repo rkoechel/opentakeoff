@@ -37,6 +37,7 @@ import { runPlanSearch, filesToIndex, pagesToIndex, galleryEscStep, createChange
 import { measurePage } from "../lib/pictures";
 import { inOtherModal, otherModalOpen } from "../lib/modalKeys";
 import { fetchSamplePlan } from "../lib/samplePlan.js";
+import { sourceHref, sourceLabel } from "../lib/sourceLink.js";
 
 // Thumbnails in flight at once. The canvas rasters in its worker pool now, so
 // the main thread's pdf.js is mostly idle while the gallery is up; two keeps
@@ -1179,7 +1180,8 @@ export default function PlanNavigator({
                   </div>
                 )}
                 <div style={{ marginTop: 30, fontFamily: "var(--f-mono)", fontSize: 10.5, letterSpacing: "0.1em", color: "var(--text-faint)" }}>
-                  AGPL-3.0 open source · an open project by{" "}
+                  AGPL-3.0 · <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ color: "var(--ink-muted)" }}>{sourceLabel()}</a>
+                  {" · "}an open project by{" "}
                   <a href="https://kentucky-ai.com" target="_blank" rel="noopener" style={{ color: "var(--ink-muted)" }}>Kentucky&nbsp;AI</a>
                 </div>
               </div>
