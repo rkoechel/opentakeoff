@@ -18,7 +18,7 @@ export const STRIPPED_HOSTS = [
 ];
 
 const STRIPPED_URLS = [
-  "https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/raw/main",
+  "https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models",
 ];
 
 export function stripPrivateHosts(code) {
