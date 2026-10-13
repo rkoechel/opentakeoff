@@ -10,6 +10,7 @@ Do not deploy from these notes until the pull request is reviewed. Nothing here 
 - Fonts are files under `web/public/fonts`, loaded by `web/src/styles/fonts.css`. The app does not request `fonts.googleapis.com` or `fonts.gstatic.com`. Each family is SIL Open Font License; the license texts are next to the files.
 - Content-Security-Policy allows `connect-src 'self' blob: data:` and same-origin `script-src` / `worker-src` (plus `wasm-unsafe-eval` for pdf.js, and `blob:` workers). `frame-src` is `'none'`.
 - Microsoft 365 sync, Google sign-in / Drive, Contribute, and One-Click Area stay off. Setting `VITE_ONE_CLICK`, `VITE_GOOGLE_*`, `VITE_DRIVE_ROOT_FOLDER_ID`, `VITE_CLOUD_SYNC`, `VITE_MSAL_*`, `VITE_GRAPH_*`, `VITE_CONTRIBUTE_ENDPOINT`, or `VITE_AI_*` in the build environment does not turn them on and does not inline those values. `VITE_OCR` is forced off.
+- The build deletes leftover host strings (`cdn.jsdelivr.net`, `huggingface.co`, `googleapis.com`, `graph.microsoft.com`, `opentakeoff.kentucky-ai.com`) from the artifact. Those calls are already unreachable with the flags above. The build fails if any of them remain in `dist`.
 - The canvas footer, the empty-project screen, and the in-app guide each show a Source link to `https://github.com/rkoechel/opentakeoff/commit/<sha>` for the commit that was built. `LICENSE` and `NOTICE` stay in the repo and are copied into the artifact.
 
 ## Host

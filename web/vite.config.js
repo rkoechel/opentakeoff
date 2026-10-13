@@ -1,10 +1,11 @@
-import { readFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { PRIVATE_LOCKED_ENV_KEYS } from "./src/lib/privateBuild.js";
+import { STRIPPED_HOSTS, stripPrivateHosts } from "./scripts/strip-private-hosts.mjs";
 
 // The one source of truth for the app version — package.json — inlined as
 // __APP_VERSION__ so contributions can carry generator_version without a
@@ -15,7 +16,12 @@ const repoRoot = path.resolve(webDir, "..");
 const pkg = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 
 const SOURCE_REPO = "https://github.com/rkoechel/opentakeoff";
-const BANNED_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com", "cloudflareinsights.com"];
+const BANNED_HOSTS = [
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "cloudflareinsights.com",
+  ...STRIPPED_HOSTS,
+];
 
 function sourceCommit() {
   const fromEnv = (process.env.OT_SOURCE_COMMIT || "").trim();
@@ -45,18 +51,17 @@ for (const key of PRIVATE_LOCKED_ENV_KEYS) {
   define[`import.meta.env.${key}`] = JSON.stringify("");
 }
 
-function walkDist(dir, hits) {
+const TEXT_FILE = /\.(html|js|mjs|css|svg|txt|xml|json)$/i;
+
+function walkDist(dir, visit) {
   for (const name of readdirSync(dir)) {
     const abs = path.join(dir, name);
     if (statSync(abs).isDirectory()) {
-      walkDist(abs, hits);
+      walkDist(abs, visit);
       continue;
     }
-    if (!/\.(html|js|mjs|css|svg|txt|xml|json)$/i.test(name)) continue;
-    const text = readFileSync(abs, "utf8");
-    for (const host of BANNED_HOSTS) {
-      if (text.includes(host)) hits.push(`${path.relative(path.join(webDir, "dist"), abs)} contains ${host}`);
-    }
+    if (!TEXT_FILE.test(name)) continue;
+    visit(abs);
   }
 }
 
@@ -85,6 +90,16 @@ export default defineConfig({
       },
     },
     {
+      name: "floor360-strip-hosts",
+      apply: "build",
+      generateBundle(_options, bundle) {
+        for (const item of Object.values(bundle)) {
+          if (item.type === "chunk") item.code = stripPrivateHosts(item.code);
+          else if (item.type === "asset" && typeof item.source === "string") item.source = stripPrivateHosts(item.source);
+        }
+      },
+    },
+    {
       name: "floor360-dist",
       apply: "build",
       closeBundle() {
@@ -92,8 +107,20 @@ export default defineConfig({
         copyFileSync(path.join(webDir, "scripts", "floor360-static.mjs"), path.join(dist, "floor360-static.mjs"));
         copyFileSync(path.join(repoRoot, "LICENSE"), path.join(dist, "LICENSE"));
         copyFileSync(path.join(repoRoot, "NOTICE"), path.join(dist, "NOTICE"));
+        // Public files are copied as-is. Strip again so a page that still
+        // names a banned host cannot ship.
+        walkDist(dist, (abs) => {
+          const text = readFileSync(abs, "utf8");
+          const next = stripPrivateHosts(text);
+          if (next !== text) writeFileSync(abs, next);
+        });
         const hits = [];
-        walkDist(dist, hits);
+        walkDist(dist, (abs) => {
+          const text = readFileSync(abs, "utf8");
+          for (const host of BANNED_HOSTS) {
+            if (text.includes(host)) hits.push(`${path.relative(dist, abs)} contains ${host}`);
+          }
+        });
         if (hits.length) {
           throw new Error("FLOOR360 private build still names a third-party host:\n" + hits.join("\n"));
         }

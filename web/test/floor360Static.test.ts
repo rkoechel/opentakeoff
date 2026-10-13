@@ -4,6 +4,25 @@ import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONTENT_SECURITY_POLICY, createStaticServer, resolveRequest } from "../scripts/floor360-static.mjs";
+import { stripPrivateHosts } from "../scripts/strip-private-hosts.mjs";
+
+test("private host strip removes dependency URLs and leaves the source link", () => {
+  const sample = [
+    "https://cdn.jsdelivr.net/npm/onnxruntime-web@1/dist/",
+    "https://huggingface.co/org/model",
+    "https://hf.co/org/model",
+    "https://www.googleapis.com/drive/v3/files",
+    "https://graph.microsoft.com/v1.0",
+    "https://accounts.google.com/gsi/client",
+    "https://opentakeoff.kentucky-ai.com/",
+    "https://github.com/rkoechel/opentakeoff/commit/abc",
+  ].join("\n");
+  const out = stripPrivateHosts(sample);
+  for (const host of ["cdn.jsdelivr.net", "huggingface.co", "hf.co", "googleapis.com", "graph.microsoft.com", "accounts.google.com", "opentakeoff.kentucky-ai.com"]) {
+    assert.equal(out.includes(host), false, host);
+  }
+  assert.match(out, /github\.com\/rkoechel\/opentakeoff\/commit\/abc/);
+});
 
 test("CSP matches _headers and staticwebapp.config.json", () => {
   const headers = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
