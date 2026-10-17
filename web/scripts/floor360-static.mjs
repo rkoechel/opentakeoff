@@ -81,7 +81,20 @@ export const MIME = {
   ".xml": "application/xml",
   ".webmanifest": "application/manifest+json",
   ".mp4": "video/mp4",
+  ".onnx": "application/octet-stream",
 };
+
+// Cache rules. Vite's /assets/* names carry a content hash, so they never
+// change: cache for a year. The OCR model files are pinned by sha256 in the
+// manifest and the app's own Cache Storage keys them by hash, so a model
+// change gets a new MODEL_REV; cache them a year too. Everything else
+// (index.html, the manifest, public pages) revalidates on every load so a
+// deploy is picked up at once.
+export function cacheControlFor(pathname) {
+  if (/^\/assets\/[^/]+$/.test(pathname)) return "public, max-age=31536000, immutable";
+  if (/^\/models\/ocr\/[^/]+\.(onnx|txt)$/.test(pathname)) return "public, max-age=31536000";
+  return "no-cache";
+}
 
 export function resolveRequest(root, urlPath) {
   let pathname;
@@ -123,6 +136,9 @@ export function createStaticServer(root) {
     }
     const ext = path.extname(resolved.file).toLowerCase();
     headers["Content-Type"] = MIME[ext] || "application/octet-stream";
+    let pathname = "/";
+    try { pathname = new URL(req.url || "/", "http://localhost").pathname; } catch { /* resolved above */ }
+    headers["Cache-Control"] = cacheControlFor(resolved.file.endsWith("index.html") && !pathname.endsWith(".html") ? "/index.html" : pathname);
     res.writeHead(200, headers);
     if (req.method === "HEAD") {
       res.end();

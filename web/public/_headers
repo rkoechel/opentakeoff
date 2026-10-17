@@ -19,8 +19,9 @@
 # Google sign-in frame. style-src keeps 'unsafe-inline' because the
 # canvas sets style in React. Do not add 'unsafe-inline' to script-src.
 #
-# On-device OCR is off in this build (VITE_OCR=off). If it were on, its
-# worker, wasm, and models would still be same-origin files.
+# On-device OCR is on in this build. Its worker, ORT wasm, and PP-OCRv5
+# models are same-origin files (models staged at build time), so no CSP
+# change is needed: 'wasm-unsafe-eval' and worker-src blob: already cover it.
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' blob: data: https://login.microsoftonline.com https://graph.microsoft.com https://floor360com.sharepoint.com; worker-src 'self' blob:; frame-src https://login.microsoftonline.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
   X-Frame-Options: DENY

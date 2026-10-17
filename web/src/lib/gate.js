@@ -44,7 +44,7 @@ export const ONE_CLICK_GATE_MESSAGE =
 // it for a deployment: the client reports "disabled" and makes no request,
 // and the stage script ships no models. There's no runtime override; a
 // deployment that stages no models reports "not installed" instead.
+// The FLOOR360 private build ships it on, with the models staged into dist.
 export function ocrEnabled() {
-  if (floor360PrivateBuild()) return false;
   try { return import.meta.env?.VITE_OCR !== "off"; } catch { return true; }
 }

@@ -20,7 +20,8 @@
     "lint": "eslint src",
     "check:ort": "node scripts/check-one-ort.mjs",
     "check:ocr-dist": "node scripts/check-ocr-dist.mjs",
-    "stage:ocr": "node scripts/stage-ocr-model.mjs"
+    "stage:ocr": "node scripts/stage-ocr-model.mjs",
+    "build:floor360": "node scripts/stage-ocr-model.mjs && vite build && node scripts/check-ocr-dist.mjs"
   },
   "engines": {
     "node": ">=24"

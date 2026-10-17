@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, writeFileSync, copyFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,7 +45,9 @@ const define = {
   __APP_VERSION__: JSON.stringify(pkg.version),
   __OT_FLOOR360_PRIVATE__: "true",
   __OT_SOURCE_COMMIT__: JSON.stringify(sha),
-  "import.meta.env.VITE_OCR": JSON.stringify("off"),
+  // On-device OCR is on: PP-OCRv5 models are staged into public/models/ocr
+  // at build time (npm run build:floor360) and served from this origin.
+  "import.meta.env.VITE_OCR": JSON.stringify("on"),
 };
 for (const key of PRIVATE_LOCKED_ENV_KEYS) {
   define[`import.meta.env.${key}`] = JSON.stringify("");
@@ -86,7 +88,7 @@ function walkDist(dir, visit) {
 //
 // This branch is the FLOOR360 private build. envPrefix hides every VITE_*
 // value from the client bundle, and `define` blanks the sync / contribute /
-// one-click / AI keys and forces VITE_OCR off, so a shell that has those
+// one-click / AI keys and turns on-device OCR on, so a shell that has those
 // variables set cannot turn the features on or inline a key. Runtime checks
 // in src/lib/privateBuild.js are the second lock.
 //
@@ -137,6 +139,11 @@ export default defineConfig({
         });
         if (hits.length) {
           throw new Error("FLOOR360 private build still names a third-party host:\n" + hits.join("\n"));
+        }
+        // On-device OCR is on in this build, so the staged models must ship.
+        // Without them the site would say "OCR not installed".
+        if (process.env.FLOOR360_ALLOW_NO_OCR_MODELS !== "1" && !existsSync(path.join(dist, "models", "ocr", "manifest.json"))) {
+          throw new Error("FLOOR360 build has no OCR models: run `npm run build:floor360` (stages PP-OCRv5 with pinned sha256, then builds).");
         }
       },
     },
