@@ -75,7 +75,7 @@ Unzip it as the App Service site directory and start `node floor360-static.mjs`.
 
 No database, storage account, or API key is required. Easy Auth is the only sign-in. Azure OCR for hard scans adds the settings below.
 
-A remote bring-your-own AI endpoint will not connect: `connect-src` is this origin only. On-device measuring does not need one.
+A remote bring-your-own AI endpoint will not connect: `connect-src` is this origin only, and the AI settings are locked to this site's `/api/ai` proxy (below). On-device measuring does not need it.
 
 ## Azure OCR for hard scans (`/api/ocr/read`)
 
@@ -95,6 +95,24 @@ Resource: `di-floor360-build-prod` (centralus, F0 free tier, shared with Build).
 The managed identity token comes from App Service's `IDENTITY_ENDPOINT` / `IDENTITY_HEADER` (set automatically when the identity is on). This is the same managed-identity leg `DefaultAzureCredential` uses, done with `fetch`, because `dist` is deployed without `npm install`.
 
 The route requires the Easy Auth user (`X-MS-CLIENT-PRINCIPAL-NAME`), counts one page for each image before calling Azure (it does not count a request Azure refuses), answers 429 with the cap that stopped it, and runs one Azure read at a time. HTTP 429 from Azure is retried after 1, 2, and 4 seconds. F0 limits are 2 pages and 4 MB a request: the route sends one page and refuses an upload over `OCR_MAX_IMAGE_BYTES` (default 4 MB). The browser lowers the render DPI until the PNG fits. Keys and tokens are never logged or returned.
+
+## Takeoff agent on the DGX (`/api/ai`)
+
+The agent's AI settings are locked to this site's own `/api/ai` (`floor360-ai-proxy.mjs`, copied into `dist/`). The browser holds no key and never calls the DGX. Local browser settings and `VITE_AI_*` are ignored. The proxy posts to `<AI_UPSTREAM_URL>/chat/completions` (vLLM, OpenAI-compatible, tool calling) and adds the credentials server-side.
+
+| App setting | Value |
+| --- | --- |
+| `AI_UPSTREAM_URL` | `https://takeoff-vision.floor360.com/v1` (default). Not `spark-vision`, which belongs to Orduh Up. |
+| `AI_MODEL` | The exact id from `<AI_UPSTREAM_URL>/models` (vLLM's served model name). Every request uses it. Leave it unset while the DGX model is down: the proxy then uses the first id `/models` lists once the model is up, and the app shows "AI starting" until then. |
+| `AI_API_KEY` | vLLM `--api-key`, sent as `Authorization: Bearer`. Secret: use a Key Vault reference. |
+| `CF_ACCESS_CLIENT_ID` | Cloudflare Access service token id, sent as `CF-Access-Client-Id` |
+| `CF_ACCESS_CLIENT_SECRET` | Its secret, sent as `CF-Access-Client-Secret`. Secret: use a Key Vault reference. |
+| `AI_MAX_CONCURRENT` | `2` (default). A third request at the same time gets 503 "AI busy". |
+| `AI_MAX_TOKENS` | `4096` (default). Caps each request's `max_tokens`. |
+
+Optional: `AI_MAX_BODY_BYTES` (default 20 MB) and `AI_TIMEOUT_MS` (default 120000).
+
+The route requires the Easy Auth user. `GET /api/ai/status` reports `ready`, `busy`, `starting`, or `off`, and the AI settings dialog shows it. Upstream 429 is reported as busy. Upstream 502/503/504, Cloudflare 52x, a timeout, or no connection are reported as starting. A Cloudflare Access redirect, 401, or 403 is reported as "refused this site's credentials". Setting values are never logged or returned.
 
 ## Easy Auth and Entra
 

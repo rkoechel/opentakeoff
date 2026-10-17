@@ -18,12 +18,14 @@
 // Same-origin API routes (createStaticServer's `routes`) answer under /api/;
 // any other /api/ path is a 404, never the app. The CSP stays 'self'.
 //   POST /api/ocr/read   Azure Document Intelligence Read (floor360-ocr-read.mjs)
+//   /api/ai/*            the takeoff agent's model on the DGX (floor360-ai-proxy.mjs)
 
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OCR_READ_PATH, createOcrReadHandler } from "./floor360-ocr-read.mjs";
+import { AI_PATH, createAiProxyHandler } from "./floor360-ai-proxy.mjs";
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -179,7 +181,7 @@ if (isMain) {
     : path.dirname(fileURLToPath(import.meta.url));
   const port = Number(process.env.PORT) || 8080;
   const host = "0.0.0.0";
-  const routes = { [OCR_READ_PATH]: createOcrReadHandler() };
+  const routes = { [OCR_READ_PATH]: createOcrReadHandler(), [AI_PATH]: createAiProxyHandler() };
   createStaticServer(root, { routes }).listen(port, host, () => {
     console.log(`floor360-static serving ${root} on ${host}:${port}`);
   });
