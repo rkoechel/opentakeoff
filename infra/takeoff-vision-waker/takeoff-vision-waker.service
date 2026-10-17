@@ -1,0 +1,31 @@
+# /etc/systemd/system/takeoff-vision-waker.service
+# Starts the takeoff-vision container on demand for OpenTakeoff (README.md).
+[Unit]
+Description=takeoff-vision on-demand waker (OpenTakeoff)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=takeoff-waker
+Group=takeoff-waker
+EnvironmentFile=/etc/takeoff-vision-waker.env
+ExecStart=/usr/bin/python3 /opt/takeoff-vision-waker/waker.py
+Restart=on-failure
+RestartSec=5
+# Hardening. NoNewPrivileges stays off only because the sudoers path runs
+# `sudo -n /usr/bin/docker start takeoff-vision`; with the docker-group
+# path (WAKER_USE_SUDO unset) set NoNewPrivileges=true.
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

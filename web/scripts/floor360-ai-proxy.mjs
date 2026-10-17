@@ -24,9 +24,22 @@
 //   AI_MAX_TOKENS            default 4096; a request's max_tokens is clamped
 //   AI_MAX_BODY_BYTES        default 20 MB (the agent sends PNG crops)
 //   AI_TIMEOUT_MS            default 120000, the agent's own turn timeout
+//   AI_WAKER_URL             the DGX waker (infra/takeoff-vision-waker), e.g.
+//                            https://takeoff-vision.floor360.com/_waker. Unset:
+//                            no on-demand start.
+//   WAKER_TOKEN              the waker's bearer token (with the same CF Access
+//                            headers as the model)
 //
 // Upstream 429 reads as busy; 502/503/504, Cloudflare's 52x, a timeout, or no
 // connection read as starting (the DGX model loading, or the box asleep).
+//
+// On-demand start: when the model is down (no connection, or 502/503/504/52x
+// on /models or a chat request) and AI_WAKER_URL is set, the proxy POSTs the
+// waker's /wake once, then polls its /status (every AI_WAKE_POLL_MS, default
+// 5 s) for up to AI_WAKE_TIMEOUT_MS (default 180 s). Until the model answers,
+// every AI request gets 503 {state: "starting", retryAfter} at once, without
+// another wake or an upstream call, so browsers retrying can't pile up starts.
+// A waker 503 {state: "no_memory"} is passed on as no_memory (held 60 s).
 
 export const AI_PATH = "/api/ai";
 export const DEFAULT_AI_UPSTREAM_URL = "https://takeoff-vision.floor360.com/v1";
@@ -60,6 +73,10 @@ export function aiProxyConfig(env = process.env) {
     maxTokens: intSetting(env.AI_MAX_TOKENS, 4096),
     maxBodyBytes: intSetting(env.AI_MAX_BODY_BYTES, 20 * 1024 * 1024),
     timeoutMs: intSetting(env.AI_TIMEOUT_MS, 120000),
+    wakerUrl: env.AI_WAKER_URL ? upstreamUrl(env.AI_WAKER_URL) : "",
+    wakerToken: String(env.WAKER_TOKEN || "").trim(),
+    wakeTimeoutMs: intSetting(env.AI_WAKE_TIMEOUT_MS, 180000),
+    wakePollMs: intSetting(env.AI_WAKE_POLL_MS, 5000),
   };
 }
 
@@ -96,6 +113,74 @@ export function classifyUpstream(status) {
 
 const BUSY = { error: "AI busy", state: "busy" };
 const STARTING = { error: "AI starting", state: "starting" };
+export const RETRY_AFTER_S = 10;
+export const NO_MEMORY_MESSAGE = "The AI server is out of memory right now. Ask Ryan to free memory on the DGX.";
+const STARTING_WAKE = { error: "Starting the takeoff AI", state: "starting", retryAfter: RETRY_AFTER_S };
+const NO_MEMORY = { error: NO_MEMORY_MESSAGE, state: "no_memory" };
+
+/** Headers for the waker: the CF Access token and WAKER_TOKEN, never the
+ *  vLLM key. */
+export function wakerHeaders(cfg) {
+  const h = { Accept: "application/json" };
+  if (cfg.wakerToken) h.Authorization = `Bearer ${cfg.wakerToken}`;
+  if (cfg.cfId && cfg.cfSecret) {
+    h["CF-Access-Client-Id"] = cfg.cfId;
+    h["CF-Access-Client-Secret"] = cfg.cfSecret;
+  }
+  return h;
+}
+
+/** One wake at a time for the whole site: wake() POSTs /wake unless a wake
+ *  is already under way (or no_memory was just reported), then polls /status
+ *  in the background until running or the timeout. state() is "idle",
+ *  "starting" or "no_memory". onReady runs when the model is up. */
+export function createWakeManager(cfg, { fetchImpl, nowMs = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console, onReady = () => {} } = {}) {
+  let cur = { state: "idle", until: 0 };
+  const state = () => (cur.state !== "idle" && cur.until > nowMs() ? cur.state : "idle");
+  const call = async (path, method) => {
+    const res = await fetchImpl(`${cfg.wakerUrl}${path}`, { method, headers: wakerHeaders(cfg), redirect: "manual", signal: AbortSignal.timeout(10000) });
+    let body = null;
+    try { body = await res.json(); } catch { /* not JSON */ }
+    return { status: res.status, body };
+  };
+  async function poll(deadline) {
+    while (nowMs() < deadline) {
+      await sleep(cfg.wakePollMs);
+      try {
+        const { status, body } = await call("/status", "GET");
+        if (status === 200 && body?.state === "running") { cur = { state: "idle", until: 0 }; onReady(); log.info?.("ai-proxy waker: model running"); return; }
+        if (status === 200 && body?.state === "no_memory") { cur = { state: "no_memory", until: nowMs() + 60_000 }; return; }
+      } catch { /* keep polling */ }
+    }
+    log.warn?.("ai-proxy waker: model did not come up in time");
+    cur = { state: "idle", until: 0 };
+  }
+  return {
+    enabled: () => Boolean(cfg.wakerUrl),
+    state,
+    /** "starting" | "no_memory" | null (no waker, or it failed) */
+    async wake() {
+      if (!cfg.wakerUrl) return null;
+      const s = state();
+      if (s !== "idle") return s;
+      const deadline = nowMs() + cfg.wakeTimeoutMs;
+      cur = { state: "starting", until: deadline };
+      try {
+        const { status, body } = await call("/wake", "POST");
+        log.info?.(`ai-proxy waker /wake ${status}`);
+        if (body?.state === "no_memory") { cur = { state: "no_memory", until: nowMs() + 60_000 }; return "no_memory"; }
+        if (body?.state === "running") { cur = { state: "idle", until: 0 }; onReady(); return "starting"; }
+        if (status !== 200 && status !== 202 && status !== 429) { cur = { state: "idle", until: 0 }; return null; }
+      } catch (e) {
+        log.warn?.(`ai-proxy waker unreachable (${e?.name || "error"})`);
+        cur = { state: "idle", until: 0 };
+        return null;
+      }
+      poll(deadline);
+      return "starting";
+    },
+  };
+}
 
 const json = (res, status, body) => {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -116,25 +201,36 @@ function readBody(req, limit) {
   });
 }
 
-export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis.fetch, log = console, nowMs = () => Date.now() } = {}) {
+export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis.fetch, log = console, nowMs = () => Date.now(), sleep } = {}) {
   const cfg = aiProxyConfig(env);
   let inFlight = 0;
   let statusCache = null;
   let modelCache = null;
+  const waker = createWakeManager(cfg, { fetchImpl, nowMs, sleep, log, onReady: () => { statusCache = null; } });
 
-  /** AI_MODEL, or the first id the upstream's /models lists ("" if none). */
+  /** The browser's answer while the model is down: wake it (once) when a
+   *  waker is set up, else today's plain "AI starting". */
+  async function down(res) {
+    const s = await waker.wake();
+    if (s === "no_memory") json(res, 503, NO_MEMORY);
+    else if (s === "starting") json(res, 503, STARTING_WAKE);
+    else json(res, 503, STARTING);
+  }
+
+  /** AI_MODEL, or the first id the upstream's /models lists. {id, down}:
+   *  down = the model server isn't answering (worth a wake). */
   async function resolveModel() {
-    if (cfg.model) return cfg.model;
-    if (modelCache && modelCache.until > nowMs()) return modelCache.id;
+    if (cfg.model) return { id: cfg.model, down: false };
+    if (modelCache && modelCache.until > nowMs()) return { id: modelCache.id, down: false };
     try {
       const res = await fetchImpl(`${cfg.upstream}/models`, { headers: upstreamHeaders(cfg), redirect: "manual", signal: AbortSignal.timeout(5000) });
-      if (!res.ok) return "";
+      if (!res.ok) return { id: "", down: classifyUpstream(res.status).kind === "starting" };
       const body = await res.json();
       const id = Array.isArray(body?.data) && typeof body.data[0]?.id === "string" ? body.data[0].id : "";
       if (id) modelCache = { id, until: nowMs() + 5 * 60_000 };
-      return id;
+      return { id, down: false };
     } catch {
-      return "";
+      return { id: "", down: true };
     }
   }
 
@@ -154,9 +250,20 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
   return async function handleAi(req, res) {
     const pathname = new URL(req.url || "/", "http://localhost").pathname;
     if (pathname === `${AI_PATH}/status` && req.method === "GET") {
-      const state = inFlight >= cfg.maxConcurrent ? "busy" : await probe();
-      const model = state === "ready" ? await resolveModel() : cfg.model;
-      json(res, 200, { state: state === "ready" && !model ? "starting" : state, model, maxConcurrent: cfg.maxConcurrent });
+      const waking = waker.state();
+      if (waking !== "idle") {
+        json(res, 200, { state: waking, model: cfg.model, maxConcurrent: cfg.maxConcurrent, ...(waking === "starting" ? { retryAfter: RETRY_AFTER_S } : { error: NO_MEMORY_MESSAGE }) });
+        return;
+      }
+      let state = inFlight >= cfg.maxConcurrent ? "busy" : await probe();
+      const m = state === "ready" ? await resolveModel() : { id: cfg.model, down: false };
+      if (state === "ready" && !m.id) state = "starting";
+      if (state === "starting" && waker.enabled()) {
+        const s = await waker.wake();
+        if (s === "no_memory") { json(res, 200, { state: "no_memory", model: cfg.model, error: NO_MEMORY_MESSAGE, maxConcurrent: cfg.maxConcurrent }); return; }
+        if (s === "starting") { json(res, 200, { state: "starting", model: cfg.model, retryAfter: RETRY_AFTER_S, maxConcurrent: cfg.maxConcurrent }); return; }
+      }
+      json(res, 200, { state, model: m.id, maxConcurrent: cfg.maxConcurrent });
       return;
     }
     if (pathname !== `${AI_PATH}/v1/chat/completions`) { json(res, 404, { error: "Not found" }); return; }
@@ -164,6 +271,10 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
     const user = String(req.headers["x-ms-client-principal-name"] || "").trim();
     if (!user) { json(res, 401, { error: "Sign in to use the takeoff AI" }); return; }
     if (!cfg.upstream) { json(res, 503, { error: "The takeoff AI is not set up on this site", state: "off" }); return; }
+    // a wake under way: answer at once, no upstream call and no second wake
+    const waking = waker.state();
+    if (waking === "starting") { json(res, 503, STARTING_WAKE); return; }
+    if (waking === "no_memory") { json(res, 503, NO_MEMORY); return; }
     if (inFlight >= cfg.maxConcurrent) { json(res, 503, BUSY); return; }
     inFlight += 1;
     try {
@@ -175,8 +286,9 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
         json(res, e.status === 413 ? 413 : 400, { error: e.status === 413 ? "That request is too large for the takeoff AI" : "Send an OpenAI-style chat request" });
         return;
       }
-      const model = await resolveModel();
-      if (!model) { json(res, 503, STARTING); return; }
+      const m = await resolveModel();
+      if (!m.id) { if (m.down) await down(res); else json(res, 503, STARTING); return; }
+      const model = m.id;
       let upstream;
       try {
         upstream = await fetchImpl(`${cfg.upstream}/chat/completions`, {
@@ -185,7 +297,8 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
         });
       } catch (e) {
         log.warn?.(`ai-proxy upstream unreachable (${e?.name || "error"})`);
-        json(res, 503, STARTING);
+        if (e?.name === "TimeoutError") json(res, 503, STARTING);   // slow, not down: no wake
+        else { modelCache = null; await down(res); }
         return;
       }
       const c = classifyUpstream(upstream.status);
@@ -197,7 +310,7 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
         return;
       }
       if (c.kind === "busy") { json(res, 503, BUSY); return; }
-      if (c.kind === "starting") { statusCache = null; json(res, 503, STARTING); return; }
+      if (c.kind === "starting") { statusCache = null; modelCache = null; await down(res); return; }
       if (c.kind === "refused") { json(res, 502, { error: "The takeoff AI refused this site's credentials", state: "off" }); return; }
       json(res, 502, { error: `The takeoff AI failed (HTTP ${upstream.status})` });
     } finally {

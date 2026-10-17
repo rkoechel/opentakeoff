@@ -2,13 +2,14 @@
 // stays dormant until this is configured (ai.js isAiConfigured).
 import { useEffect, useState } from "react";
 import { Icon } from "../brand/icons.jsx";
-import { aiConfig, saveAiConfig, PRIVATE_AI_STATUS_URL } from "../lib/ai.js";
+import { aiConfig, saveAiConfig, PRIVATE_AI_STATUS_URL, AI_STARTING_MESSAGE, AI_NO_MEMORY_MESSAGE } from "../lib/ai.js";
 import { floor360PrivateBuild } from "../lib/privateBuild.js";
 
 const STATE_TEXT = {
   ready: "Ready",
   busy: "AI busy: two requests are already running. Try again in a minute.",
-  starting: "AI starting: the model is loading or the DGX is waking up. Try again in a minute.",
+  starting: AI_STARTING_MESSAGE,
+  no_memory: AI_NO_MEMORY_MESSAGE,
   off: "Not set up on this site yet. Ask the FLOOR360 admin.",
 };
 
@@ -16,13 +17,24 @@ const STATE_TEXT = {
  *  configure, so this shows the proxy's status instead of the BYO fields. */
 function PrivateAiSettings({ onClose }) {
   const [status, setStatus] = useState(null);
+  // While the model starts, re-check every retryAfter seconds (10 s) until
+  // it is up; the proxy holds the one wake, so this never starts it twice.
   useEffect(() => {
     let live = true;
-    fetch(PRIVATE_AI_STATUS_URL, { credentials: "same-origin" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => { if (live) setStatus(j && typeof j.state === "string" ? j : { state: "off" }); })
-      .catch(() => { if (live) setStatus({ state: "starting" }); });
-    return () => { live = false; };
+    let timer = 0;
+    const check = () => {
+      fetch(PRIVATE_AI_STATUS_URL, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!live) return;
+          const next = j && typeof j.state === "string" ? j : { state: "off" };
+          setStatus(next);
+          if (next.state === "starting") timer = setTimeout(check, Math.min(15, Math.max(5, Number(next.retryAfter) || 10)) * 1000);
+        })
+        .catch(() => { if (live) setStatus({ state: "starting" }); });
+    };
+    check();
+    return () => { live = false; clearTimeout(timer); };
   }, []);
   const text = status ? STATE_TEXT[status.state] || STATE_TEXT.off : "Checking…";
   return (

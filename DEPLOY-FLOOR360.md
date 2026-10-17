@@ -113,6 +113,21 @@ The agent's AI settings are locked to this site's own `/api/ai` (`floor360-ai-pr
 
 Optional: `AI_MAX_BODY_BYTES` (default 20 MB) and `AI_TIMEOUT_MS` (default 120000).
 
+### Start the model on demand (`AI_WAKER_URL`)
+
+The DGX container stops itself after 15 minutes idle. When the model is down (no connection, or HTTP 502/503/504/52x), the proxy can start it through the waker in `infra/takeoff-vision-waker/` (install steps are in its README):
+
+| App setting | Value |
+| --- | --- |
+| `AI_WAKER_URL` | `https://takeoff-vision.floor360.com/_waker`. Unset: no on-demand start (the app shows "AI starting" as before). |
+| `WAKER_TOKEN` | Key Vault reference. The same value as `WAKER_TOKEN` on the Spark. Sent as `Authorization: Bearer` to the waker only, with the `CF-Access-*` headers. |
+| `AI_WAKE_TIMEOUT_MS` | Optional, default `180000`: how long the proxy polls the waker's `/status` |
+| `AI_WAKE_POLL_MS` | Optional, default `5000` |
+
+- **One wake for the whole site.** The proxy POSTs `/wake` once. Until the waker reports `running`, every AI request gets 503 `{"state":"starting","retryAfter":10}` straight away, with no upstream call and no second wake.
+- **Waiting in the browser.** The agent shows "Starting the takeoff AI… (usually ~1–2 min)" and retries every 10 s for up to 4 minutes. The AI settings status updates on its own.
+- **Not enough memory.** If the waker reports `no_memory` (less than `MEM_THRESHOLD_GB` free, default 17 GB), the app shows "The AI server is out of memory right now. Ask Ryan to free memory on the DGX." The proxy holds that answer for 60 s before trying again.
+
 The route requires the Easy Auth user. `GET /api/ai/status` reports `ready`, `busy`, `starting`, or `off`, and the AI settings dialog shows it. Upstream 429 is reported as busy. Upstream 502/503/504, Cloudflare 52x, a timeout, or no connection are reported as starting. A Cloudflare Access redirect, 401, or 403 is reported as "refused this site's credentials". Setting values are never logged or returned.
 
 ## Easy Auth and Entra
