@@ -213,6 +213,14 @@ function _scaleHits(parts: string[]): ScaleWithKeys[] {
   return joined.length ? joined : _findScales(_canonScaleText(parts.join(" ")));
 }
 export function detectScale(textContent: TextContentLike, viewport: Viewport): DetectedScale | null {
+  const d = detectScaleSourced(textContent, viewport);
+  return d ? { upp: d.upp, label: d.label, multi: d.multi } : null;
+}
+/** Where a detected scale was read: the title-block corner (authoritative) or
+ *  the one scale note found anywhere on the page. Same rules as detectScale,
+ *  which keeps its exact {upp, label, multi} shape for the MCP surface. */
+export type DetectedScaleSource = "title-block" | "page-text";
+export function detectScaleSourced(textContent: TextContentLike, viewport: Viewport): (DetectedScale & { source: DetectedScaleSource }) | null {
   const W = viewport.width, H = viewport.height;
   const all: string[] = [], tb: string[] = [];
   for (const it of textContent.items || []) {
@@ -222,10 +230,11 @@ export function detectScale(textContent: TextContentLike, viewport: Viewport): D
     const t = pdfjsLib.Util.transform(viewport.transform, it.transform);
     if (t[4] > W * 0.55 && t[5] > H * 0.5) tb.push(str);
   }
-  const tbHits = _scaleHits(tb);
-  const allHits = _scaleHits(all);
-  if (tbHits.length) return { upp: tbHits[0].upp, label: tbHits[0].label, multi: allHits.length > 1 };
-  if (allHits.length === 1) return { upp: allHits[0].upp, label: allHits[0].label, multi: false };
+  return _scaleFromHits(_scaleHits(tb), _scaleHits(all));
+}
+function _scaleFromHits(tbHits: ScaleWithKeys[], allHits: ScaleWithKeys[]): (DetectedScale & { source: DetectedScaleSource }) | null {
+  if (tbHits.length) return { upp: tbHits[0].upp, label: tbHits[0].label, multi: allHits.length > 1, source: "title-block" };
+  if (allHits.length === 1) return { upp: allHits[0].upp, label: allHits[0].label, multi: false, source: "page-text" };
   return null;
 }
 

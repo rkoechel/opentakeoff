@@ -26,7 +26,7 @@ export const TAKEOFF_DOCUMENT_KEYS = Object.freeze([
   "schema", "project_name", "units", "client_info", "sheets", "conditions", "condition_columns",
   "shape_labels", "palette", "shapes", "markups", "rfis", "approvals", "proposals",
   "condition_edit_proposals", "rules", "sheet_group", "last_group", "sheet_tabs", "stitches",
-  "sheet_levels", "layer_overrides", "provenance_counters",
+  "sheet_levels", "layer_overrides", "provenance_counters", "nts_sheets",
 ]);
 
 /** One `sheets[]` entry. `scale_source` rides only when known; `scale_confirmed`
@@ -75,5 +75,6 @@ export function buildTakeoffDocument(f = {}) {
     ...(Object.keys(sheetLevels).length ? { sheet_levels: sheetLevels } : {}),
     ...(Object.keys(layerOverrides).length ? { layer_overrides: layerOverrides } : {}),
     ...(hasProv ? { provenance_counters: prov } : {}),
+    ...(arr(f.nts_sheets).length ? { nts_sheets: f.nts_sheets } : {}),
   };
 }
