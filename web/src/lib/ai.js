@@ -13,6 +13,11 @@
 // into the shipped JS bundle — anyone who can load the page can read it.
 // Never set it on a public deploy; it exists for private/team builds only.
 // The FLOOR360 private build ignores these VITE_AI_* fallbacks entirely.
+//
+// FLOOR360 private build: the agent is locked to this site's own /api/ai
+// proxy (scripts/floor360-ai-proxy.mjs), which adds the DGX's credentials
+// server-side and picks the model. localStorage and VITE_AI_* are ignored, no
+// key is ever held in the browser, and the settings can't be changed.
 
 import { floor360PrivateBuild } from "./privateBuild.js";
 
@@ -24,9 +29,8 @@ const KEYS = {
 };
 
 // Build-time VITE_AI_* values are ignored on the private build so a key in
-// the deploy environment is never read. A value the user saved in this
-// browser (localStorage) still applies; the private CSP only allows
-// connect-src 'self', so a remote endpoint cannot be reached.
+// the deploy environment is never read (aiConfig returns PRIVATE_AI_CONFIG
+// there before it reads anything).
 const env = (name) => {
   if (floor360PrivateBuild()) return "";
   return (import.meta.env && import.meta.env[name]) || "";
@@ -40,9 +44,15 @@ function readKey(k, envName) {
   return env(envName);
 }
 
+/** The private build's only AI config: this origin's proxy. The model
+ *  name is a label; the proxy sends its own AI_MODEL. */
+export const PRIVATE_AI_CONFIG = Object.freeze({ endpoint: "/api/ai", apiKey: "", model: "floor360-takeoff", provider: "openai" });
+export const PRIVATE_AI_STATUS_URL = "/api/ai/status";
+
 /** Current config. provider: "openai" (OpenAI-style — the default; local
  *  runtimes speak it) | "anthropic" (Anthropic-style). */
 export function aiConfig() {
+  if (floor360PrivateBuild()) return { ...PRIVATE_AI_CONFIG };
   return {
     endpoint: readKey("endpoint", "VITE_AI_ENDPOINT"),
     apiKey: readKey("apiKey", "VITE_AI_KEY"),
@@ -58,6 +68,7 @@ export function isAiConfigured() {
 }
 
 export function saveAiConfig({ endpoint, apiKey, model, provider }) {
+  if (floor360PrivateBuild()) return;   // locked to /api/ai
   try {
     for (const [k, v] of [["endpoint", endpoint], ["apiKey", apiKey], ["model", model], ["provider", provider]]) {
       if (v) localStorage.setItem(KEYS[k], v);
@@ -168,6 +179,19 @@ export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 409
   };
 }
 
+/** A failed reply as a plain-language message. The FLOOR360 proxy answers
+ *  {error, state}: "busy" (its two slots are taken, or the model is) and
+ *  "starting" (the model is loading or the DGX is waking) get their own
+ *  wording; another proxy error string is shown as written. Any other
+ *  endpoint keeps the generic HTTP message. */
+export function aiHttpError(status, body) {
+  const state = body && typeof body === "object" ? body.state : undefined;
+  if (state === "busy") return "AI busy — the takeoff AI is already working on two requests. Try again in a minute.";
+  if (state === "starting") return "AI starting — the takeoff AI is warming up. Try again in a minute.";
+  if (body && typeof body.error === "string" && body.error) return `${body.error} (HTTP ${status}).`;
+  return `AI request failed (HTTP ${status}).`;
+}
+
 // ── the seam every AI consumer goes through ─────────────────────────────────
 
 /** Send one vision query to the user's configured endpoint. Throws with a
@@ -188,7 +212,7 @@ export async function visionQuery({ imageDataUrl, prompt, maxTokens = 100 }) {
   } finally {
     clearTimeout(timer);
   }
-  if (!res.ok) throw new Error(`AI request failed (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(aiHttpError(res.status, await res.json().catch(() => null)));
   const text = parseVisionResponse(cfg.provider, await res.json().catch(() => null));
   if (text == null) throw new Error("The endpoint replied, but not with text.");
   return text;
@@ -220,7 +244,7 @@ export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 
     if (e?.name === "TimeoutError") throw new Error("The endpoint took more than 2 minutes — check the model is loaded.");
     throw new Error("Couldn't reach the endpoint — check the URL, and that it allows browser requests (CORS).");
   }
-  if (!res.ok) throw new Error(`AI request failed (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(aiHttpError(res.status, await res.json().catch(() => null)));
   const json = await res.json().catch(() => null);
   if (!json || typeof json !== "object") throw new Error("The endpoint replied, but not with JSON.");
   return json;

@@ -1,10 +1,66 @@
 // AI settings — bring your own key. Opened from the Agent panel; the agent
 // stays dormant until this is configured (ai.js isAiConfigured).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "../brand/icons.jsx";
-import { aiConfig, saveAiConfig } from "../lib/ai.js";
+import { aiConfig, saveAiConfig, PRIVATE_AI_STATUS_URL } from "../lib/ai.js";
+import { floor360PrivateBuild } from "../lib/privateBuild.js";
+
+const STATE_TEXT = {
+  ready: "Ready",
+  busy: "AI busy: two requests are already running. Try again in a minute.",
+  starting: "AI starting: the model is loading or the DGX is waking up. Try again in a minute.",
+  off: "Not set up on this site yet. Ask the FLOOR360 admin.",
+};
+
+/** FLOOR360: the agent runs on the company DGX through this site; nothing to
+ *  configure, so this shows the proxy's status instead of the BYO fields. */
+function PrivateAiSettings({ onClose }) {
+  const [status, setStatus] = useState(null);
+  useEffect(() => {
+    let live = true;
+    fetch(PRIVATE_AI_STATUS_URL, { credentials: "same-origin" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => { if (live) setStatus(j && typeof j.state === "string" ? j : { state: "off" }); })
+      .catch(() => { if (live) setStatus({ state: "starting" }); });
+    return () => { live = false; };
+  }, []);
+  const text = status ? STATE_TEXT[status.state] || STATE_TEXT.off : "Checking…";
+  return (
+    <div onClick={() => onClose(false)} style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(14,26,46,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div onClick={(e) => e.stopPropagation()} className="panel" data-ai-private-settings="" style={{ width: 480, maxWidth: "100%", background: "var(--paper-bright)", boxShadow: "var(--shadow-2)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderBottom: "1px solid var(--ink)" }}>
+          <Icon name="target" size={16} />
+          <strong style={{ fontFamily: "var(--f-display)", fontSize: 15 }}>Takeoff AI (FLOOR360)</strong>
+        </div>
+        <div style={{ padding: 16, fontSize: 13, lineHeight: 1.6, color: "var(--ink)" }}>
+          <p style={{ marginTop: 0 }}>
+            The takeoff agent runs on FLOOR360&apos;s own DGX through this site. There is no key to enter, and
+            nothing is sent to an outside AI service.
+          </p>
+          <p style={{ margin: "0 0 10px" }}>
+            <span className="field-label">Status</span>{" "}
+            <span data-ai-state={status?.state || ""} style={{ fontWeight: 600, color: status?.state === "ready" ? "var(--c-positive)" : "var(--ink)" }}>{text}</span>
+            {status?.model && <span style={{ opacity: 0.7 }}> · {status.model}</span>}
+          </p>
+          <p style={{ background: "var(--paper-shadow)", padding: "8px 10px", fontSize: 12.5, marginBottom: 0 }}>
+            While a run you started is going, the agent sends your goal, the sheet text it reads, and images of
+            the regions it looks at (at most 1,024 px a side) to the DGX. Never the whole plan file.
+          </p>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px", borderTop: "1px solid var(--ink-faint)" }}>
+          <button className="btn-primary" onClick={() => onClose(false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AiSettings({ onClose }) {
+  if (floor360PrivateBuild()) return <PrivateAiSettings onClose={onClose} />;
+  return <ByoAiSettings onClose={onClose} />;
+}
+
+function ByoAiSettings({ onClose }) {
   const [cfg, setCfg] = useState(aiConfig);
   const set = (k) => (e) => setCfg((c) => ({ ...c, [k]: e.target.value }));
   const save = () => { saveAiConfig(cfg); onClose(true); };
