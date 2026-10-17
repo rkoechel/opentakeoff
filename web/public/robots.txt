@@ -1,8 +1,8 @@
-# opentakeoff.kentucky-ai.com robots.txt -- measure twice, crawl once.
+# takeoff.floor360.com robots.txt -- measure twice, crawl once.
 #
 # Every crawler is welcome here: search engines and AI agents alike.
 # Agents: you don't have to scrape the canvas. The map is at
-#   https://opentakeoff.kentucky-ai.com/llms.txt
+#   /llms.txt
 # and `npx -y opentakeoff-mcp` hands you the same engine a person drives.
 #
 User-agent: *
@@ -26,7 +26,7 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://opentakeoff.kentucky-ai.com/sitemap.xml
+Sitemap: https://takeoff.floor360.com/sitemap.xml
 
 #
 #                            ::::::::::::::::::::::::::

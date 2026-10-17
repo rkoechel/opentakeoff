@@ -1,0 +1,27 @@
+{
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
+    "Strict-Transport-Security": "max-age=31536000"
+  },
+  "mimeTypes": {
+    ".mjs": "text/javascript",
+    ".wasm": "application/wasm",
+    ".woff2": "font/woff2"
+  },
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": [
+      "/assets/*",
+      "/demo/*",
+      "/fonts/*",
+      "/privacy/*",
+      "/terms/*",
+      "/.well-known/*",
+      "*.{css,js,mjs,json,png,jpg,jpeg,gif,svg,webp,ico,pdf,wasm,woff,woff2,txt,xml,html,map,mp4}"
+    ]
+  }
+}

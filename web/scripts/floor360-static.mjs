@@ -1,0 +1,133 @@
+// Static host for the FLOOR360 private build.
+//
+// Azure App Service does not apply web/public/_headers or
+// staticwebapp.config.json. `npx serve` does not set this Content-Security-Policy
+// and often serves .mjs as application/octet-stream, which makes the browser
+// refuse the pdf.js worker and Vite's module chunks. This file is dependency-free
+// Node (no Express, no nginx): it sends the same CSP as those two configs and
+// serves .mjs as JavaScript. The production build copies it to dist/.
+//
+//   node floor360-static.mjs
+//
+// Listens on PORT (App Service sets it) and 0.0.0.0. The site root is the
+// directory that contains this file, or FLOOR360_STATIC_ROOT when set.
+// Existing files are served as themselves. A directory with index.html serves
+// that file. Any other extensionless path falls back to /index.html. A missing
+// file with an extension is a 404, so a bad asset is not masked as the app.
+
+import http from "node:http";
+import { createReadStream, existsSync, statSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+  "frame-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "upgrade-insecure-requests",
+].join("; ");
+
+export const SECURITY_HEADERS = {
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY,
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
+  "Strict-Transport-Security": "max-age=31536000",
+};
+
+export const MIME = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".ttf": "font/ttf",
+  ".pdf": "application/pdf",
+  ".wasm": "application/wasm",
+  ".map": "application/json",
+  ".txt": "text/plain; charset=utf-8",
+  ".xml": "application/xml",
+  ".webmanifest": "application/manifest+json",
+  ".mp4": "video/mp4",
+};
+
+export function resolveRequest(root, urlPath) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(urlPath, "http://localhost").pathname);
+  } catch {
+    return { status: 400 };
+  }
+  const rootAbs = path.resolve(root);
+  const rel = pathname.replace(/^[/\\]+/, "");
+  const abs = path.resolve(rootAbs, rel);
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) return { status: 403 };
+  if (existsSync(abs)) {
+    const st = statSync(abs);
+    if (st.isFile()) return { status: 200, file: abs };
+    if (st.isDirectory()) {
+      const index = path.join(abs, "index.html");
+      if (existsSync(index) && statSync(index).isFile()) return { status: 200, file: index };
+    }
+  }
+  const last = pathname.split("/").filter(Boolean).pop() || "";
+  if (last.includes(".")) return { status: 404 };
+  const spa = path.join(rootAbs, "index.html");
+  if (existsSync(spa)) return { status: 200, file: spa };
+  return { status: 404 };
+}
+
+export function createStaticServer(root) {
+  return http.createServer((req, res) => {
+    const resolved = resolveRequest(root, req.url || "/");
+    const headers = { ...SECURITY_HEADERS };
+    if (!resolved.file) {
+      const status = resolved.status || 404;
+      res.writeHead(status, { ...headers, "Content-Type": "text/plain; charset=utf-8" });
+      res.end(status === 403 ? "Forbidden" : status === 400 ? "Bad request" : "Not found");
+      return;
+    }
+    const ext = path.extname(resolved.file).toLowerCase();
+    headers["Content-Type"] = MIME[ext] || "application/octet-stream";
+    res.writeHead(200, headers);
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+    createReadStream(resolved.file).on("error", () => {
+      if (!res.headersSent) res.writeHead(500, headers);
+      res.end();
+    }).pipe(res);
+  });
+}
+
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const root = process.env.FLOOR360_STATIC_ROOT
+    ? path.resolve(process.env.FLOOR360_STATIC_ROOT)
+    : path.dirname(fileURLToPath(import.meta.url));
+  const port = Number(process.env.PORT) || 8080;
+  const host = "0.0.0.0";
+  createStaticServer(root).listen(port, host, () => {
+    console.log(`floor360-static serving ${root} on ${host}:${port}`);
+  });
+}

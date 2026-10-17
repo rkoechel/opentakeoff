@@ -12,6 +12,9 @@
 // self-hosted team deploys. WARNING for deployers: Vite inlines VITE_AI_KEY
 // into the shipped JS bundle — anyone who can load the page can read it.
 // Never set it on a public deploy; it exists for private/team builds only.
+// The FLOOR360 private build ignores these VITE_AI_* fallbacks entirely.
+
+import { floor360PrivateBuild } from "./privateBuild.js";
 
 const KEYS = {
   endpoint: "opentakeoff_ai_endpoint",
@@ -20,7 +23,14 @@ const KEYS = {
   provider: "opentakeoff_ai_provider",
 };
 
-const env = (name) => (import.meta.env && import.meta.env[name]) || "";
+// Build-time VITE_AI_* values are ignored on the private build so a key in
+// the deploy environment is never read. A value the user saved in this
+// browser (localStorage) still applies; the private CSP only allows
+// connect-src 'self', so a remote endpoint cannot be reached.
+const env = (name) => {
+  if (floor360PrivateBuild()) return "";
+  return (import.meta.env && import.meta.env[name]) || "";
+};
 
 function readKey(k, envName) {
   try {

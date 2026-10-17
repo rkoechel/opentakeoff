@@ -10,10 +10,13 @@
 // collaborator set is opted in" rule, enforced by the deploy instead of left to
 // per-user chance. Rollback is one env change + redeploy, no code revert.
 //
-// No imports / no cloud vocabulary — the gating decision stays cheap and synchronous
-// (never blocks a mount on network), and the anonymous bundle pulls in nothing.
+// The only import is the private-build lock. The gating decision stays cheap and
+// synchronous (never blocks a mount on network).
+
+import { floor360PrivateBuild } from "./privateBuild.js";
 
 /** True when THIS BUILD enabled local-first + optional Drive sync (VITE_CLOUD_SYNC=1). */
 export function cloudSyncEnabled() {
+  if (floor360PrivateBuild()) return false;
   return ((import.meta.env && import.meta.env.VITE_CLOUD_SYNC) || "") === "1";
 }

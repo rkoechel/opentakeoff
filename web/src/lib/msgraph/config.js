@@ -13,17 +13,21 @@
 //
 // Tiny and dependency-free on purpose: PlanNavigator imports this statically
 // to decide whether to render the entry point; MSAL itself loads dynamically
-// only when the user opts in.
+// only when the user opts in. The FLOOR360 private build blanks the env
+// even when a caller passes one in.
+
+import { floor360PrivateBuild, lockSyncConfig } from "../privateBuild.js";
 
 export function m365Config(env = import.meta.env) {
-  const clientId = env?.VITE_MSAL_CLIENT_ID || "";
-  const driveId = env?.VITE_GRAPH_DRIVE_ID || "";
+  const src = floor360PrivateBuild() ? lockSyncConfig(env, true) : env;
+  const clientId = src?.VITE_MSAL_CLIENT_ID || "";
+  const driveId = src?.VITE_GRAPH_DRIVE_ID || "";
   if (!clientId || !driveId) return null;
   return {
     clientId,
-    tenant: env?.VITE_MSAL_TENANT || "organizations",
+    tenant: src?.VITE_MSAL_TENANT || "organizations",
     driveId,
-    folderId: env?.VITE_GRAPH_FOLDER_ID || "root",
+    folderId: src?.VITE_GRAPH_FOLDER_ID || "root",
   };
 }
 

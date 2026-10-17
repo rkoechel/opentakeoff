@@ -14,6 +14,8 @@
 // Access tokens live in a module-level variable ONLY; they are never written to
 // localStorage/sessionStorage/IndexedDB, so a closed tab forgets them.
 
+import { floor360PrivateBuild } from "../privateBuild.js";
+
 const GSI_SRC = "https://accounts.google.com/gsi/client";
 const USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo";
 
@@ -55,10 +57,13 @@ const listeners = new Set();
 
 function clientId() {
   // Vite inlines this at build; empty string = cloud mode off.
+  // The private build never reads a client id, even if one was inlined.
+  if (floor360PrivateBuild()) return "";
   return (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || "";
 }
 
 function domainHint() {
+  if (floor360PrivateBuild()) return "";
   return (import.meta.env && import.meta.env.VITE_GOOGLE_HD) || "";
 }
 

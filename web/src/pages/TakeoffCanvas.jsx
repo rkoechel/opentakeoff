@@ -45,6 +45,7 @@ import FirstTakeoffTour from "../components/FirstTakeoffTour.jsx";
 import ConnectAI from "../components/ConnectAI.jsx";
 import { advanceTour, countFloorShapes, currentStep } from "../lib/firstTakeoff.js";
 import { fetchSamplePlan } from "../lib/samplePlan.js";
+import { sourceHref, sourceLabel } from "../lib/sourceLink.js";
 import ReportPanel from "../components/ReportPanel.jsx";
 import RevisionsPanel from "../components/RevisionsPanel.jsx";
 import UserGuide from "../components/UserGuide.jsx";
@@ -11241,7 +11242,8 @@ export default function TakeoffCanvas() {
             <button type="button" className="btn-ghost" onClick={cancelImportRead} style={{ padding: "var(--sp-1) var(--sp-2)" }}>Cancel</button>
           </>)}
         </span>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 12, opacity: 0.75 }} aria-live="polite">
+        <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", color: "inherit", opacity: 0.75 }}>{sourceLabel()}</a>
+        <span style={{ display: "flex", gap: 12, opacity: 0.75 }} aria-live="polite">
           <span>{shapes.filter((s) => panelKeySet.has(s.sheet_id)).length} shapes</span>
           <span>{cloudMode ? "drive" : "local"}{saveState === "saving" ? " · saving…" : saveState === "saved" ? " · saved" : ""}</span>
         </span>
