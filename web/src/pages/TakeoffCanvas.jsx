@@ -55,7 +55,11 @@ import PageReadControl, { readControlPlacement, READ_CONTROL_LEFT } from "../com
 import TakeoffsPanel, { clampPanelW, CONDITION_DND_MIME, ConditionAppearanceEditor } from "../components/TakeoffsPanel.jsx";
 import { HATCHES, PALETTE, NO_FILL, HatchPattern, HatchSwatch } from "../components/hatches.jsx";
 import { Icon } from "../brand/icons.jsx";
-import { RENDER_SCALE, MAX_GROUP, STANDARD_SCALES, parseSheetKey, compareSheetKeys, extractSheetNumber, detectScale, extractRegionText, extractTextMarks, extractDimTexts } from "../lib/sheets";
+import { RENDER_SCALE, MAX_GROUP, STANDARD_SCALES, parseSheetKey, compareSheetKeys, extractSheetNumber, detectScale, detectScaleSourced, extractRegionText, extractTextMarks, extractDimTexts } from "../lib/sheets";
+import { sheetScaleState, shouldAutoApply, scaleSummary, measureScaleWarning, sanitizeNtsSheets, batchDetectScales } from "../lib/scaleReview";
+import { rankScheduleCandidates, suggestSchedule } from "../lib/schedulePick";
+import { buildSheetGraph } from "../lib/sheetgraph";
+import ScaleReviewPanel from "../components/ScaleReviewPanel.jsx";
 import { joinAbuttingSpans } from "../lib/textjoin";
 import { buildSheetIndex, dropFileFromIndex } from "../lib/planIndex";
 import { labelsForFile, labelsOnFileChange, withPageLabel, withFoundLabels } from "../lib/sheetLabels";
@@ -442,6 +446,18 @@ export default function TakeoffCanvas() {
   const [scaleUnconfirmed, setScaleUnconfirmed] = useState({});
   const confirmScale = (key) => setScaleUnconfirmed((m) => { if (!(key in m)) return m; const n = { ...m }; delete n[key]; return n; });
   const [detectedScales, setDetectedScales] = useState({}); // { sheetKey: {upp,label,multi} } read off the plan text
+  // Scale review (FLOOR360 phase 1). The batch pass reads every sheet's scale
+  // note on import; an unambiguous note is APPLIED as unconfirmed (the scale
+  // gate above: scale_confirmed false, source "detected") and the estimator
+  // confirms, changes or marks NTS in the review panel. NTS is the one new
+  // persisted fact (additive `nts_sheets`).
+  const [ntsSheets, setNtsSheets] = useState([]);
+  const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
+  const [scaleScan, setScaleScan] = useState({ running: false, keys: [] }); // every page key the batch pass has seen
+  const [scheduleCands, setScheduleCands] = useState(null);   // ranked finish-schedule candidates (null = not looked yet)
+  const [scheduleChoice, setScheduleChoice] = useState(null);
+  const pendingScheduleReadRef = useRef(null);                // { key, region } — read once that sheet is open
+  const [hydratedTick, setHydratedTick] = useState(0);
   const isNarrow = useIsNarrow();
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("opentakeoff_dark") === "1"; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem("opentakeoff_dark", darkMode ? "1" : "0"); } catch { /* private mode */ } }, [darkMode]);
@@ -2001,6 +2017,8 @@ export default function TakeoffCanvas() {
     // Extracted to sanitizeSheetLevels (lib/sheetLevels.js) so this gate has
     // its own unit tests independent of the reducer.
     setSheetLevels(sanitizeSheetLevels(a.sheet_levels));
+    // additive `nts_sheets` (scale review): else-clear like sheet_levels
+    setNtsSheets(sanitizeNtsSheets(a.nts_sheets));
     // additive `layer_overrides` (#85 — per-sheet PDF-layer Wall/Off overrides
     // for the One-Click mask): same else-clear + shape gate as sheet_levels.
     // Masks are a lazy per-sheet cache — drop them so a loaded snapshot's
@@ -2072,6 +2090,7 @@ export default function TakeoffCanvas() {
       if (off) return;
       hydrate(a);
       hydrated.current = true;
+      setHydratedTick((t) => t + 1);
     }).catch((e) => {
       // stale-tab failure: leave autosave DISARMED (hydrated stays false). If a
       // blocked tab recovered here with hydrated=true, its still-empty defaults
@@ -2818,6 +2837,112 @@ export default function TakeoffCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groupSig]);
 
+  // ── scale review: batch scale + schedule read on import (FLOOR360 phase 1) ──
+  // Every page of every plan PDF, once per session per key: read the page
+  // text, detect the drawn scale (detectScaleSourced — the same rules as the
+  // per-sheet detector), and keep the page's spans for the sheet graph. Runs
+  // after the saved takeoff has hydrated so a saved scale is never
+  // overwritten; an unambiguous note lands UNCONFIRMED (the scale gate), an
+  // ambiguous one is only suggested. Nothing renders; no OCR, no network.
+  const scaleScanDoneRef = useRef(new Set());
+  const scaleSpansRef = useRef(new Map());   // pageKey → graph spans (for buildSheetGraph)
+  const sheetNamesSig = sheets.map((x) => x.name).join("\u0001");
+  useEffect(() => {
+    if (!hydrated.current || !sheets.length) return;
+    let off = false;
+    const files = sheets.map((x) => x.name);
+    let cur = null;
+    setScaleScan((st) => ({ ...st, running: true }));
+    batchDetectScales({
+      files,
+      withFile: (f, scan) => docCache.withDoc(f, async (pdf) => { cur = pdf; try { await scan(); } finally { cur = null; } }),
+      numPages: async () => cur?.numPages || 1,
+      readPage: async (_f, n) => {
+        const pg = await cur.getPage(n);
+        const tc = await pg.getTextContent();
+        const vp = pg.getViewport({ scale: RENDER_SCALE });
+        return { tc, vp };
+      },
+      detect: ({ tc, vp }) => detectScaleSourced(tc, vp),
+      done: scaleScanDoneRef.current,
+      isStale: () => off,
+      onResult: (key, det, page) => {
+        scaleScanDoneRef.current.add(key);
+        if (page?.tc) { try { scaleSpansRef.current.set(key, graphSpans(pageSpans(page.tc.items, page.vp.transform, RENDER_SCALE))); } catch { /* text optional */ } }
+        setScaleScan((st) => (st.keys.includes(key) ? st : { ...st, keys: [...st.keys, key] }));
+        if (!det) return;
+        setDetectedScales((d) => (d[key]?.label === det.label && d[key]?.source ? d : { ...d, [key]: det }));
+        // auto-apply as UNCONFIRMED — functional updates read the live maps,
+        // so a scale a person set meanwhile is never replaced
+        setScales((sc) => {
+          if (!shouldAutoApply(key, det, { scales: sc, nts: ntsSheetsRef.current })) return sc;
+          setScaleSources((src) => ({ ...src, [key]: "detected" }));
+          setScaleUnconfirmed((u) => ({ ...u, [key]: false }));
+          return { ...sc, [key]: det.upp };
+        });
+      },
+    }).then(() => {
+      if (off) return;
+      setScaleScan((st) => ({ ...st, running: false }));
+      // finish schedule: the sheet graph over the whole set, ranked
+      try {
+        const graph = buildSheetGraph([...scaleSpansRef.current].map(([key, spans]) => ({ key, spans })));
+        const ranked = rankScheduleCandidates(graph.tables || []).map((c, i) => ({ ...c, id: `${c.sheet}|${i}` }));
+        const best = suggestSchedule(ranked);
+        setScheduleCands(ranked.map((c) => ({ ...c, suggested: best ? c.id === best.id : false })));
+        setScheduleChoice((cur2) => cur2 ?? (best ? best.id : null));
+      } catch { setScheduleCands([]); }
+    }).catch(() => { if (!off) setScaleScan((st) => ({ ...st, running: false })); });
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetNamesSig, hydratedTick]);
+  const ntsSheetsRef = useRef(ntsSheets);
+  ntsSheetsRef.current = ntsSheets;
+  const scaleInputs = { scales, scaleUnconfirmed, detected: detectedScales, nts: ntsSheets };
+  const reviewKeys = scaleScan.keys.length ? [...scaleScan.keys].sort(compareSheetKeys) : [];
+  const scaleSum = scaleSummary(reviewKeys, scaleInputs);
+  function toggleNts(key) {
+    setNtsSheets((n) => (n.includes(key) ? n.filter((k) => k !== key) : [...n, key]));
+  }
+  function confirmReviewScale(key) {
+    if (scales[key]) { confirmScale(key); return; }
+    const det = detectedScales[key];
+    if (det) { rescaleSheet(key, det.upp); setScaleSources((s) => ({ ...s, [key]: "detected" })); }
+  }
+  function changeReviewScale(key, label) {
+    const sc = STANDARD_SCALES.find((x) => x.label === label);
+    if (!sc) return;
+    rescaleSheet(key, sc.upp);
+    setScaleSources((s) => ({ ...s, [key]: "standard" }));
+  }
+  function calibrateReviewSheet(key) {
+    setScaleReviewOpen(false);
+    openSheets([key], false);
+    setTool("calibrate");
+    setCommitMsg(`Calibrate ${tabLabel(key)}: click both ends of a known dimension, then type its length.`);
+  }
+  function confirmScheduleRead(c) {
+    setScaleReviewOpen(false);
+    pendingScheduleReadRef.current = { key: c.sheet, region: c.region };
+    openSheets([c.sheet], false);
+    setCommitMsg(`Opening ${tabLabel(c.sheet)} to read ${c.title}…`);
+  }
+
+  // A confirmed schedule pick reads through the EXISTING Import from schedule
+  // (importScheduleFromRect) once its sheet is open — the table's region from
+  // the sheet graph stands in for the box the estimator would have drawn.
+  useEffect(() => {
+    const want = pendingScheduleReadRef.current;
+    if (!want || status !== "ready") return;
+    const p = panels.find((x) => x.key === want.key);
+    if (!p?.img?.w) return;
+    pendingScheduleReadRef.current = null;
+    const pad = 6;
+    const [x0, y0, x1, y1] = want.region;
+    importScheduleFromRect([x0 - pad + p.xOffset, y0 - pad], [x1 + pad + p.xOffset, y1 + pad]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, groupSig, panels.map((x) => `${x.key}:${x.img?.w || 0}`).join(",")]);
+
   // ── autosave (debounced) ──────────────────────────────────────────────────
   // buildPayload is the single serializer — autosave and snapshots must write
   // identical records for the same state (byte-stability matters downstream).
@@ -2830,6 +2955,7 @@ export default function TakeoffCanvas() {
     shapes, markups, rfis, approvals, proposals, condition_edit_proposals: conditionEditProposals, rules,
     sheet_group: sheetGroup, last_group: lastGroup, sheet_tabs: openTabs, stitches,
     sheet_levels: sheetLevels, layer_overrides: layerOverrides, provenance_counters: provCounters,
+    nts_sheets: ntsSheets,
   });
   // Runtime restore of a saved payload — the Revisions panel's Restore lands
   // here. A runtime load (unlike mount) can interrupt work in
@@ -3062,7 +3188,7 @@ export default function TakeoffCanvas() {
     // state it serializes, so listing buildPayload (a new identity each render)
     // would fire a save on every render instead of only on a real change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units]);
+  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units, ntsSheets]);
   useEffect(() => { saveStateRef.current = saveState; }, [saveState]);
 
   // Flush a pending debounced save on navigate-away (unmount), and warn before a
@@ -4701,6 +4827,7 @@ export default function TakeoffCanvas() {
     }
     setScales((s) => ({ ...s, [key]: upp }));
     confirmScale(key);   // scale gate: a human scale act IS the confirmation
+    setNtsSheets((n) => (n.includes(key) ? n.filter((k) => k !== key) : n));
     // The vector mask bakes the scale in (its hatch-pitch cap and seal radii
     // are feet-true via mppf), so a recalibrated sheet must rebuild its masks
     // on next use — a mask built against the old calibration is exactly the
@@ -4892,6 +5019,12 @@ export default function TakeoffCanvas() {
     return points.some((q) => panelAt(q[0]) !== first);
   }
   const SPAN_MSG = "That trace crosses onto another sheet — the gap between sheets isn't real distance. To work a floor split at a match line as one surface, stitch the sheets (Sheets → gallery → select both → Stitch).";
+  // Scale review: measuring on an unconfirmed (plan-note) or NTS sheet is
+  // allowed, with a footer warning — never a block.
+  function warnScaleOnMeasure(tp) {
+    const msg = measureScaleWarning(sheetScaleState(tp.key, { scales, scaleUnconfirmed, detected: detectedScales, nts: ntsSheets }), labelFor(tp));
+    if (msg) setCommitMsg(msg);
+  }
   function commitPoly(points, asDeduct, opts = {}) {
     if (points.length < 3) return;
     if (spansPanels(points)) { setCommitMsg(SPAN_MSG); return; }
@@ -4933,6 +5066,7 @@ export default function TakeoffCanvas() {
       }
     }
     const res = dispatchShape({ type: "add", shapes: [shape] });
+    warnScaleOnMeasure(tp);
     // A Cut Out fully inside a same-condition room reads as a correction —
     // offer to make it a rule (#88). Detection only; nothing applies here.
     if (asDeduct) maybeOfferRule(res.shapes[res.shapes.length - 1], res.shapes);
@@ -4956,6 +5090,7 @@ export default function TakeoffCanvas() {
       origin: { method: "manual", ...(baked ? { curved: true } : {}) },
     };
     dispatchShape({ type: "add", shapes: [{ ...draft, computed: computeShapeMetrics(draft, tp.img, upp, aCond) }] });
+    warnScaleOnMeasure(tp);
   }
   // Surface Area — trace the wall run in plan; SF = traced LF × the condition's
   // height. The wall-tile "stack" workflow: set tile height once, trace walls.
@@ -4976,6 +5111,7 @@ export default function TakeoffCanvas() {
       ...(activeLabel ? { label: activeLabel } : {}),
       origin: { method: "manual", ...(baked ? { curved: true } : {}) },
     }] });
+    warnScaleOnMeasure(tp);
   }
   // ── the Symbol tool (#264): marquee one instance → the engine finds every
   // placement; matches light up, near-misses ask, and nothing commits until
@@ -8685,6 +8821,7 @@ export default function TakeoffCanvas() {
   scaleItems.push("divider");
   scaleItems.push({ id: "calibrate", icon: "calibrate", label: "Calibrate two points…", title: "Calibrate — click two points of a known dimension", active: tool === "calibrate", onSelect: () => setTool("calibrate") });
   scaleItems.push({ id: "check", icon: "check", label: "Check a dimension…", shortcut: "K", title: "Check a dimension (K) — click both ends of a printed dimension string; compares the measured length against what the drawing says", active: tool === "check", onSelect: () => setTool("check") });
+  scaleItems.push({ id: "scale-review", icon: "check", label: `Scale review… (${scaleSum.text.replace("Scales: ", "")})`, title: "Every sheet's detected scale in one list — confirm, change or mark NTS — and the suggested finish schedule", onSelect: () => setScaleReviewOpen(true) });
   scaleItems.push({ note: "Remembered per sheet." });
 
   // One-Click fill sensitivity — lives in the render menu now, so arming
@@ -11101,6 +11238,31 @@ export default function TakeoffCanvas() {
           addSheets={pickerAddSheets}
           onAdded={async () => { await refreshSheets(); setStatus("ready"); }}
         />
+      )}
+
+      {scaleReviewOpen && (
+        <ScaleReviewPanel
+          rows={reviewKeys.map((key) => ({
+            key, label: tabLabel(key), state: sheetScaleState(key, scaleInputs), detected: detectedScales[key] || null,
+            source: scaleSources[key],
+            scaleLabel: scales[key] ? (STANDARD_SCALES.find((x) => Math.abs(x.upp - scales[key]) < 1e-9)?.label || "custom") : "",
+          }))}
+          summary={scaleSum} scanning={scaleScan.running} standardScales={STANDARD_SCALES}
+          onConfirm={confirmReviewScale} onChange={changeReviewScale} onCalibrate={calibrateReviewSheet}
+          onToggleNts={toggleNts} onOpen={(k) => { setScaleReviewOpen(false); openSheets([k], false); }}
+          schedules={(scheduleCands || []).map((c) => ({ ...c, sheetLabel: tabLabel(c.sheet) }))}
+          scheduleChoice={scheduleChoice} onChooseSchedule={setScheduleChoice} onConfirmSchedule={confirmScheduleRead}
+          scheduleNote={scheduleCands === null ? null : undefined}
+          onClose={() => setScaleReviewOpen(false)}
+        />
+      )}
+      {!scaleReviewOpen && reviewKeys.length > 0 && view === "canvas" && (
+        <button data-testid="scale-review-chip" onClick={() => setScaleReviewOpen(true)}
+          title="Scale review — confirm each sheet's scale and the finish schedule"
+          style={{ position: "absolute", left: 12, bottom: 40, zIndex: 30, padding: "4px 10px", fontSize: 11.5, background: "var(--paper-bright)", cursor: "pointer",
+            border: `1px solid ${scaleSum.review ? "var(--c-warning)" : "var(--c-positive)"}`, color: scaleSum.review ? "var(--c-warning)" : "var(--c-positive)" }}>
+          {scaleSum.text}{scaleScan.running ? " …" : ""}
+        </button>
       )}
 
       {importRead && (

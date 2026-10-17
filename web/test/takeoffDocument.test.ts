@@ -28,14 +28,14 @@ test("additive keys ride only when non-empty; palette drops ids that no longer r
   const conditions = [{ id: "c1", finish_tag: "CPT-1" }];
   const d = buildTakeoffDocument({
     conditions, palette: ["c1", "gone"], client_info: { client: " " }, sheet_levels: {}, layer_overrides: {},
-    provenance_counters: { shapes_deleted: {} }, approvals: [], rules: [], stitches: [], condition_columns: [], shape_labels: [],
+    provenance_counters: { shapes_deleted: {} }, approvals: [], rules: [], stitches: [], condition_columns: [], shape_labels: [], nts_sheets: [],
   });
   assert.deepEqual(d.palette, ["c1"]);
-  for (const k of ["client_info", "sheet_levels", "layer_overrides", "provenance_counters", "approvals", "rules", "stitches", "condition_columns", "shape_labels"]) assert.equal(k in d, false, k);
+  for (const k of ["client_info", "sheet_levels", "layer_overrides", "provenance_counters", "approvals", "rules", "stitches", "condition_columns", "shape_labels", "nts_sheets"]) assert.equal(k in d, false, k);
   const full = buildTakeoffDocument({
     conditions, palette: ["c1"], client_info: { client: "ACME" }, sheet_levels: { "a.pdf": "L1" }, layer_overrides: { "a.pdf": { x: "exclude" } },
     provenance_counters: { shapes_deleted: { s1: 1 } }, approvals: [{ id: "a" }], rules: [{ id: "r" }], stitches: [{ id: "st" }],
-    condition_columns: [{ id: "k" }], shape_labels: [{ id: "l" }], proposals: [{ id: "p" }], condition_edit_proposals: [{ id: "e" }],
+    condition_columns: [{ id: "k" }], shape_labels: [{ id: "l" }], proposals: [{ id: "p" }], condition_edit_proposals: [{ id: "e" }], nts_sheets: ["a.pdf#2"],
   });
   assert.ok(inOrder(Object.keys(full)));
   assert.equal(Object.keys(full).length, TAKEOFF_DOCUMENT_KEYS.length - 1, "everything but units");
