@@ -10,9 +10,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStaticServer } from "../scripts/floor360-static.mjs";
-import { AI_PATH, DEFAULT_AI_MODEL, DEFAULT_AI_UPSTREAM_URL, aiProxyConfig, classifyUpstream, createAiProxyHandler, upstreamBody } from "../scripts/floor360-ai-proxy.mjs";
+import { AI_PATH, DEFAULT_AI_UPSTREAM_URL, aiProxyConfig, classifyUpstream, createAiProxyHandler, upstreamBody } from "../scripts/floor360-ai-proxy.mjs";
 
-const SECRETS = { AI_API_KEY: "vllm-secret", CF_ACCESS_CLIENT_ID: "cf-id.access", CF_ACCESS_CLIENT_SECRET: "cf-secret" };
+const SECRETS = { AI_MODEL: "served-model", AI_API_KEY: "vllm-secret", CF_ACCESS_CLIENT_ID: "cf-id.access", CF_ACCESS_CLIENT_SECRET: "cf-secret" };
 const CHAT = { model: "gpt-anything", max_tokens: 99999, stream: true, messages: [{ role: "user", content: "hi" }], tools: [], extra: "dropped" };
 const REPLY = { choices: [{ message: { role: "assistant", content: "ok" } }] };
 
@@ -38,12 +38,12 @@ const chat = (base: string, user = "ryan@floor360.com") => fetch(`${base}${AI_PA
   method: "POST", body: JSON.stringify(CHAT), headers: { "Content-Type": "application/json", ...(user ? { "X-MS-CLIENT-PRINCIPAL-NAME": user } : {}) },
 });
 
-test("defaults: takeoff-vision.floor360.com, Qwen3-VL-8B-Instruct, 2 at once", () => {
+test("defaults: takeoff-vision.floor360.com, model from /models unless AI_MODEL, 2 at once", () => {
   assert.equal(DEFAULT_AI_UPSTREAM_URL, "https://takeoff-vision.floor360.com/v1");
   const c = aiProxyConfig({});
   assert.equal(c.upstream, DEFAULT_AI_UPSTREAM_URL);
-  assert.equal(c.model, DEFAULT_AI_MODEL);
-  assert.equal(DEFAULT_AI_MODEL, "Qwen3-VL-8B-Instruct");
+  assert.equal(c.model, "");
+  assert.equal(aiProxyConfig({ AI_MODEL: " Qwen/Qwen3-VL-8B-Instruct-FP8 " }).model, "Qwen/Qwen3-VL-8B-Instruct-FP8");
   assert.equal(c.maxConcurrent, 2);
   assert.equal(aiProxyConfig({ AI_UPSTREAM_URL: "http://example.com/v1" }).upstream, "");
   assert.doesNotMatch(DEFAULT_AI_UPSTREAM_URL, /spark-vision/);
@@ -60,11 +60,12 @@ test("forwards with the site's credentials and model; nothing secret comes back 
     assert.equal(s.headers.Authorization, "Bearer vllm-secret");
     assert.equal(s.headers["CF-Access-Client-Id"], "cf-id.access");
     assert.equal(s.headers["CF-Access-Client-Secret"], "cf-secret");
-    assert.equal(s.body!.model, DEFAULT_AI_MODEL);
+    assert.equal(s.body!.model, "served-model");
     assert.equal(s.body!.max_tokens, 4096);
     assert.equal(s.body!.stream, false);
     assert.equal(s.body!.extra, undefined);
-    for (const v of Object.values(SECRETS)) {
+    for (const [k, v] of Object.entries(SECRETS)) {
+      if (k === "AI_MODEL") continue;
       assert.equal(text.includes(v), false);
       assert.equal(logs.join("\n").includes(v), false);
       assert.equal([...res.headers.values()].join("\n").includes(v), false);
@@ -121,4 +122,20 @@ test("max_tokens is clamped, not raised", () => {
   const cfg = aiProxyConfig({ AI_MAX_TOKENS: "1000" });
   assert.equal(upstreamBody({ messages: [], max_tokens: 200 }, cfg).max_tokens, 200);
   assert.equal(upstreamBody({ messages: [], max_tokens: 5000 }, cfg).max_tokens, 1000);
+});
+
+test("AI_MODEL unset: the first id /models lists is used; none up is AI starting", async () => {
+  const env = { AI_API_KEY: "k" };
+  let models: unknown = { data: [] };
+  await withProxy(env, async (s) => (s.url.endsWith("/models") ? Response.json(models) : Response.json(REPLY)), async (base, seen) => {
+    const none = await chat(base);
+    assert.equal(none.status, 503);
+    assert.equal((await none.json()).state, "starting");
+    assert.equal(seen.filter((s) => s.url.endsWith("/chat/completions")).length, 0);
+    models = { data: [{ id: "Qwen/Qwen3-VL-8B-Instruct" }] };
+    assert.equal((await chat(base)).status, 200);
+    const sent = seen.find((s) => s.url.endsWith("/chat/completions"))!;
+    assert.equal(sent.body!.model, "Qwen/Qwen3-VL-8B-Instruct");
+    assert.equal(seen.find((s) => s.url.endsWith("/models"))!.headers.Authorization, "Bearer k");
+  });
 });

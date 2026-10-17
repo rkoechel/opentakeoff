@@ -12,8 +12,11 @@
 //
 // App settings (values are never logged or returned):
 //   AI_UPSTREAM_URL          default https://takeoff-vision.floor360.com/v1
-//   AI_MODEL                 default Qwen3-VL-8B-Instruct; every request is
-//                            sent with this model, whatever the browser says
+//   AI_MODEL                 the exact id from <AI_UPSTREAM_URL>/models; every
+//                            request is sent with it, whatever the browser
+//                            says. Unset: the first id /models lists (asked
+//                            per request until one answers, then cached 5
+//                            min); no model up reads as "AI starting".
 //   AI_API_KEY               the vLLM --api-key, sent as Authorization: Bearer
 //   CF_ACCESS_CLIENT_ID      Cloudflare Access service token, sent as
 //   CF_ACCESS_CLIENT_SECRET  CF-Access-Client-Id / CF-Access-Client-Secret
@@ -27,7 +30,6 @@
 
 export const AI_PATH = "/api/ai";
 export const DEFAULT_AI_UPSTREAM_URL = "https://takeoff-vision.floor360.com/v1";
-export const DEFAULT_AI_MODEL = "Qwen3-VL-8B-Instruct";
 
 const FORWARDED_FIELDS = ["messages", "tools", "tool_choice", "max_tokens", "temperature", "top_p", "stop", "response_format", "seed"];
 
@@ -50,7 +52,7 @@ function upstreamUrl(value) {
 export function aiProxyConfig(env = process.env) {
   return {
     upstream: upstreamUrl(env.AI_UPSTREAM_URL),
-    model: String(env.AI_MODEL || "").trim() || DEFAULT_AI_MODEL,
+    model: String(env.AI_MODEL || "").trim(),
     apiKey: String(env.AI_API_KEY || "").trim(),
     cfId: String(env.CF_ACCESS_CLIENT_ID || "").trim(),
     cfSecret: String(env.CF_ACCESS_CLIENT_SECRET || "").trim(),
@@ -73,10 +75,10 @@ export function upstreamHeaders(cfg) {
 
 /** The browser's body, reduced to the chat fields, with this site's model and
  *  a clamped max_tokens. Streaming is off: the agent reads one JSON reply. */
-export function upstreamBody(body, cfg) {
+export function upstreamBody(body, cfg, model = cfg.model) {
   const out = {};
   for (const k of FORWARDED_FIELDS) if (body[k] !== undefined) out[k] = body[k];
-  out.model = cfg.model;
+  out.model = model;
   const asked = Number(out.max_tokens);
   out.max_tokens = Number.isInteger(asked) && asked > 0 ? Math.min(asked, cfg.maxTokens) : cfg.maxTokens;
   out.stream = false;
@@ -118,6 +120,23 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
   const cfg = aiProxyConfig(env);
   let inFlight = 0;
   let statusCache = null;
+  let modelCache = null;
+
+  /** AI_MODEL, or the first id the upstream's /models lists ("" if none). */
+  async function resolveModel() {
+    if (cfg.model) return cfg.model;
+    if (modelCache && modelCache.until > nowMs()) return modelCache.id;
+    try {
+      const res = await fetchImpl(`${cfg.upstream}/models`, { headers: upstreamHeaders(cfg), redirect: "manual", signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return "";
+      const body = await res.json();
+      const id = Array.isArray(body?.data) && typeof body.data[0]?.id === "string" ? body.data[0].id : "";
+      if (id) modelCache = { id, until: nowMs() + 5 * 60_000 };
+      return id;
+    } catch {
+      return "";
+    }
+  }
 
   async function probe() {
     if (!cfg.upstream) return "off";
@@ -136,7 +155,8 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
     const pathname = new URL(req.url || "/", "http://localhost").pathname;
     if (pathname === `${AI_PATH}/status` && req.method === "GET") {
       const state = inFlight >= cfg.maxConcurrent ? "busy" : await probe();
-      json(res, 200, { state, model: cfg.model, maxConcurrent: cfg.maxConcurrent });
+      const model = state === "ready" ? await resolveModel() : cfg.model;
+      json(res, 200, { state: state === "ready" && !model ? "starting" : state, model, maxConcurrent: cfg.maxConcurrent });
       return;
     }
     if (pathname !== `${AI_PATH}/v1/chat/completions`) { json(res, 404, { error: "Not found" }); return; }
@@ -155,10 +175,12 @@ export function createAiProxyHandler({ env = process.env, fetchImpl = globalThis
         json(res, e.status === 413 ? 413 : 400, { error: e.status === 413 ? "That request is too large for the takeoff AI" : "Send an OpenAI-style chat request" });
         return;
       }
+      const model = await resolveModel();
+      if (!model) { json(res, 503, STARTING); return; }
       let upstream;
       try {
         upstream = await fetchImpl(`${cfg.upstream}/chat/completions`, {
-          method: "POST", headers: upstreamHeaders(cfg), body: JSON.stringify(upstreamBody(body, cfg)),
+          method: "POST", headers: upstreamHeaders(cfg), body: JSON.stringify(upstreamBody(body, cfg, model)),
           redirect: "manual", signal: AbortSignal.timeout(cfg.timeoutMs),
         });
       } catch (e) {

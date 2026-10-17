@@ -103,7 +103,7 @@ The agent's AI settings are locked to this site's own `/api/ai` (`floor360-ai-pr
 | App setting | Value |
 | --- | --- |
 | `AI_UPSTREAM_URL` | `https://takeoff-vision.floor360.com/v1` (default). Not `spark-vision`, which belongs to Orduh Up. |
-| `AI_MODEL` | `Qwen3-VL-8B-Instruct` (default). Must match vLLM's served model name. Every request uses it. |
+| `AI_MODEL` | The exact id from `<AI_UPSTREAM_URL>/models` (vLLM's served model name). Every request uses it. Leave it unset while the DGX model is down: the proxy then uses the first id `/models` lists once the model is up, and the app shows "AI starting" until then. |
 | `AI_API_KEY` | vLLM `--api-key`, sent as `Authorization: Bearer`. Secret: use a Key Vault reference. |
 | `CF_ACCESS_CLIENT_ID` | Cloudflare Access service token id, sent as `CF-Access-Client-Id` |
 | `CF_ACCESS_CLIENT_SECRET` | Its secret, sent as `CF-Access-Client-Secret`. Secret: use a Key Vault reference. |
