@@ -14,11 +14,16 @@
 // Existing files are served as themselves. A directory with index.html serves
 // that file. Any other extensionless path falls back to /index.html. A missing
 // file with an extension is a 404, so a bad asset is not masked as the app.
+//
+// Same-origin API routes (createStaticServer's `routes`) answer under /api/;
+// any other /api/ path is a 404, never the app. The CSP stays 'self'.
+//   POST /api/ocr/read   Azure Document Intelligence Read (floor360-ocr-read.mjs)
 
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { OCR_READ_PATH, createOcrReadHandler } from "./floor360-ocr-read.mjs";
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -122,8 +127,24 @@ export function resolveRequest(root, urlPath) {
   return { status: 404 };
 }
 
-export function createStaticServer(root) {
+export function createStaticServer(root, { routes = {} } = {}) {
   return http.createServer((req, res) => {
+    let apiPath = "";
+    try { apiPath = new URL(req.url || "/", "http://localhost").pathname; } catch { /* resolveRequest answers 400 */ }
+    if (apiPath === "/api" || apiPath.startsWith("/api/")) {
+      const route = Object.keys(routes).find((p) => apiPath === p || apiPath.startsWith(p + "/"));
+      if (!route) {
+        res.writeHead(404, { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+        res.end(JSON.stringify({ error: "Not found" }));
+        return;
+      }
+      for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
+      Promise.resolve(routes[route](req, res)).catch(() => {
+        if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ error: "Server error" }));
+      });
+      return;
+    }
     const resolved = resolveRequest(root, req.url || "/");
     let bridge = false;
     try { bridge = new URL(req.url || "/", "http://localhost").pathname === REDIRECT_BRIDGE_PATH; } catch { /* 400 below */ }
@@ -158,7 +179,8 @@ if (isMain) {
     : path.dirname(fileURLToPath(import.meta.url));
   const port = Number(process.env.PORT) || 8080;
   const host = "0.0.0.0";
-  createStaticServer(root).listen(port, host, () => {
+  const routes = { [OCR_READ_PATH]: createOcrReadHandler() };
+  createStaticServer(root, { routes }).listen(port, host, () => {
     console.log(`floor360-static serving ${root} on ${host}:${port}`);
   });
 }
