@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import { PRIVATE_LOCKED_ENV_KEYS } from "./src/lib/privateBuild.js";
+import { PRIVATE_LOCKED_ENV_KEYS, floor360M365Env } from "./src/lib/privateBuild.js";
 import { STRIPPED_HOSTS, stripPrivateHosts } from "./scripts/strip-private-hosts.mjs";
 
 // The one source of truth for the app version — package.json — inlined as
@@ -49,6 +49,20 @@ const define = {
 };
 for (const key of PRIVATE_LOCKED_ENV_KEYS) {
   define[`import.meta.env.${key}`] = JSON.stringify("");
+}
+
+// Microsoft 365 sync — the one sync path this build may turn on. Deployment
+// sets VITE_MSAL_CLIENT_ID / VITE_GRAPH_DRIVE_ID / VITE_GRAPH_FOLDER_ID
+// (and optionally VITE_MSAL_TENANT / VITE_GRAPH_SCOPES) in the BUILD shell.
+// None of them is a secret: a SPA client id and a drive id are public by
+// design. They are validated for the FLOOR360 tenant; a bad value fails the
+// build instead of shipping a half-configured sync. Unset = 365 UI stays dark.
+const m365 = floor360M365Env(process.env);
+if (m365.errors.length) {
+  throw new Error("FLOOR360 Microsoft 365 sync config is invalid:\n" + m365.errors.join("\n"));
+}
+for (const [key, value] of Object.entries(m365.values)) {
+  define[`import.meta.env.${key}`] = JSON.stringify(value);
 }
 
 const TEXT_FILE = /\.(html|js|mjs|css|svg|txt|xml|json)$/i;
@@ -160,5 +174,13 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    // redirect.html is the MSAL v5 redirect bridge for the 365 sign-in popup
+    // and the silent-renewal iframe (src/lib/msgraph/auth.js).
+    rollupOptions: {
+      input: {
+        main: path.join(webDir, "index.html"),
+        redirect: path.join(webDir, "redirect.html"),
+      },
+    },
   },
 });

@@ -26,9 +26,13 @@ export const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   "font-src 'self' data:",
   "img-src 'self' data: blob:",
-  "connect-src 'self' blob: data:",
+  // Microsoft 365 sync (FLOOR360 tenant only): MSAL's token endpoint, Graph,
+  // and FLOOR360's SharePoint host, where Graph's pre-authenticated
+  // downloadUrl points. Nothing else leaves the origin.
+  "connect-src 'self' blob: data: https://login.microsoftonline.com https://graph.microsoft.com https://floor360com.sharepoint.com",
   "worker-src 'self' blob:",
-  "frame-src 'none'",
+  // MSAL's silent token renewal runs in a hidden iframe on the login host.
+  "frame-src https://login.microsoftonline.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -43,6 +47,15 @@ export const SECURITY_HEADERS = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
   "Strict-Transport-Security": "max-age=31536000",
+};
+
+// The MSAL redirect bridge is loaded inside MSAL's own hidden iframe (silent
+// renewal) on this origin, so it alone may be framed by this origin.
+export const REDIRECT_BRIDGE_PATH = "/redirect.html";
+export const REDIRECT_BRIDGE_HEADERS = {
+  ...SECURITY_HEADERS,
+  "Content-Security-Policy": CONTENT_SECURITY_POLICY.replace("frame-ancestors 'none'", "frame-ancestors 'self'"),
+  "X-Frame-Options": "SAMEORIGIN",
 };
 
 export const MIME = {
@@ -99,7 +112,9 @@ export function resolveRequest(root, urlPath) {
 export function createStaticServer(root) {
   return http.createServer((req, res) => {
     const resolved = resolveRequest(root, req.url || "/");
-    const headers = { ...SECURITY_HEADERS };
+    let bridge = false;
+    try { bridge = new URL(req.url || "/", "http://localhost").pathname === REDIRECT_BRIDGE_PATH; } catch { /* 400 below */ }
+    const headers = { ...(bridge && resolved.file ? REDIRECT_BRIDGE_HEADERS : SECURITY_HEADERS) };
     if (!resolved.file) {
       const status = resolved.status || 404;
       res.writeHead(status, { ...headers, "Content-Type": "text/plain; charset=utf-8" });

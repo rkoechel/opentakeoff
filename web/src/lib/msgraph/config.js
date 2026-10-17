@@ -10,6 +10,9 @@
 //                         (any work/school account)
 //   VITE_GRAPH_DRIVE_ID   the document library's Graph drive id
 //   VITE_GRAPH_FOLDER_ID  driveItem id of the project folder (default: "root")
+//   VITE_GRAPH_SCOPES     the ONE delegated Graph scope to request (default:
+//                         Files.ReadWrite.All upstream; the FLOOR360 private
+//                         build defaults to Sites.Selected)
 //
 // Tiny and dependency-free on purpose: PlanNavigator imports this statically
 // to decide whether to render the entry point; MSAL itself loads dynamically
@@ -28,6 +31,7 @@ export function m365Config(env = import.meta.env) {
     tenant: src?.VITE_MSAL_TENANT || "organizations",
     driveId,
     folderId: src?.VITE_GRAPH_FOLDER_ID || "root",
+    scopes: [src?.VITE_GRAPH_SCOPES || "Files.ReadWrite.All"],
   };
 }
 

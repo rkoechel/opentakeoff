@@ -2,6 +2,11 @@
 // sample plan, and fail if the page asks any host other than itself.
 //
 //   node scripts/check-outbound.mjs --origin http://127.0.0.1:8080
+//   node scripts/check-outbound.mjs --origin … --allow-microsoft
+//
+// --allow-microsoft accepts the three Microsoft 365 sync hosts
+// (strip-private-hosts.mjs ALLOWED_MICROSOFT_HOSTS) and nothing else; any
+// other host still fails. CHROME_BIN overrides the Chrome lookup (Linux CI).
 //
 // Uses system Chrome (headless) and the DevTools protocol. A fresh
 // user-data directory is created and removed. Chrome's own update checks are
@@ -13,11 +18,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import process from "node:process";
+import { ALLOWED_MICROSOFT_HOSTS } from "./strip-private-hosts.mjs";
 
 const CHROME_CANDIDATES = [
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
   "/Applications/Chromium.app/Contents/MacOS/Chromium",
   "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
 ];
 
 function arg(name) {
@@ -27,6 +37,7 @@ function arg(name) {
 
 const origin = (arg("--origin") || "").replace(/\/$/, "");
 const screenshotPath = arg("--screenshot");
+const allowedHosts = process.argv.includes("--allow-microsoft") ? new Set(ALLOWED_MICROSOFT_HOSTS) : new Set();
 if (!origin) {
   console.error("usage: node scripts/check-outbound.mjs --origin http://127.0.0.1:PORT [--screenshot file.png]");
   process.exit(2);
@@ -61,6 +72,7 @@ function isSelfHost(host) {
 }
 
 function chromeBin() {
+  if (process.env.CHROME_BIN && existsSync(process.env.CHROME_BIN)) return process.env.CHROME_BIN;
   return CHROME_CANDIDATES.find((candidate) => existsSync(candidate)) || "";
 }
 
@@ -98,11 +110,12 @@ function urlsIn(text) {
 
 async function main() {
   const bin = chromeBin();
-  if (!bin) throw new Error("Google Chrome was not found under /Applications");
+  if (!bin) throw new Error("Google Chrome was not found (set CHROME_BIN)");
   const debugPort = await freePort();
   const profile = mkdtempSync(path.join(tmpdir(), "ot-chrome-"));
   const chrome = spawn(bin, [
     "--headless=new",
+    ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
@@ -240,8 +253,9 @@ async function main() {
       try { return new URL(url).pathname; } catch { return url; }
     }))].sort();
     const pageHosts = [...new Set(pageUrls.map(hostOf))].sort();
-    const nonSelf = pageHosts.filter((host) => !isSelfHost(host));
-    const consoleHosts = [...new Set(consoleText.flatMap(urlsIn).map(hostOf))].filter((host) => host && !isSelfHost(host)).sort();
+    const nonSelf = pageHosts.filter((host) => !isSelfHost(host) && !allowedHosts.has(host));
+    const allowedSeen = pageHosts.filter((host) => allowedHosts.has(host));
+    const consoleHosts = [...new Set(consoleText.flatMap(urlsIn).map(hostOf))].filter((host) => host && !isSelfHost(host) && !allowedHosts.has(host)).sort();
     const browserHosts = [...new Set(browserRequests.map((entry) => hostOf(entry.url)).filter((host) => !isSelfHost(host)))].sort();
 
     const report = {
@@ -253,6 +267,8 @@ async function main() {
       pageHosts,
       pagePaths,
       nonSelfPageHosts: nonSelf,
+      allowedMicrosoftHosts: [...allowedHosts],
+      allowedHostsSeen: allowedSeen,
       consoleNonSelfHosts: consoleHosts,
       browserOnlyHosts: browserHosts,
       pageRequestCount: pageUrls.length,

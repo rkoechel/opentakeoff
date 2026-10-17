@@ -9,17 +9,17 @@
 // a token the tenant revoked between sessions.
 
 const AADSTS = [
-  [/AADSTS65001|consent_required/i, "consent", "your tenant has not consented to this app: an admin must grant Files.ReadWrite.All (SELF_HOSTING.md, Microsoft 365 → step 1)"],
+  [/AADSTS65001|consent_required/i, "consent", "your tenant has not consented to this app: an admin must grant the app's Graph permission (Sites.Selected on FLOOR360 builds, Files.ReadWrite.All upstream; SELF_HOSTING.md, Microsoft 365 → step 1)"],
   [/AADSTS650(52|53|57)|admin_consent/i, "consent", "the app needs admin consent in your tenant before users can grant it (SELF_HOSTING.md, Microsoft 365 → step 1)"],
   [/AADSTS50020|AADSTS90072/i, "tenant", "this account does not belong to the tenant the build was configured for (VITE_MSAL_TENANT) — sign in with a work account from that tenant, or configure the build for the account type you use"],
-  [/AADSTS50011|redirect_uri/i, "app registration", "the redirect URI does not match the app registration — add this exact origin under the Single-page application platform"],
+  [/AADSTS50011|redirect_uri/i, "app registration", "the redirect URI does not match the app registration — add this origin's /redirect.html under the Single-page application platform"],
   [/AADSTS700016|unauthorized_client/i, "app registration", "the client id was not found in the tenant — check VITE_MSAL_CLIENT_ID and that the registration allows this account type"],
   [/AADSTS7000218/i, "app registration", "the registration is not a Single-page application (it is asking for a client secret) — re-register the platform as SPA"],
   [/AADSTS50076|AADSTS50079|AADSTS50158|interaction_required/i, "sign-in", "the tenant requires a fresh interactive sign-in (MFA or conditional access) — click sign in again"],
   [/AADSTS50173|AADSTS700082|AADSTS70008|token_renewal_error|invalid_grant/i, "sign-in", "the saved sign-in was revoked or expired — sign in again"],
   [/popup_window_error|empty_window_error|BrowserAuthError: popup/i, "popup", "the browser blocked the sign-in popup — allow popups for this site and try again"],
   [/user_cancelled|user_cancelled_error/i, "popup", "the sign-in popup was closed before it finished"],
-  [/monitor_window_timeout|BrowserAuthError: monitor/i, "popup", "the sign-in popup timed out — this happens when the redirect URI is not the app's own origin"],
+  [/monitor_window_timeout|BrowserAuthError: monitor/i, "popup", "the sign-in popup timed out — this happens when the redirect URI is not this site's /redirect.html"],
   [/no_network|network_error|Failed to fetch/i, "network", "the sign-in service could not be reached"],
 ];
 

@@ -12,14 +12,17 @@
 # JPEG2000 wasm codec; that keyword allows wasm compilation only, not
 # eval(). worker-src is this origin plus blob: for the pdf.js worker.
 # connect-src is 'self' plus blob: and data: so pdf.js can read a blob
-# or data document URL. There is no analytics host, no font CDN, and no
+# or data document URL, plus the three Microsoft hosts Microsoft 365 sync
+# needs (login.microsoftonline.com, graph.microsoft.com and FLOOR360's
+# floor360com.sharepoint.com). frame-src allows only the Microsoft login
+# host, for MSAL's hidden silent-renewal iframe. There is no analytics host, no font CDN, and no
 # Google sign-in frame. style-src keeps 'unsafe-inline' because the
 # canvas sets style in React. Do not add 'unsafe-inline' to script-src.
 #
 # On-device OCR is off in this build (VITE_OCR=off). If it were on, its
 # worker, wasm, and models would still be same-origin files.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' blob: data: https://login.microsoftonline.com https://graph.microsoft.com https://floor360com.sharepoint.com; worker-src 'self' blob:; frame-src https://login.microsoftonline.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin

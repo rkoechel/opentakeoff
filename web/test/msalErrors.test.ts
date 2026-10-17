@@ -6,7 +6,7 @@ import { describeMsalError } from "../src/lib/msgraph/errors.js";
 
 test("consent, tenant, registration, popup, network and revoked-token failures each name their stage and carry the original code", () => {
   const cases: Array<[any, RegExp]> = [
-    [{ errorCode: "consent_required", errorMessage: "AADSTS65001: The user or administrator has not consented" }, /at consent: .*admin must grant Files\.ReadWrite\.All.*\(AADSTS65001\)/],
+    [{ errorCode: "consent_required", errorMessage: "AADSTS65001: The user or administrator has not consented" }, /at consent: .*admin must grant .*Sites\.Selected.*Files\.ReadWrite\.All.*\(AADSTS65001\)/],
     [{ message: "AADSTS90072: User account from identity provider does not exist in tenant" }, /at tenant: .*VITE_MSAL_TENANT/],
     [{ message: "AADSTS50011: The redirect URI specified in the request does not match" }, /at app registration: .*redirect URI/],
     [{ message: "AADSTS7000218: The request body must contain the following parameter: 'client_assertion'" }, /at app registration: .*Single-page application/],

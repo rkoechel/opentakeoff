@@ -23,7 +23,7 @@ test("m365Config: dark unless BOTH client id and drive id are set; defaults fill
   assert.equal(m365Config({ VITE_MSAL_CLIENT_ID: "app" }), null);
   assert.equal(m365Config({ VITE_GRAPH_DRIVE_ID: "d1" }), null);
   const cfg: any = m365Config({ VITE_MSAL_CLIENT_ID: "app", VITE_GRAPH_DRIVE_ID: "d1" });
-  assert.deepEqual(cfg, { clientId: "app", tenant: "organizations", driveId: "d1", folderId: "root" });
+  assert.deepEqual(cfg, { clientId: "app", tenant: "organizations", driveId: "d1", folderId: "root", scopes: ["Files.ReadWrite.All"] });
   const full: any = m365Config({ VITE_MSAL_CLIENT_ID: "app", VITE_MSAL_TENANT: "contoso.com", VITE_GRAPH_DRIVE_ID: "d1", VITE_GRAPH_FOLDER_ID: "f9" });
   assert.equal(full.tenant, "contoso.com");
   assert.equal(full.folderId, "f9");

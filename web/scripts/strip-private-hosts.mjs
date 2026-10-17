@@ -1,6 +1,9 @@
 // Hosts that must not appear in the FLOOR360 private artifact. The features
-// that would call them are already off (OCR, Google/M365 sync, contribute,
-// one-click). This pass deletes the leftover string literals from dependency
+// that would call them are already off (OCR, Google sync, contribute, AI).
+// graph.microsoft.com is NOT stripped: Microsoft 365 sync is the one sync
+// path the private build may turn on (FLOOR360 tenant only), and stripping
+// it would break the Graph client's base URL. ALLOWED_MICROSOFT_HOSTS is the
+// matching allow-list for the CSP and the outbound check. This pass deletes the leftover string literals from dependency
 // chunks and static pages so a dist scan cannot mistake them for live calls.
 //
 // hf.co is the Hugging Face hub alias in transformers.js. accounts.google.com
@@ -12,9 +15,14 @@ export const STRIPPED_HOSTS = [
   "huggingface.co",
   "hf.co",
   "googleapis.com",
-  "graph.microsoft.com",
   "accounts.google.com",
   "opentakeoff.kentucky-ai.com",
+];
+
+export const ALLOWED_MICROSOFT_HOSTS = [
+  "login.microsoftonline.com",
+  "graph.microsoft.com",
+  "floor360com.sharepoint.com",
 ];
 
 const STRIPPED_URLS = [
