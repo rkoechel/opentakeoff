@@ -8,7 +8,8 @@
 // validation path, and the failure states below are written to be REPORTABLE
 // (a readable error naming the stage, never a wedge).
 //
-// Scope: Files.ReadWrite.All (delegated) — read/write driveItems the signed-in
+// Scope: cfg.scopes (default Files.ReadWrite.All, delegated; the FLOOR360
+// private build uses Sites.Selected, granted on one SharePoint site) — read/write driveItems the signed-in
 // user can already reach, which is exactly a document library they use. Tenant
 // admin-consent policies can block it; that surfaces as a readable sign-in
 // error, and SELF_HOSTING.md tells the admin what to consent to.
@@ -20,15 +21,23 @@
 import { PublicClientApplication } from "@azure/msal-browser";
 import { describeMsalError } from "./errors.js";
 
-const SCOPES = ["Files.ReadWrite.All"];
+const DEFAULT_SCOPES = ["Files.ReadWrite.All"];
 
-/** @param {{clientId: string, tenant: string}} cfg */
+// msal-browser v5 answers popups and silent iframes through a redirect
+// bridge page (web/redirect.html → src/redirect.js) that broadcasts the auth
+// response back to this window. The app's own index page does not run the
+// bridge, so pointing redirectUri at the origin makes every popup time out.
+export const REDIRECT_PATH = "/redirect.html";
+export const redirectUriFor = (origin) => `${String(origin).replace(/\/+$/, "")}${REDIRECT_PATH}`;
+
+/** @param {{clientId: string, tenant: string, scopes?: string[]}} cfg */
 export function createMsalAuth(cfg) {
+  const SCOPES = cfg.scopes?.length ? cfg.scopes : DEFAULT_SCOPES;
   const pca = new PublicClientApplication({
     auth: {
       clientId: cfg.clientId,
       authority: `https://login.microsoftonline.com/${cfg.tenant}`,
-      redirectUri: window.location.origin,
+      redirectUri: redirectUriFor(window.location.origin),
     },
     cache: { cacheLocation: "localStorage" }, // survive reloads — sign in once
   });

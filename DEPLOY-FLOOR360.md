@@ -8,9 +8,10 @@ Do not deploy from these notes until the pull request is reviewed. Nothing here 
 
 - No Cloudflare Web Analytics beacon, and no other third-party analytics script.
 - Fonts are files under `web/public/fonts`, loaded by `web/src/styles/fonts.css`. The app does not request `fonts.googleapis.com` or `fonts.gstatic.com`. Each family is SIL Open Font License; the license texts are next to the files.
-- Content-Security-Policy allows `connect-src 'self' blob: data:` and same-origin `script-src` / `worker-src` (plus `wasm-unsafe-eval` for pdf.js, and `blob:` workers). `frame-src` is `'none'`.
-- Microsoft 365 sync, Google sign-in / Drive, Contribute, and One-Click Area stay off. Setting `VITE_ONE_CLICK`, `VITE_GOOGLE_*`, `VITE_DRIVE_ROOT_FOLDER_ID`, `VITE_CLOUD_SYNC`, `VITE_MSAL_*`, `VITE_GRAPH_*`, `VITE_CONTRIBUTE_ENDPOINT`, or `VITE_AI_*` in the build environment does not turn them on and does not inline those values. `VITE_OCR` is forced off.
-- The build deletes leftover host strings (`cdn.jsdelivr.net`, `huggingface.co`, `googleapis.com`, `graph.microsoft.com`, `opentakeoff.kentucky-ai.com`) from the artifact. Those calls are already unreachable with the flags above. The build fails if any of them remain in `dist`.
+- Content-Security-Policy allows `connect-src 'self' blob: data:` plus exactly three Microsoft hosts for 365 sync (`https://login.microsoftonline.com`, `https://graph.microsoft.com`, `https://floor360com.sharepoint.com`), and same-origin `script-src` / `worker-src` (plus `wasm-unsafe-eval` for pdf.js, and `blob:` workers). `frame-src` allows only `https://login.microsoftonline.com` (MSAL's hidden silent-renewal iframe). `/redirect.html`, the MSAL redirect bridge, is the only page served with `frame-ancestors 'self'` / `X-Frame-Options: SAMEORIGIN`; every other page stays `DENY`.
+- Google sign-in / Drive, Contribute, One-Click Area and AI stay off. Setting `VITE_ONE_CLICK`, `VITE_GOOGLE_*`, `VITE_DRIVE_ROOT_FOLDER_ID`, `VITE_CLOUD_SYNC`, `VITE_CONTRIBUTE_ENDPOINT`, or `VITE_AI_*` in the build environment does not turn them on and does not inline those values. `VITE_OCR` is forced off.
+- Microsoft 365 sync is the one sync path this build can turn on, and only for the FLOOR360 tenant. It stays dark unless the build shell sets the values in "Microsoft 365 sync" below; they are validated and a bad value fails the build.
+- The build deletes leftover host strings (`cdn.jsdelivr.net`, `huggingface.co`, `googleapis.com`, `opentakeoff.kentucky-ai.com`) from the artifact. `graph.microsoft.com` is kept for Microsoft 365 sync. Those calls are already unreachable with the flags above. The build fails if any of them remain in `dist`.
 - The canvas footer, the empty-project screen, and the in-app guide each show a Source link to `https://github.com/rkoechel/opentakeoff/commit/<sha>` for the commit that was built. `LICENSE` and `NOTICE` stay in the repo and are copied into the artifact.
 
 ## Host
@@ -68,7 +69,7 @@ Unzip it as the App Service site directory and start `node floor360-static.mjs`.
 | Startup command | `node floor360-static.mjs` |
 | `PORT` | Leave it. App Service sets it. The server reads `process.env.PORT`. |
 | `SCM_DO_BUILD_DURING_DEPLOYMENT` | `false`. Deploy the zip of `dist`. Do not run `npm install` on the server. |
-| `VITE_*` | Do not set any. They are compile-time, and this build blanks them anyway. |
+| `VITE_*` | Do not set any on the App Service. They are compile-time only: set the Microsoft 365 values in the build shell (below), never as app settings. |
 | HTTPS only | On |
 | Plan | The existing Build plan if it has room (no extra cost). Otherwise a new Linux B1. Do not use S1. |
 
@@ -80,7 +81,7 @@ A remote bring-your-own AI endpoint will not connect: `connect-src` is this orig
 
 Turn on Authentication for the app. Identity provider: Microsoft. Tenant: the FLOOR360 tenant, single tenant. Unauthenticated requests: redirect to the Microsoft login. Token store can stay off; the static app does not read the Easy Auth headers.
 
-Register the app (or use the one Easy Auth creates) with only the sign-in scopes OpenID, profile, and email. Do not grant Microsoft Graph `Files.ReadWrite.All` or any other Graph permission. In-app Microsoft 365 sync stays off on this build, and the CSP would block `graph.microsoft.com` anyway.
+Register the app (or use the one Easy Auth creates) with only the sign-in scopes OpenID, profile, and email. Do not add Graph file permissions to the Easy Auth app; Microsoft 365 sync uses its own SPA registration (below).
 
 Redirect URIs to include:
 
@@ -113,3 +114,25 @@ node scripts/check-outbound.mjs --origin http://127.0.0.1:8080
 ```
 
 The script exits 0 only when the sample plan was requested and every page-attributed request stayed on `127.0.0.1` / `localhost` (plus `blob:` and `data:`).
+
+## Microsoft 365 sync (SharePoint)
+
+Off unless the build shell sets these. None is a secret (a SPA client id and a drive id are public by design), and they are compile-time, so set them where `npm run build` runs, not as App Service settings.
+
+| Build variable | Value |
+| --- | --- |
+| `VITE_MSAL_CLIENT_ID` | Application (client) id of the **FLOOR360 OpenTakeoff Sync** SPA registration |
+| `VITE_MSAL_TENANT` | Optional. Only `9febc8e3-0f0b-47cd-89b2-18542bb53d21` is accepted (the default) |
+| `VITE_GRAPH_DRIVE_ID` | Graph drive id (`b!…`) of the SharePoint library |
+| `VITE_GRAPH_FOLDER_ID` | driveItem id of the `OpenTakeoff Projects` folder (or `root`) |
+| `VITE_GRAPH_SCOPES` | Optional. `Sites.Selected` (default) or `Files.ReadWrite.All` |
+
+SPA redirect URIs on that registration: `https://takeoff.floor360.com/redirect.html` (and the `*.azurewebsites.net` twin if it is ever opened directly). `redirect.html` is the MSAL v5 redirect bridge, built from `web/redirect.html`.
+
+Local check with the values set:
+
+```bash
+node --experimental-websocket scripts/check-outbound.mjs --origin http://127.0.0.1:8080 --allow-microsoft
+```
+
+`--allow-microsoft` accepts only the three hosts above. The sample-plan path makes no Microsoft request at all until someone clicks the 365 opt-in.
