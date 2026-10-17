@@ -48,6 +48,10 @@ const define = {
   // On-device OCR is on: PP-OCRv5 models are staged into public/models/ocr
   // at build time (npm run build:floor360) and served from this origin.
   "import.meta.env.VITE_OCR": JSON.stringify("on"),
+  // "Hard scan? Read with Azure": the same-origin /api/ocr/read route
+  // (scripts/floor360-ocr-read.mjs). The button shows only once that route
+  // says it is set up; the key and caps stay on the server.
+  "import.meta.env.VITE_OCR_AZURE": JSON.stringify("1"),
 };
 for (const key of PRIVATE_LOCKED_ENV_KEYS) {
   define[`import.meta.env.${key}`] = JSON.stringify("");
@@ -120,7 +124,10 @@ export default defineConfig({
       apply: "build",
       closeBundle() {
         const dist = path.join(webDir, "dist");
-        copyFileSync(path.join(webDir, "scripts", "floor360-static.mjs"), path.join(dist, "floor360-static.mjs"));
+        // the server and its same-origin API routes (dependency-free Node)
+        for (const name of ["floor360-static.mjs", "floor360-ocr-read.mjs"]) {
+          copyFileSync(path.join(webDir, "scripts", name), path.join(dist, name));
+        }
         copyFileSync(path.join(repoRoot, "LICENSE"), path.join(dist, "LICENSE"));
         copyFileSync(path.join(repoRoot, "NOTICE"), path.join(dist, "NOTICE"));
         // Public files are copied as-is. Strip again so a page that still

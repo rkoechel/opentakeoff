@@ -78,6 +78,7 @@ import { rowToSeed } from "../lib/scheduleRows";   // the reader (scheduleRead, 
 import { routeScheduleRead, countTextRuns, heldKeyWouldPress, EMPTY_BOX_MESSAGE, OCR_BUSY_MESSAGE, OCR_STARTING_MESSAGE, OCR_WAITING_MESSAGE, ocrReadingMessage } from "../lib/scheduleRoute";
 import { readBoxOnDevice } from "../lib/scheduleOcrRead";
 import { boxReadWords, boxTooLarge } from "../lib/ocr/boxRead";
+import { AZURE_READING_MESSAGE, AZURE_RETRY_LABEL, azureOcrOffered, azureOcrReady, azureReadBox, readBoxWithAzure } from "../lib/ocr/azureRead";
 import { pageSpans, spansInRect, graphSpans } from "../lib/pageSpans";
 import { normalizeTag, newScheduleRows } from "../lib/scheduleEdit";
 // Condition twins — the whole inheritance rule is in lib/variants.ts (test/variants.test.ts);
@@ -845,6 +846,10 @@ export default function TakeoffCanvas() {
   // read instead), so keys on the body behind a coming notice, or under the
   // status line, act on nothing. Only the holder writes a result.
   const ocrReadRef = useRef(null);
+  // "Hard scan? Read with Azure" (FLOOR360): the last box the on-device
+  // reader couldn't make rows of, {a, b, seq}, offered once the site's
+  // /api/ocr/read says it is set up. A new box or another sheet drops it.
+  const [azureRetry, setAzureRetry] = useState(null);
   // The footer's status line: null | "starting" | "waiting" (another on-device
   // read goes first) | "reading". Never commitMsg. ocrReadProgress: the
   // read's last SeamProgress, for the reading line's raster count.
@@ -7467,9 +7472,10 @@ export default function TakeoffCanvas() {
   // gallery, guide, report or revisions opening. One box at a time: a box drawn meanwhile is
   // told so.
   // Corners a,b are stage px (raw cursor, snapping exempted at pointer-down).
-  async function importScheduleFromRect(a, b) {
+  async function importScheduleFromRect(a, b, { azure = false } = {}) {
     // The lock, taken before any await so two quick boxes can't both read.
     if (ocrReadRef.current) { setCommitMsg(OCR_BUSY_MESSAGE); return; }
+    setAzureRetry(null);
     const mine = { ctl: new AbortController(), ocr: false };
     ocrReadRef.current = mine;
     const seq = renderSeqRef.current;                 // a sheet switch mid-await must not pop a dialog for a page you left
@@ -7514,6 +7520,20 @@ export default function TakeoffCanvas() {
       // is the stale-tab lockout or another job's in-progress "…" line.
       mine.ocr = true;
       setCommitMsgState((m) => (m.text === STALE_TAB_MESSAGE || (m.text || "").endsWith("…") ? m : { text: "" }));
+      if (azure) {
+        // Hard scan: one PNG of the box to this site's /api/ocr/read
+        setOcrRead("azure");
+        const result = await readBoxWithAzure({
+          readWords: (sig) => azureReadBox(pageObj, rs, rect, sig),
+          read: (ocrSpans) => readScheduleSpans(ocrSpans, { ocr: true }),
+          isCurrent,
+          signal: mine.ctl.signal,
+        });
+        if (!isCurrent()) return;
+        if (result.kind === "rows") setImportRead({ rows: result.rows, skipped: result.skipped ?? [], sourceKey: panel.key });
+        else if (result.kind === "message") setCommitMsg(result.text);
+        return;
+      }
       setOcrRead("starting");
       const result = await readBoxOnDevice({
         session: ocrSession,
@@ -7530,7 +7550,10 @@ export default function TakeoffCanvas() {
       });
       if (!isCurrent()) return;
       if (result.kind === "rows") setImportRead({ rows: result.rows, skipped: result.skipped ?? [], sourceKey: panel.key });
-      else if (result.kind === "message") setCommitMsg(result.text);
+      else if (result.kind === "message") {
+        setCommitMsg(result.text);
+        if (azureOcrOffered()) azureOcrReady().then((ok) => { if (ok && seq === renderSeqRef.current && !ocrReadRef.current) setAzureRetry({ a, b, seq }); });
+      }
     } catch {
       if (isCurrent()) setCommitMsg("Couldn't read that region.");
     } finally {
@@ -11240,9 +11263,15 @@ export default function TakeoffCanvas() {
             is up (the notice owns Cancel and Esc then) */}
         <span data-import-read-status="" aria-live="polite" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
           {ocrRead && !ocrNotice && (<>
-            <span>{ocrRead === "starting" ? OCR_STARTING_MESSAGE : ocrRead === "waiting" ? OCR_WAITING_MESSAGE : ocrReadingMessage(ocrReadProgress)}</span>
+            <span>{ocrRead === "azure" ? AZURE_READING_MESSAGE : ocrRead === "starting" ? OCR_STARTING_MESSAGE : ocrRead === "waiting" ? OCR_WAITING_MESSAGE : ocrReadingMessage(ocrReadProgress)}</span>
             <button type="button" className="btn-ghost" onClick={cancelImportRead} style={{ padding: "var(--sp-1) var(--sp-2)" }}>Cancel</button>
           </>)}
+          {!ocrRead && azureRetry && azureRetry.seq === renderSeqRef.current && (
+            <button type="button" className="btn-ghost" data-azure-ocr-retry="" style={{ padding: "var(--sp-1) var(--sp-2)" }}
+              onClick={() => { const r = azureRetry; setAzureRetry(null); importScheduleFromRect(r.a, r.b, { azure: true }); }}>
+              {AZURE_RETRY_LABEL}
+            </button>
+          )}
         </span>
         <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", color: "inherit", opacity: 0.75 }}>{sourceLabel()}</a>
         <span style={{ display: "flex", gap: 12, opacity: 0.75 }} aria-live="polite">

@@ -73,9 +73,28 @@ Unzip it as the App Service site directory and start `node floor360-static.mjs`.
 | HTTPS only | On |
 | Plan | The existing Build plan if it has room (no extra cost). Otherwise a new Linux B1. Do not use S1. |
 
-No database, storage account, or API key is required. Easy Auth is the only sign-in.
+No database, storage account, or API key is required. Easy Auth is the only sign-in. Azure OCR for hard scans adds the settings below.
 
 A remote bring-your-own AI endpoint will not connect: `connect-src` is this origin only. On-device measuring does not need one.
+
+## Azure OCR for hard scans (`/api/ocr/read`)
+
+Import from schedule reads a raster box on-device first. When that read finds no table, the status bar offers **Hard scan? Read with Azure**. The browser sends one PNG of the box to this site's `POST /api/ocr/read` (same origin, so the CSP is unchanged). `floor360-ocr-read.mjs` (copied into `dist/`) sends it to Document Intelligence `prebuilt-read` and returns the text lines. The button appears only after `GET /api/ocr/read` reports `enabled: true`.
+
+Resource: `di-floor360-build-prod` (centralus, F0 free tier, shared with Build). The App Service managed identity (principal `291e4922-f17b-4748-99bd-3b676f9c5310`) has **Cognitive Services User** on it, so no key is needed.
+
+| App setting | Value |
+| --- | --- |
+| `DI_ENDPOINT` | `https://di-floor360-build-prod-e74ef.cognitiveservices.azure.com/` (required; `DOCUMENT_INTELLIGENCE_ENDPOINT` is read as a fallback) |
+| `OCR_MONTHLY_PAGE_CAP` | `300` (default). F0 allows 500 free pages a month and Build shares them. Raise to `2000` only after a paid S0 tier is approved. |
+| `OCR_USER_DAILY_CAP` | `100` (default), pages a UTC day per signed-in user |
+| `OCR_USAGE_FILE` | Leave unset: `/home/data/opentakeoff/ocr-usage.json` (on `/home`, so it survives restarts and deploys) |
+| `DI_KEY` | Leave unset. Fallback only when the managed identity is off. Use a Key Vault reference if it is ever needed. |
+| `AZURE_CLIENT_ID` | Only when a user-assigned identity is used instead of the system one |
+
+The managed identity token comes from App Service's `IDENTITY_ENDPOINT` / `IDENTITY_HEADER` (set automatically when the identity is on). This is the same managed-identity leg `DefaultAzureCredential` uses, done with `fetch`, because `dist` is deployed without `npm install`.
+
+The route requires the Easy Auth user (`X-MS-CLIENT-PRINCIPAL-NAME`), counts one page for each image before calling Azure (it does not count a request Azure refuses), answers 429 with the cap that stopped it, and runs one Azure read at a time. HTTP 429 from Azure is retried after 1, 2, and 4 seconds. F0 limits are 2 pages and 4 MB a request: the route sends one page and refuses an upload over `OCR_MAX_IMAGE_BYTES` (default 4 MB). The browser lowers the render DPI until the PNG fits. Keys and tokens are never logged or returned.
 
 ## Easy Auth and Entra
 
