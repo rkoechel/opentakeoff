@@ -12,6 +12,9 @@ import { projectIdFromUrl, setActiveStore, metaGet, metaDelete } from "./lib/sto
 import { isGoogleConfigured, getAccessToken } from "./lib/google/auth.js";
 import { loadFolderLink, queryFolderPermission, requestFolderPermission, forgetFolder } from "./lib/fs/fsAccess.js";
 import { m365Config, M365_ENABLED_KEY } from "./lib/msgraph/config.js";
+import { jobIdFromSearch } from "./lib/msgraph/projects.js";
+import { M365JobGate, M365ProjectsGate } from "./components/M365Jobs.jsx";
+import { floor360PrivateBuild } from "./lib/privateBuild.js";
 import { cloudSyncEnabled } from "./lib/prefs.js";
 import { projectHomeFolderId } from "./lib/projectHome.js";
 import { initTheme } from "./lib/theme.js";
@@ -473,15 +476,29 @@ function WorkspaceGate() {
   return pick === "m365" ? <M365Gate cfg={cfg} /> : <FolderGate />;
 }
 
+// /projects: the SharePoint job list on a Microsoft 365 build, else the
+// Google Drive project browser.
+function ProjectsRoute() {
+  const cfg = m365Config();
+  return cfg ? <M365ProjectsGate cfg={cfg} /> : <ProjectHomeGate />;
+}
+
 function App() {
   // Subscribe to navigation: react-router bails out of re-rendering the same
   // element on navigate(), so App must watch the location itself. The store.js
   // URL helpers read window.location, which history has already updated by the
   // time this re-render runs — useLocation() is purely the re-render trigger.
-  useLocation();
+  const location = useLocation();
   const projectId = projectIdFromUrl();
   // ?project= deep link → the cloud project.
   if (projectId && isGoogleConfigured()) return <ProjectGate projectId={projectId} />;
+  // Microsoft 365 per-job projects (components/M365Jobs.jsx): ?job= opens a
+  // job folder; the FLOOR360 build lands on the project list unless the user
+  // chose to work locally (?local=1).
+  const m365 = m365Config();
+  const jobId = m365 ? jobIdFromSearch(location.search) : "";
+  if (m365 && jobId) return <M365JobGate key={jobId} cfg={m365} jobId={jobId} />;
+  if (m365 && floor360PrivateBuild() && !new URLSearchParams(location.search).has("local")) return <Navigate to="/projects" replace />;
   // Otherwise the anonymous local canvas is the default landing screen —
   // open the bundled demo plan or drop your own, no sign-in required.
   // Google sign-in (to browse team projects at /projects) is a subtle,
@@ -496,7 +513,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <GoogleAuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/projects" element={<ProjectHomeGate />} />
+          <Route path="/projects" element={<ProjectsRoute />} />
           <Route path="*" element={<App />} />
         </Routes>
       </BrowserRouter>

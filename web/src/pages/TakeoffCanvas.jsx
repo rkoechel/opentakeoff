@@ -177,6 +177,7 @@ import PresenceChip from "../components/PresenceChip.jsx";
 import { StylePreview } from "../components/DrawStylePicker.jsx";
 import { useGoogleAuth } from "../lib/google/AuthContext.jsx";
 import { projectHomeFolderId } from "../lib/projectHome.js";
+import { m365Config } from "../lib/msgraph/config.js";
 import { getTheme, toggleTheme, onThemeChange } from "../lib/theme.js";
 // Pure data constants (render/zoom budgets, snap tuning, tool descriptors,
 // flooring starter conditions) live in lib/canvasConstants.js; the pure
@@ -341,7 +342,8 @@ export default function TakeoffCanvas() {
   // configured. "Browse projects" additionally jumps straight to the team's
   // project list at /projects, when the build names one.
   const closeProject = () => navigate("/");
-  const browseProjects = projectHomeFolderId() ? () => navigate("/projects") : null;
+  // a Microsoft 365 build's /projects is the SharePoint job list (M365Jobs.jsx)
+  const browseProjects = (projectHomeFolderId() || m365Config()) ? () => navigate("/projects") : null;
   const [openTabs, setOpenTabs] = useState([]);   // sheetKeys open as tabs across the top
   // Sheet-tab strip: past MANY_TABS the row stops wrapping and becomes a
   // horizontal strip with ◀ ▶ arrows (every open sheet stays a visible,

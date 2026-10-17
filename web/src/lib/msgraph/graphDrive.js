@@ -112,7 +112,12 @@ export function createGraphDrive({ getToken, driveId, fetch = globalThis.fetch, 
     let detail = "";
     try { detail = (await res.text()) || ""; } catch { /* body may be unreadable */ }
     if (res.status === 401) throw new GraphAuthError(`Microsoft 365 rejected the sign-in token on ${what} (HTTP 401) even after a refresh — sign in again${detail ? `: ${detail}` : "."}`, 401);
-    if (res.status === 403) throw new GraphAuthError(`Microsoft 365 refused ${what} (HTTP 403) — the signed-in account cannot reach this library, or the app was not granted its Graph permission (Sites.Selected with a write grant on this site, or Files.ReadWrite.All; see SELF_HOSTING.md, Microsoft 365 → step 1)${detail ? `: ${detail}` : "."}`, 403);
+    if (res.status === 403) {
+      // One readable sentence; Graph's JSON body goes on .detail, not into the UI.
+      const err = new GraphAuthError(`SharePoint refused ${what} (HTTP 403). This app has no write access to the library yet (an admin must grant Sites.Selected write on this site, or Files.ReadWrite.All upstream; SELF_HOSTING.md, Microsoft 365 → step 1), or your account can't open it.`, 403);
+      err.detail = detail;
+      throw err;
+    }
     throw new Error(`Graph ${what} failed (HTTP ${res.status})${detail ? `: ${detail}` : ""}.`);
   }
 
