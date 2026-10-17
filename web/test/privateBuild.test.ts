@@ -15,14 +15,16 @@ test("node is not the private build, so source falls back to the repo", () => {
   assert.equal(sourceLabel(), "Source");
 });
 
-test("one-click stays off on a private build even if the runtime gate and VITE_ONE_CLICK are set", () => {
-  assert.equal(oneClickDecision({ privateBuild: true, runtime: true, vite: "1" }), false);
+test("one-click follows the build's VITE_ONE_CLICK on a private build and ignores the runtime lift", () => {
+  assert.equal(oneClickDecision({ privateBuild: true, runtime: true, vite: "1" }), true);
+  assert.equal(oneClickDecision({ privateBuild: true, runtime: false, vite: "1" }), true);
+  assert.equal(oneClickDecision({ privateBuild: true, runtime: true, vite: "" }), false);
   assert.equal(oneClickDecision({ privateBuild: false, runtime: true, vite: "" }), true);
   assert.equal(oneClickDecision({ privateBuild: false, runtime: false, vite: "1" }), true);
   assert.equal(oneClickDecision({ privateBuild: false, runtime: false, vite: "" }), false);
 });
 
-test("lockSyncConfig blanks Google sync, contribute, one-click, and AI, leaves OCR on, and drops invalid M365 values", () => {
+test("lockSyncConfig blanks Google sync, contribute, and AI, leaves OCR on, and drops invalid M365 values", () => {
   const full: Record<string, string> = { VITE_OCR: "on", UNRELATED: "keep" };
   for (const key of PRIVATE_LOCKED_ENV_KEYS) full[key] = "present";
   for (const key of M365_SYNC_ENV_KEYS) full[key] = "present";
@@ -56,7 +58,7 @@ const GOOD = {
 
 test("M365 keys are not on the hard-locked list", () => {
   for (const key of M365_SYNC_ENV_KEYS) assert.equal(PRIVATE_LOCKED_ENV_KEYS.includes(key), false, key);
-  for (const key of ["VITE_ONE_CLICK", "VITE_GOOGLE_CLIENT_ID", "VITE_CONTRIBUTE_ENDPOINT", "VITE_AI_KEY", "VITE_AI_ENDPOINT"]) {
+  for (const key of ["VITE_GOOGLE_CLIENT_ID", "VITE_CONTRIBUTE_ENDPOINT", "VITE_AI_KEY", "VITE_AI_ENDPOINT"]) {
     assert.equal(PRIVATE_LOCKED_ENV_KEYS.includes(key), true, key);
   }
 });
@@ -116,4 +118,11 @@ test("the private build turns on-device OCR on and requires staged models", asyn
   assert.match(cfg, /no OCR models: run `npm run build:floor360`/);
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.scripts["build:floor360"], "node scripts/stage-ocr-model.mjs && vite build && node scripts/check-ocr-dist.mjs");
+});
+
+test("the private build defines VITE_ONE_CLICK=1 and VITE_ONE_CLICK is not on the locked list", async () => {
+  assert.equal(PRIVATE_LOCKED_ENV_KEYS.includes("VITE_ONE_CLICK"), false);
+  const { readFileSync } = await import("node:fs");
+  const cfg = readFileSync(new URL("../vite.config.js", import.meta.url), "utf8");
+  assert.match(cfg, /define\["import\.meta\.env\.VITE_ONE_CLICK"\] = JSON\.stringify\("1"\);/);
 });
