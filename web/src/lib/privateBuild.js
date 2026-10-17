@@ -1,5 +1,6 @@
 // FLOOR360 private build. The Vite config defines __OT_FLOOR360_PRIVATE__
-// and blanks every VITE_* contribute / one-click / AI / Google value so a
+// and blanks every VITE_* contribute / AI / Google value (One-Click Area is
+// turned ON by the build itself: vite.config defines VITE_ONE_CLICK=1) so a
 // secret or feature flag set in the build shell is not inlined. These
 // helpers are the second lock: they still refuse when a caller passes an
 // env object or a localStorage override. Under the Node test runner the
@@ -30,7 +31,6 @@ export const M365_SYNC_ENV_KEYS = [
 export const M365_ALLOWED_SCOPES = ["Sites.Selected", "Files.ReadWrite.All"];
 
 export const PRIVATE_LOCKED_ENV_KEYS = [
-  "VITE_ONE_CLICK",
   "VITE_GOOGLE_CLIENT_ID",
   "VITE_GOOGLE_HD",
   "VITE_DRIVE_ROOT_FOLDER_ID",
@@ -90,7 +90,7 @@ export function floor360M365Env(env) {
   };
 }
 
-/** Copy `env` with contribute / one-click / AI / Google keys cleared and the
+/** Copy `env` with contribute / AI / Google keys cleared and the
  *  M365 keys kept only if they validate for FLOOR360. On-device OCR is ON in
  *  the private build: its models are same-origin files staged at build time
  *  (scripts/stage-ocr-model.mjs), so it reaches no other host. */

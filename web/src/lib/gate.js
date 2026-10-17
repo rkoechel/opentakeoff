@@ -8,12 +8,14 @@
 // time). Tests and lab drivers can lift it at runtime by setting
 // globalThis.__OT_ONE_CLICK = true before the first call — the check is a
 // function, read at call time, never frozen at import.
-// The FLOOR360 private build refuses both lifts.
+// The FLOOR360 private build ships it ON: vite.config defines VITE_ONE_CLICK=1
+// at build time. It refuses only the runtime lift (globalThis), so a page
+// script can't toggle it; the build decides.
 
 import { floor360PrivateBuild } from "./privateBuild.js";
 
 export function oneClickDecision({ privateBuild, runtime, vite }) {
-  if (privateBuild) return false;
+  if (privateBuild) return vite === "1";
   if (runtime === true) return true;
   return vite === "1";
 }

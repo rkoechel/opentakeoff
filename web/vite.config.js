@@ -56,6 +56,10 @@ const define = {
 for (const key of PRIVATE_LOCKED_ENV_KEYS) {
   define[`import.meta.env.${key}`] = JSON.stringify("");
 }
+// One-Click Area: on in this build. Pure in-browser geometry (oneclick.ts),
+// no network, no key. Not read from the shell, so it can't be switched off
+// or on by accident.
+define["import.meta.env.VITE_ONE_CLICK"] = JSON.stringify("1");
 
 // Microsoft 365 sync — the one sync path this build may turn on. Deployment
 // sets VITE_MSAL_CLIENT_ID / VITE_GRAPH_DRIVE_ID / VITE_GRAPH_FOLDER_ID
@@ -92,7 +96,7 @@ function walkDist(dir, visit) {
 //
 // This branch is the FLOOR360 private build. envPrefix hides every VITE_*
 // value from the client bundle, and `define` blanks the sync / contribute /
-// one-click / AI keys and turns on-device OCR on, so a shell that has those
+// AI keys, turns One-Click Area and on-device OCR on, so a shell that has those
 // variables set cannot turn the features on or inline a key. Runtime checks
 // in src/lib/privateBuild.js are the second lock.
 //
