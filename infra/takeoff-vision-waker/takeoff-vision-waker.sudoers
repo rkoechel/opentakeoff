@@ -1,0 +1,4 @@
+# /etc/sudoers.d/takeoff-vision-waker  (install with: visudo -cf <file>; mode 0440)
+# The waker may run exactly these two commands as root, nothing else.
+takeoff-waker ALL=(root) NOPASSWD: /usr/bin/docker start takeoff-vision
+takeoff-waker ALL=(root) NOPASSWD: /usr/bin/docker inspect --format {{.State.Status}} takeoff-vision

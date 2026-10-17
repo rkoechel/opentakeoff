@@ -179,6 +179,28 @@ export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 409
   };
 }
 
+export const AI_STARTING_MESSAGE = "Starting the takeoff AI… (usually ~1–2 min)";
+export const AI_NO_MEMORY_MESSAGE = "The AI server is out of memory right now. Ask Ryan to free memory on the DGX.";
+/** How long chatWithTools keeps retrying while the FLOOR360 proxy reports
+ *  the model starting (it starts the DGX container on demand). */
+export const AI_START_WAIT_MS = 4 * 60_000;
+
+/** The proxy's 503 while it starts the model: {state: "starting",
+ *  retryAfter}. Only the FLOOR360 proxy sends retryAfter, so a BYO endpoint
+ *  never triggers the wait. Returns seconds to wait, or 0. */
+export function startingRetryAfter(status, body) {
+  if (status !== 503 || !body || body.state !== "starting") return 0;
+  const s = Number(body.retryAfter);
+  return Number.isFinite(s) && s > 0 ? Math.min(15, Math.max(3, s)) : 0;
+}
+
+const waitFor = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) { reject(Object.assign(new Error("aborted"), { name: "AbortError" })); return; }
+  const t = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, ms);
+  const onAbort = () => { clearTimeout(t); reject(Object.assign(new Error("aborted"), { name: "AbortError" })); };
+  signal?.addEventListener("abort", onAbort, { once: true });
+});
+
 /** A failed reply as a plain-language message. The FLOOR360 proxy answers
  *  {error, state}: "busy" (its two slots are taken, or the model is) and
  *  "starting" (the model is loading or the DGX is waking) get their own
@@ -188,6 +210,7 @@ export function aiHttpError(status, body) {
   const state = body && typeof body === "object" ? body.state : undefined;
   if (state === "busy") return "AI busy — the takeoff AI is already working on two requests. Try again in a minute.";
   if (state === "starting") return "AI starting — the takeoff AI is warming up. Try again in a minute.";
+  if (state === "no_memory") return AI_NO_MEMORY_MESSAGE;
   if (body && typeof body.error === "string" && body.error) return `${body.error} (HTTP ${status}).`;
   return `AI request failed (HTTP ${status}).`;
 }
@@ -224,7 +247,7 @@ export async function visionQuery({ imageDataUrl, prompt, maxTokens = 100 }) {
  *  on any transport failure; an AbortError from the caller's signal is
  *  re-thrown untouched so the loop can tell "stopped" from "broken".
  *  `cfg`/`fetchFn` are injectable for tests (default: live config + fetch). */
-export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 4096, signal, fetchFn }) {
+export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 4096, signal, fetchFn, onWait, sleepFn = waitFor, startWaitMs = AI_START_WAIT_MS, nowFn = Date.now }) {
   const c = cfg || aiConfig();
   if (!(c.endpoint && c.model)) throw new Error("AI isn't configured — open AI settings first.");
   const { url, headers, body } = buildChatRequest(c, { system, messages, tools, maxTokens });
@@ -236,15 +259,27 @@ export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 
       sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000);
     }
   } catch { /* keep the caller's signal */ }
+  // While the proxy starts the model on demand it answers 503 {state:
+  // "starting", retryAfter}: say so once (onWait), wait, and retry, for up
+  // to startWaitMs. The proxy holds the one wake; retries never add another.
+  const waitUntil = nowFn() + startWaitMs;
+  let told = false;
   let res;
-  try {
-    res = await (fetchFn || fetch)(url, { method: "POST", headers, body: JSON.stringify(body), signal: sig });
-  } catch (e) {
-    if (signal?.aborted || e?.name === "AbortError") throw e;
-    if (e?.name === "TimeoutError") throw new Error("The endpoint took more than 2 minutes — check the model is loaded.");
-    throw new Error("Couldn't reach the endpoint — check the URL, and that it allows browser requests (CORS).");
+  for (;;) {
+    try {
+      res = await (fetchFn || fetch)(url, { method: "POST", headers, body: JSON.stringify(body), signal: sig });
+    } catch (e) {
+      if (signal?.aborted || e?.name === "AbortError") throw e;
+      if (e?.name === "TimeoutError") throw new Error("The endpoint took more than 2 minutes — check the model is loaded.");
+      throw new Error("Couldn't reach the endpoint — check the URL, and that it allows browser requests (CORS).");
+    }
+    if (res.ok) break;
+    const errBody = await res.json().catch(() => null);
+    const wait = startingRetryAfter(res.status, errBody);
+    if (!wait || nowFn() + wait * 1000 > waitUntil) throw new Error(aiHttpError(res.status, errBody));
+    if (!told) { told = true; try { onWait?.(AI_STARTING_MESSAGE); } catch { /* a listener must not break the call */ } }
+    await sleepFn(wait * 1000, signal);
   }
-  if (!res.ok) throw new Error(aiHttpError(res.status, await res.json().catch(() => null)));
   const json = await res.json().catch(() => null);
   if (!json || typeof json !== "object") throw new Error("The endpoint replied, but not with JSON.");
   return json;

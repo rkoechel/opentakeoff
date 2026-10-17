@@ -7276,6 +7276,7 @@ export default function TakeoffCanvas() {
           ? { kind: "error", text: `✗ ${ev.name}: ${ev.result.error}` }
           : { kind: "status", text: `✓ ${ev.name} ${trimJson({ ...ev.result, image_data_url: undefined, items: Array.isArray(ev.result?.items) ? `${ev.result.items.length} items` : undefined }, 160)}` })
       : ev.type === "error" ? { kind: "error", text: `Error: ${ev.message}` }
+      : ev.type === "status" ? { kind: "status", text: ev.text }   // e.g. "Starting the takeoff AI…" while the DGX wakes
       : ev.type === "aborted" ? { kind: "status", text: "Stopped." }
       : ev.type === "max_iterations" ? { kind: "status", text: `Stopped at the ${ev.limit}-step cap — review what's staged.` }
       : ev.type === "done" ? { kind: "status", text: "Done — review the dashed proposals." }

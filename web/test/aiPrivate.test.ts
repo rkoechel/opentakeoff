@@ -30,3 +30,33 @@ test("busy and starting replies read as such", async () => {
   assert.equal(ai.aiHttpError(500, null), "AI request failed (HTTP 500).");
   assert.equal(ai.aiHttpError(400, { error: { message: "x" } }), "AI request failed (HTTP 400).");
 });
+
+test("starting with retryAfter: says so once, waits, retries until the model answers", async () => {
+  let n = 0;
+  const fetchFn = (async () => (++n < 3 ? Response.json({ error: "Starting the takeoff AI", state: "starting", retryAfter: 10 }, { status: 503 }) : Response.json({ choices: [] }))) as unknown as typeof fetch;
+  const waits: number[] = [];
+  const told: string[] = [];
+  const out = await ai.chatWithTools({ messages: [], tools: [], fetchFn, onWait: (t: string) => told.push(t), sleepFn: async (ms: number) => { waits.push(ms); } });
+  assert.deepEqual(out, { choices: [] });
+  assert.deepEqual(waits, [10000, 10000]);
+  assert.deepEqual(told, ["Starting the takeoff AI… (usually ~1–2 min)"]);
+});
+
+test("no_memory and a plain starting without retryAfter are not retried", async () => {
+  let n = 0;
+  const noMem = (async () => { n++; return Response.json({ error: "x", state: "no_memory" }, { status: 503 }); }) as unknown as typeof fetch;
+  await assert.rejects(ai.chatWithTools({ messages: [], tools: [], fetchFn: noMem, sleepFn: async () => {} }), { message: "The AI server is out of memory right now. Ask Ryan to free memory on the DGX." });
+  assert.equal(n, 1);
+  n = 0;
+  const plain = (async () => { n++; return Response.json({ error: "AI starting", state: "starting" }, { status: 503 }); }) as unknown as typeof fetch;
+  await assert.rejects(ai.chatWithTools({ messages: [], tools: [], fetchFn: plain, sleepFn: async () => {} }), { message: /^AI starting/ });
+  assert.equal(n, 1);
+});
+
+test("the start wait gives up after startWaitMs", async () => {
+  let n = 0;
+  const fetchFn = (async () => { n++; return Response.json({ state: "starting", retryAfter: 10 }, { status: 503 }); }) as unknown as typeof fetch;
+  let now = 0;
+  await assert.rejects(ai.chatWithTools({ messages: [], tools: [], fetchFn, sleepFn: async (ms: number) => { now += ms; }, nowFn: () => now, startWaitMs: 25_000 }), { message: /^AI starting/ });
+  assert.equal(n, 3);
+});

@@ -153,7 +153,7 @@ export async function runAgentLoop({ cfg, goal, tools, execute, onEvent, signal,
     if (signal?.aborted) return aborted();
     let json;
     try {
-      json = await chatWithTools({ cfg, system, messages, tools: providerTools, signal, fetchFn });
+      json = await chatWithTools({ cfg, system, messages, tools: providerTools, signal, fetchFn, onWait: (text) => emit({ type: "status", text }) });
     } catch (e) {
       if (signal?.aborted || e?.name === "AbortError") return aborted();
       const message = String((e && e.message) || e);
