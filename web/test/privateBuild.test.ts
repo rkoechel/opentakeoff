@@ -22,13 +22,13 @@ test("one-click stays off on a private build even if the runtime gate and VITE_O
   assert.equal(oneClickDecision({ privateBuild: false, runtime: false, vite: "" }), false);
 });
 
-test("lockSyncConfig blanks Google sync, contribute, one-click, and AI, forces OCR off, and drops invalid M365 values", () => {
+test("lockSyncConfig blanks Google sync, contribute, one-click, and AI, leaves OCR on, and drops invalid M365 values", () => {
   const full: Record<string, string> = { VITE_OCR: "on", UNRELATED: "keep" };
   for (const key of PRIVATE_LOCKED_ENV_KEYS) full[key] = "present";
   for (const key of M365_SYNC_ENV_KEYS) full[key] = "present";
   const locked = lockSyncConfig(full, true);
   for (const key of M365_SYNC_ENV_KEYS) assert.equal(locked[key], "", key);
-  assert.equal(locked.VITE_OCR, "off");
+  assert.equal(locked.VITE_OCR, "on");
   assert.equal(locked.UNRELATED, "keep");
   for (const key of PRIVATE_LOCKED_ENV_KEYS) assert.equal(locked[key], "", key);
   assert.equal(m365Config(locked), null);
@@ -107,4 +107,13 @@ test("the fallback scope Files.ReadWrite.All is accepted when named", () => {
   const r = floor360M365Env({ ...GOOD, VITE_GRAPH_SCOPES: "Files.ReadWrite.All", VITE_MSAL_TENANT: FLOOR360_TENANT_ID.toUpperCase() });
   assert.equal(r.configured, true);
   assert.equal(r.values.VITE_GRAPH_SCOPES, "Files.ReadWrite.All");
+});
+
+test("the private build turns on-device OCR on and requires staged models", async () => {
+  const { readFileSync } = await import("node:fs");
+  const cfg = readFileSync(new URL("../vite.config.js", import.meta.url), "utf8");
+  assert.match(cfg, /"import\.meta\.env\.VITE_OCR": JSON\.stringify\("on"\)/);
+  assert.match(cfg, /no OCR models: run `npm run build:floor360`/);
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.equal(pkg.scripts["build:floor360"], "node scripts/stage-ocr-model.mjs && vite build && node scripts/check-ocr-dist.mjs");
 });

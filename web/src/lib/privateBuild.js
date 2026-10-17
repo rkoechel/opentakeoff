@@ -90,11 +90,13 @@ export function floor360M365Env(env) {
   };
 }
 
-/** Copy `env` with contribute / one-click / AI / Google keys cleared, OCR
- *  forced off, and the M365 keys kept only if they validate for FLOOR360. */
+/** Copy `env` with contribute / one-click / AI / Google keys cleared and the
+ *  M365 keys kept only if they validate for FLOOR360. On-device OCR is ON in
+ *  the private build: its models are same-origin files staged at build time
+ *  (scripts/stage-ocr-model.mjs), so it reaches no other host. */
 export function lockSyncConfig(env, locked = floor360PrivateBuild()) {
   if (!locked || env == null || typeof env !== "object") return env;
-  const out = { ...env, VITE_OCR: "off", ...floor360M365Env(env).values };
+  const out = { ...env, ...floor360M365Env(env).values };
   for (const key of PRIVATE_LOCKED_ENV_KEYS) out[key] = "";
   return out;
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CONTENT_SECURITY_POLICY, REDIRECT_BRIDGE_HEADERS, createStaticServer, resolveRequest } from "../scripts/floor360-static.mjs";
+import { CONTENT_SECURITY_POLICY, REDIRECT_BRIDGE_HEADERS, cacheControlFor, createStaticServer, resolveRequest } from "../scripts/floor360-static.mjs";
 import { ALLOWED_MICROSOFT_HOSTS, STRIPPED_HOSTS, stripPrivateHosts } from "../scripts/strip-private-hosts.mjs";
 
 test("private host strip removes dependency URLs and leaves the source link", () => {
@@ -79,6 +79,36 @@ test("static server sends the CSP and serves .mjs as JavaScript", async () => {
     if (escaped.file) assert.ok(escaped.file.startsWith(dir), escaped.file);
     const dotted = resolveRequest(dir, "/%2e%2e/package.json");
     assert.equal(dotted.file, undefined);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("cache headers: hashed assets and OCR models for a year, everything else revalidates", async () => {
+  assert.equal(cacheControlFor("/assets/index-abc123.js"), "public, max-age=31536000, immutable");
+  assert.equal(cacheControlFor("/assets/ort-wasm-simd-threaded.asyncify-DMmc6YqF.wasm"), "public, max-age=31536000, immutable");
+  assert.equal(cacheControlFor("/models/ocr/det.onnx"), "public, max-age=31536000");
+  assert.equal(cacheControlFor("/models/ocr/dict.txt"), "public, max-age=31536000");
+  assert.equal(cacheControlFor("/models/ocr/manifest.json"), "no-cache");
+  assert.equal(cacheControlFor("/index.html"), "no-cache");
+  assert.equal(cacheControlFor("/"), "no-cache");
+  const dir = mkdtempSync(join(tmpdir(), "ot-cache-"));
+  writeFileSync(join(dir, "index.html"), "<!doctype html><title>ok</title>");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(join(dir, "models", "ocr"), { recursive: true });
+  writeFileSync(join(dir, "models", "ocr", "det.onnx"), "x");
+  const server = createStaticServer(dir);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+  const addr = server.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+  try {
+    const model = await fetch(`http://127.0.0.1:${port}/models/ocr/det.onnx`);
+    assert.equal(model.headers.get("cache-control"), "public, max-age=31536000");
+    assert.equal(model.headers.get("content-type"), "application/octet-stream");
+    const spa = await fetch(`http://127.0.0.1:${port}/projects/abc`);
+    assert.equal(spa.headers.get("cache-control"), "no-cache");
+    assert.equal(spa.headers.get("content-security-policy"), CONTENT_SECURITY_POLICY);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });

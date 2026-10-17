@@ -9,7 +9,7 @@ Do not deploy from these notes until the pull request is reviewed. Nothing here 
 - No Cloudflare Web Analytics beacon, and no other third-party analytics script.
 - Fonts are files under `web/public/fonts`, loaded by `web/src/styles/fonts.css`. The app does not request `fonts.googleapis.com` or `fonts.gstatic.com`. Each family is SIL Open Font License; the license texts are next to the files.
 - Content-Security-Policy allows `connect-src 'self' blob: data:` plus exactly three Microsoft hosts for 365 sync (`https://login.microsoftonline.com`, `https://graph.microsoft.com`, `https://floor360com.sharepoint.com`), and same-origin `script-src` / `worker-src` (plus `wasm-unsafe-eval` for pdf.js, and `blob:` workers). `frame-src` allows only `https://login.microsoftonline.com` (MSAL's hidden silent-renewal iframe). `/redirect.html`, the MSAL redirect bridge, is the only page served with `frame-ancestors 'self'` / `X-Frame-Options: SAMEORIGIN`; every other page stays `DENY`.
-- Google sign-in / Drive, Contribute, One-Click Area and AI stay off. Setting `VITE_ONE_CLICK`, `VITE_GOOGLE_*`, `VITE_DRIVE_ROOT_FOLDER_ID`, `VITE_CLOUD_SYNC`, `VITE_CONTRIBUTE_ENDPOINT`, or `VITE_AI_*` in the build environment does not turn them on and does not inline those values. `VITE_OCR` is forced off.
+- Google sign-in / Drive, Contribute, One-Click Area and AI stay off. Setting `VITE_ONE_CLICK`, `VITE_GOOGLE_*`, `VITE_DRIVE_ROOT_FOLDER_ID`, `VITE_CLOUD_SYNC`, `VITE_CONTRIBUTE_ENDPOINT`, or `VITE_AI_*` in the build environment does not turn them on and does not inline those values. On-device OCR is on (see Build).
 - Microsoft 365 sync is the one sync path this build can turn on, and only for the FLOOR360 tenant. It stays dark unless the build shell sets the values in "Microsoft 365 sync" below; they are validated and a bad value fails the build.
 - The build deletes leftover host strings (`cdn.jsdelivr.net`, `huggingface.co`, `googleapis.com`, `opentakeoff.kentucky-ai.com`) from the artifact. `graph.microsoft.com` is kept for Microsoft 365 sync. Those calls are already unreachable with the flags above. The build fails if any of them remain in `dist`.
 - The canvas footer, the empty-project screen, and the in-app guide each show a Source link to `https://github.com/rkoechel/opentakeoff/commit/<sha>` for the commit that was built. `LICENSE` and `NOTICE` stay in the repo and are copied into the artifact.
@@ -39,10 +39,10 @@ From a checkout of this branch, with Node 24 or newer:
 ```bash
 cd web
 npm ci
-VITE_OCR=off npm run build
+npm run build:floor360
 ```
 
-`VITE_OCR=off` is also forced inside `web/vite.config.js`, so the client bundle stays OCR-off even if the shell variable is forgotten. The stage script that downloads OCR models only runs when you invoke it; this build does not.
+`build:floor360` runs `scripts/stage-ocr-model.mjs` (downloads PaddleOCR PP-OCRv5 mobile det + English rec from pinned Hugging Face commits and checks each against its pinned sha256; about 13 MB, build time only), then `vite build`, then `scripts/check-ocr-dist.mjs`. The build fails if the models are missing, and still fails if any third-party host string is left in `dist`. At run time the browser fetches the models, the dictionary and the ORT wasm from this site only (about 36 MB once per browser, then cached). Plan images never leave the browser. Cache `web/public/models/ocr` between builds to skip the download.
 
 The commit in the Source link is `git rev-parse HEAD` at build time. Set `OT_SOURCE_COMMIT` only when the build is not running inside the git checkout. It must be the full or abbreviated hex commit that is public on `rkoechel/opentakeoff`.
 
