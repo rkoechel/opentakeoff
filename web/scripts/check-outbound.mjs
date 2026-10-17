@@ -3,6 +3,7 @@
 //
 //   node scripts/check-outbound.mjs --origin http://127.0.0.1:8080
 //   node scripts/check-outbound.mjs --origin … --allow-microsoft
+//   node scripts/check-outbound.mjs --origin … --allow-microsoft --path "/?local=1"
 //
 // --allow-microsoft accepts the three Microsoft 365 sync hosts
 // (strip-private-hosts.mjs ALLOWED_MICROSOFT_HOSTS) and nothing else; any
@@ -36,6 +37,9 @@ function arg(name) {
 }
 
 const origin = (arg("--origin") || "").replace(/\/$/, "");
+// --path: the page to open (default "/"); an M365 build lands on /projects,
+// so its sample-plan check opens "/?local=1".
+const startPath = arg("--path") || "/";
 const screenshotPath = arg("--screenshot");
 const allowedHosts = process.argv.includes("--allow-microsoft") ? new Set(ALLOWED_MICROSOFT_HOSTS) : new Set();
 if (!origin) {
@@ -191,7 +195,7 @@ async function main() {
     await send("Page.enable");
     await send("Runtime.enable");
     await send("Log.enable");
-    const navigated = await send("Page.navigate", { url: `${origin}/` });
+    const navigated = await send("Page.navigate", { url: `${origin}${startPath.startsWith("/") ? startPath : `/${startPath}`}` });
     mainFrameId = navigated.frameId || "";
     for (let i = 0; i < 40; i++) {
       const state = await send("Runtime.evaluate", { expression: "document.readyState", returnByValue: true });

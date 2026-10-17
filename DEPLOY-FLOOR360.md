@@ -121,11 +121,22 @@ Off unless the build shell sets these. None is a secret (a SPA client id and a d
 
 | Build variable | Value |
 | --- | --- |
-| `VITE_MSAL_CLIENT_ID` | Application (client) id of the **FLOOR360 OpenTakeoff Sync** SPA registration |
+| `VITE_MSAL_CLIENT_ID` | `44d9ca99-bb5f-41f0-a233-2a09927dc60f` (the **FLOOR360 OpenTakeoff Sync** SPA registration) |
 | `VITE_MSAL_TENANT` | Optional. Only `9febc8e3-0f0b-47cd-89b2-18542bb53d21` is accepted (the default) |
-| `VITE_GRAPH_DRIVE_ID` | Graph drive id (`b!…`) of the SharePoint library |
-| `VITE_GRAPH_FOLDER_ID` | driveItem id of the `OpenTakeoff Projects` folder (or `root`) |
-| `VITE_GRAPH_SCOPES` | Optional. `Sites.Selected` (default) or `Files.ReadWrite.All` |
+| `VITE_GRAPH_DRIVE_ID` | `b!UuoNfT-g1kiqnCJRLr0rxU6IJ66mWy9Ju1S9QFpjkaW57AwOksgUSYam09h7EKeZ` (Estimating site, Documents) |
+| `VITE_GRAPH_FOLDER_ID` | `01NF4SHUHQPL6SK4HCAZDIH4FBNHIW7NFJ` (`OpenTakeoff Projects`) |
+| `VITE_GRAPH_SCOPES` | Optional. `Sites.Selected` (default) or `Files.ReadWrite.All`. FLOOR360 uses `Sites.Selected`. MSAL adds `openid profile offline_access` itself. |
+
+Estimating site id: `floor360com.sharepoint.com,7d0dea52-a03f-48d6-aa9c-22512ebd2bc5,ae27884e-5ba6-492f-bb54-bd405a6391a5`. `Sites.Selected` needs a **write** grant for the app on that site (`POST /sites/{site-id}/permissions` with `roles: ["write"]` for the client id above). Until the grant exists, reads and writes return HTTP 403. The project list and the canvas show that as "OpenTakeoff doesn't have write access to the Estimating site yet", not as a raw Graph error.
+
+### Projects (one folder per job)
+
+With the values set, `/` opens the project list at `/projects` (`/?local=1` keeps the browser-only canvas). The list shows the job folders under `OpenTakeoff Projects`, newest change first. **New project** creates a folder there. It refuses names that already exist and names SharePoint won't accept. Opening a job goes to `/?job=<folder id>`, which installs the same per-project store a Google Drive project uses:
+
+- Plan PDFs are stored in the job folder itself.
+- `annotations.json` and `sheets.json` are stored in `<job>/.opentakeoff/`.
+
+The canvas's **Team projects** menu item returns to the list. PDFs go up with Graph's simple upload, so a single file is limited to 250 MB.
 
 SPA redirect URIs on that registration: `https://takeoff.floor360.com/redirect.html` (and the `*.azurewebsites.net` twin if it is ever opened directly). `redirect.html` is the MSAL v5 redirect bridge, built from `web/redirect.html`.
 
@@ -135,4 +146,4 @@ Local check with the values set:
 node --experimental-websocket scripts/check-outbound.mjs --origin http://127.0.0.1:8080 --allow-microsoft
 ```
 
-`--allow-microsoft` accepts only the three hosts above. The sample-plan path makes no Microsoft request at all until someone clicks the 365 opt-in.
+`--allow-microsoft` accepts only the three hosts above. With the M365 values set, `/` redirects to `/projects`, so run the check on `/?local=1` (the sample-plan path makes no Microsoft request until someone signs in).
