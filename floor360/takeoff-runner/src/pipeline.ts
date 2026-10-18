@@ -273,7 +273,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     let suggestion: string | null = null;
     // vision fallback (Ryan 2026-10-18): any plan sheet with no scale text, scans and vector sheets alike (F360-26-0173 drew its scale notes as linework)
     if (deps.vision && !state.visionOff) {
-      for (const region of scaleCrops(info)) { suggestion = await readScaleWithVision(engine, deps.vision, ctx, state, s.sheet, info, region); if (suggestion || state.visionOff) break; }
+      for (const region of scaleCrops(info)) { suggestion = await readScaleWithVision(engine, deps.vision, ctx, state, s.sheet, region); if (suggestion || state.visionOff) break; }
     }
     if (suggestion === "NTS") {
       state.nts.add(s.sheet);
@@ -528,7 +528,7 @@ async function titleBlockText(engine: Engine, sheet: string, info: { width_px: n
  * Ask the vision model to read the scale note inside one crop of a sheet (see scaleCrops).
  * A suggestion only; null when vision is unavailable or it reads nothing.
  */
-async function readScaleWithVision(engine: Engine, vision: Vision, ctx: RunContext, state: RunState, sheet: string, info: { width_px: number; height_px: number }, region: { x0: number; y0: number; x1: number; y1: number }): Promise<string | null> {
+async function readScaleWithVision(engine: Engine, vision: Vision, ctx: RunContext, state: RunState, sheet: string, region: { x0: number; y0: number; x1: number; y1: number }): Promise<string | null> {
   // px budget from the requested DPI: image px are PDF pt × 2 (144 DPI)
   const px = Math.round(Math.max(200, Math.min(2000, Math.max(region.x1 - region.x0, region.y1 - region.y0) / 2 * (ctx.manifest.options.dpi / 72))));
   let png: string;

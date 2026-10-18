@@ -16,7 +16,7 @@ export function canonScale(s: string): string {
  * A non-global regex matching an architectural or engineering scale note in canon form such as 1/8"=1' or 1"=20' or a ratio like 1:48.
  * @type {RegExp}
  */
-export const SCALE_NOTE_RE = /\d+(?:-\d+)?(?:\/\d+)?"=\d+'|1:\d+/;
+export const SCALE_NOTE_RE = /\d+(?:-\d+)?(?:\/\d+)?"=\d+'|(?<![\d:])1:\d+(?![\d:])/;
 
 /**
  * Checks if the detected scale agrees with the title text.
@@ -27,7 +27,9 @@ export const SCALE_NOTE_RE = /\d+(?:-\d+)?(?:\/\d+)?"=\d+'|1:\d+/;
 export function titleBlockCheck(detected: string, titleText: string): "agrees" | "differs" | "absent" {
   const canonDetected = canonScale(detected);
   const canonTitleText = canonScale(titleText);
-  if (canonTitleText.includes(canonDetected) || canonTitleText.includes(canonDetected.replace(/-0"/g, ''))) {
+  const frac = canonDetected.match(/^(\d+)\/(\d+)"=1'/);
+  const ratio = canonTitleText.match(/(?<![\d:])1:(\d+)(?![\d:])/);
+  if (canonTitleText.includes(canonDetected) || canonTitleText.includes(canonDetected.replace(/-0"/g, '')) || (frac !== null && ratio !== null && (12 * Number(frac[2])) / Number(frac[1]) === Number(ratio[1]))) {
     return "agrees";
   } else if (SCALE_NOTE_RE.test(canonTitleText)) {
     return "differs";
@@ -39,7 +41,7 @@ export function titleBlockCheck(detected: string, titleText: string): "agrees" |
 /**
  * Where the vision model looks for a scale note, in order: the whole right edge (title block and its notes), then the bottom strip (notes under each drawing title).
  */
-export function scaleCrops(info: { width_px: number; height_px: number }): { x0: number; y0: number; x1: number; y1: number }[]
+export function scaleCrops(info: { width_px: number; height_px: number }): { x0: number; y0: number; x1: number; y1: number }[] {
   return [
     { x0: Math.round(info.width_px * 0.55), y0: 0, x1: info.width_px, y1: info.height_px },
     { x0: 0, y0: Math.round(info.height_px * 0.85), x1: info.width_px, y1: info.height_px }

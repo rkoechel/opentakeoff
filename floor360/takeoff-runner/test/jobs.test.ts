@@ -60,7 +60,7 @@ async function runOne(r: Rig, m = setManifest(), bytesFor?: (id: string) => Uint
   return r.store.get(job.id);
 }
 
-test("a full run: done, counts, findings with sheet refs, verdicts on confident rooms only, draft-marked outputs", async () => {
+test("a full run: done, counts, findings with sheet refs, no AI check marks, draft-marked outputs", async () => {
   const r = await rig();
   try {
     const job = await runOne(r);
@@ -73,8 +73,7 @@ test("a full run: done, counts, findings with sheet refs, verdicts on confident 
     assert.deepEqual(e.calls.filter((c) => c.tool === "load_plan").map((c) => [path.basename(c.args.path), c.args.merge]), [["A-plan.pdf", false], ["B-schedule.pdf", true]]);
     assert.deepEqual(e.calls.filter((c) => c.tool === "set_scale").map((c) => c.args), [{ sheet: "A-plan.pdf", use_detected: true }]);
     assert.deepEqual(e.calls.filter((c) => c.tool === "detect_rooms").map((c) => c.args), [{ sheet: "A-plan.pdf", assign_from_schedule: true }], "rooms only on the scaled plan sheet");
-    assert.deepEqual(e.calls.filter((c) => c.tool === "mark_verdict").map((c) => c.args.shape_id), ["s1"], "0.97 gets the AGENT mark, 0.6 does not");
-    assert.ok(tools.indexOf("export_takeoff") > tools.lastIndexOf("mark_verdict"), "exports come last");
+    assert.ok(!tools.includes("mark_verdict"), "no AI check marks: a room is checked only after someone reviews it");
     assert.deepEqual(e.calls.filter((c) => c.tool === "derive_base").map((c) => c.args), [{ source_condition: "CPT-1", condition: "RB-1" }, { source_condition: "VCT-1", condition: "RB-1" }]);
 
     const byKind = (k: string) => job.findings.filter((f) => f.kind === k);
@@ -87,6 +86,8 @@ test("a full run: done, counts, findings with sheet refs, verdicts on confident 
     assert.match(byKind("base_gross_perimeter")[0].message, /NOT deducted/);
     assert.equal(byKind("transitions_withheld").length, 1);
     assert.equal(byKind("low_confidence_rooms").length, 1);
+    assert.match(byKind("scales_unconfirmed")[0].message, /set by the AI from the drawings and none is confirmed/);
+    assert.match(byKind("run_summary")[0].message, /^AI run summary: 3 sheets read, 1 scaled by the AI \(unconfirmed\), 1 left unscaled, 0 hidden/);
     const noScale = byKind("no_scale");
     assert.deepEqual(noScale.map((f) => f.sheet), ["A-plan.pdf#2"]);
     assert.match(noScale[0].message, /the AI read the note as "1\/4" = 1'-0"" \(not applied\)/, "vision suggests, never applies");
@@ -443,6 +444,28 @@ test("a main plan with several scale notes gets the title-block scale and a mult
     assert.match(multi[0].message, /title-block scale .* was applied to the main plan/);
     assert.ok(r.engines[0].calls.some((c) => c.tool === "set_scale" && c.args.sheet === "A-plan.pdf" && c.args.use_detected === true), "the title-block scale is applied");
     assert.ok(!job.findings.some((f) => f.kind === "no_scale" && f.sheet === "A-plan.pdf"));
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("a detected scale that disagrees with the title block gets a scale_mismatch finding", async () => {
+  const r = await rig({
+    handlers: () => smallSet({
+      read_sheet_text: (a: any) => ({
+        sheet: a.sheet,
+        items: [],
+        text: a.sheet === "A-plan.pdf" ? "SCALE: 1/4\" = 1'-0\"" : ""
+      })
+    })
+  });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const mm = job.findings.filter((f) => f.kind === "scale_mismatch");
+    assert.deepEqual(mm.map((f) => f.sheet), ["A-plan.pdf"]);
+    assert.match(mm[0].message, /does not match the scale note in the title block/);
+    assert.ok(r.engines[0].calls.some((c) => c.tool === "read_sheet_text" && c.args.sheet === "A-plan.pdf" && c.args.region));
   } finally {
     await r.cleanup();
   }
