@@ -73,6 +73,7 @@ const eng = (ftPerIn: number): number => ftPerIn / PX_PER_IN;        // ftPerIn 
 // unit system only changes what the UI displays (lib/units.ts).
 const metric = (r: number): number => (r / 12) / PX_PER_IN;
 export const STANDARD_SCALES: Scale[] = [
+  { label: '1/32" = 1\'-0"', upp: arch(1 / 32) },
   { label: '1/16" = 1\'-0"', upp: arch(1 / 16) },
   { label: '3/32" = 1\'-0"', upp: arch(3 / 32) },
   { label: '1/8" = 1\'-0"', upp: arch(1 / 8) },
@@ -84,12 +85,14 @@ export const STANDARD_SCALES: Scale[] = [
   { label: '1" = 1\'-0"', upp: arch(1) },
   { label: '1-1/2" = 1\'-0"', upp: arch(1.5) },
   { label: '3" = 1\'-0"', upp: arch(3) },
+  { label: '6" = 1\'-0"', upp: arch(6) },
   { label: '1" = 10\'', upp: eng(10) },
   { label: '1" = 20\'', upp: eng(20) },
   { label: '1" = 30\'', upp: eng(30) },
   { label: '1" = 40\'', upp: eng(40) },
   { label: '1" = 50\'', upp: eng(50) },
   { label: '1" = 60\'', upp: eng(60) },
+  { label: '1" = 100\'', upp: eng(100) },
   { label: "1:20", upp: metric(20) },
   { label: "1:25", upp: metric(25) },
   { label: "1:50", upp: metric(50) },
@@ -171,11 +174,22 @@ export function extractSheetNumber(textContent: TextContentLike, viewport: Viewp
 // top takeoff error source, and the note is sitting right there.
 const _canonScaleText = (s: string): string => s
   .replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'")
-  .replace(/\s+/g, "").toUpperCase();
+  .replace(/\s+/g, "").toUpperCase()
+  .replace(/(\d)INCH(ES)?/g, '$1"')
+  .replace(/(\d)(FOOT|FEET)/g, "$1'")
+  .replace(/(\d)FT\.?/g, "$1'");
 const SCALE_KEYS: ScaleWithKeys[] = STANDARD_SCALES.map((s) => {
   const full = _canonScaleText(s.label);
   const keys = new Set<string>([full]);
-  if (full.endsWith("=1'-0\"")) keys.add(full.slice(0, -3));   // 1/8"=1'-0" also written 1/8"=1'
+  if (full.endsWith("=1'-0\"")) {
+    const base = full.slice(0, -3);   // e.g. 1/8"=1'
+    keys.add(base);                   // 1/8"=1'-0" also written 1/8"=1'
+    keys.add(`${base}0"`);            // ... or 1/8"=1'0"
+    keys.add(`${base}-0`);            // ... or 1/8"=1'-0
+    // ratio form of the architectural scales: 1/4" = 1'-0" is 1:48. 1:4, 1:8, 1:12 and 1:16 are left out (ramp slopes and details)
+    const ratio = Math.round(s.upp * PX_PER_IN * 12);
+    if ([24, 32, 48, 64, 96, 128, 192].includes(ratio)) keys.add(`1:${ratio}`);
+  }
   else if (full.endsWith("'")) keys.add(`${full}-0"`);         // 1"=20' also written 1"=20'-0"
   return { ...s, keys: [...keys] };
 });
