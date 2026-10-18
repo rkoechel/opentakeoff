@@ -18,7 +18,7 @@ const btn = { padding: "5px 12px", border: "1px solid var(--ink-faint)", backgro
 const muted = { color: "var(--ink-muted)", fontSize: 11.5 };
 
 /** notice: {state: "idle" | "saving" | "sending" | "error" | "done", error} */
-export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, onChange, onApprove, notice, onRetry }) {
+export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, onChange, onApprove, notice, onRetry, findings = [], hiddenFindings = 0, labelOf }) {
   const [open, setOpen] = useState(true);
   const who = user?.email || "";
 
@@ -76,6 +76,13 @@ export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, on
               </label>
             );
           })}
+          {(findings.length > 0 || hiddenFindings > 0) ? (
+            <div data-testid="ai-draft-findings" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
+              <span style={{ fontWeight: 600 }}>To verify on the drawings</span>
+              {findings.map((f, i) => <div key={`${f.kind}-${f.sheet || ""}-${f.tag || ""}-${i}`} style={{ display: "flex", gap: 6 }}>{f.sheet ? <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{labelOf ? labelOf(f.sheet) : f.sheet}</span> : null}<span>{f.message}</span></div>)}
+              {hiddenFindings > 0 ? <span style={muted}>{`${hiddenFindings} more on hidden sheets. Use Show hidden or Unhide to see them.`}</span> : null}
+            </div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
             <button type="button" disabled={!ready} onClick={onApprove} data-testid="ai-draft-approve"
               title={ready ? "Mark this AI takeoff verified and tell Bids" : `Check every item first: ${missing.map((m) => m.label).join(", ") || "sign in"}`}

@@ -81,7 +81,7 @@ export default function PlanNavigator({
   // page-count cache that lets a known set open without reading its bytes
   onCloseMany, onClearWorkspace, knownPages = {}, onPages,
   onCloseProject, onBrowseProjects,
-  levels = {}, onAssignLevel, hiddenSheets = [], onToggleHidden,
+  levels = {}, onAssignLevel, hiddenSheets = [], onToggleHidden, showHidden: showHiddenProp, onShowHiddenChange,
   // stitches (#161): persisted match-line composites — created from a 2..MAX_GROUP
   // selection, reopened/deleted from their strip
   stitches = [], onStitch, onOpenStitch, onDeleteStitch,
@@ -90,7 +90,9 @@ export default function PlanNavigator({
 }) {
   const navigate = useNavigate();
   const [previewSheet, setPreviewSheet] = useState(null);
-  const [showHidden, setShowHidden] = useState(false); // FLOOR360 Hide sheet: reveal hidden sheets in the gallery
+  const [showHiddenLocal, setShowHiddenLocal] = useState(false); // FLOOR360 Hide sheet: reveal hidden sheets in the gallery (local fallback)
+  const showHidden = typeof showHiddenProp === "boolean" ? showHiddenProp : showHiddenLocal; // controlled when the parent passes showHidden
+  const setShowHidden = (next) => { const v = typeof next === "function" ? next(showHidden) : next; if (onShowHiddenChange) onShowHiddenChange(v); if (typeof showHiddenProp !== "boolean") setShowHiddenLocal(v); };
   const previewOpenRef = useRef(false);
   previewOpenRef.current = !!previewSheet;
   const [previewSize, setPreviewSize] = useState("large");

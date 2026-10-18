@@ -34,3 +34,36 @@ export function hiddenCount(keys, hidden) {
 export function canHide(shapeCount) {
   return !(shapeCount > 0);
 }
+
+/**
+ * Returns true if the given object is a non-null object with a non-empty "kind" string and a string "message".
+ * @param {object} f - The object to check.
+ * @returns {boolean} True if the object is a valid finding, false otherwise.
+ */
+export function isFinding(f) {
+  return f !== null && typeof f === "object" && !Array.isArray(f) && typeof f.kind === "string" && f.kind !== "" && typeof f.message === "string";
+}
+
+/**
+ * Filters the given findings array to only include items that are valid findings.
+ * If showHidden is truthy, all valid findings are returned. Otherwise, items with a hidden sheet are dropped.
+ * @param {array} findings - The array of findings to filter.
+ * @param {object} hidden - The hidden items to consider.
+ * @param {boolean} showHidden - Whether to show hidden items.
+ * @returns {array} The filtered array of findings.
+ */
+export function visibleFindings(findings, hidden, showHidden) {
+  if (!Array.isArray(findings)) return [];
+  return findings.filter(f => isFinding(f)).filter(f => showHidden || !f.sheet || !isHidden(hidden, f.sheet));
+}
+
+/**
+ * Returns the number of hidden findings in the given array.
+ * @param {array} findings - The array of findings to count.
+ * @param {object} hidden - The hidden items to consider.
+ * @returns {number} The number of hidden findings.
+ */
+export function hiddenFindingCount(findings, hidden) {
+  if (!Array.isArray(findings)) return 0;
+  return findings.filter(f => isFinding(f) && f.sheet && isHidden(hidden, f.sheet)).length;
+}

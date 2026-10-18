@@ -121,7 +121,7 @@ import { conditionTotals, verticalWallSf, downloadText } from "../lib/totals.js"
 import { measurementBreakdown } from "../lib/measurementBreakdown.js";
 import { shapesInZone } from "../lib/zone.js";
 import { sanitizeSheetLevels } from "../lib/sheetLevels.js";
-import { sanitizeHiddenSheets, isHidden, toggleHidden } from "../lib/hiddenSheets.js";
+import { sanitizeHiddenSheets, isHidden, toggleHidden, visibleFindings, hiddenFindingCount } from "../lib/hiddenSheets.js";
 import { sanitizeConditionColumns, sanitizeConditionAttrs, renameColumnValue, columnLabel } from "../lib/conditionColumns.js";
 import { sanitizeShapeLabels, sanitizeShapeLabelsOnShapes, renameShapeLabel, shapeLabelValue } from "../lib/shapeLabels.js";
 import { nextHidden, revealed } from "../lib/conditionVisibility.js";
@@ -371,6 +371,7 @@ export default function TakeoffCanvas() {
   const [sheetGroup, setSheetGroup] = useState([]);   // sheetKeys shown side-by-side; [] = single-sheet mode
   const [sheetLevels, setSheetLevels] = useState({}); // sheetKey → level label ("L1") — persisted (additive `sheet_levels` key); groups the gallery for multi-floor sets
   const [hiddenSheets, setHiddenSheets] = useState([]); // FLOOR360: sheet keys hidden from the gallery, search and tabs — persisted (additive `hidden_sheets` key); the PDF is untouched
+  const [showHiddenSheets, setShowHiddenSheets] = useState(false); // FLOOR360 Hide sheet: one Show hidden switch for the gallery and the AI checklist
   const [lastGroup, setLastGroup] = useState([]);     // most recent side-by-side composition — "Regroup" restores it
   const [focusKey, setFocusKey] = useState("");         // panel of the last click — scale/calibrate target in group mode
   // Stitches (#161): persisted match-line composites (lib/stitches.ts) — a
@@ -11277,6 +11278,7 @@ export default function TakeoffCanvas() {
           onAddFiles={handleFiles}
           levels={sheetLevels}
           hiddenSheets={hiddenSheets}
+          showHidden={showHiddenSheets} onShowHiddenChange={setShowHiddenSheets}
           onToggleHidden={(k) => { if (!isHidden(hiddenSheets, k) && openTabs.includes(k)) closeTab(k); setHiddenSheets((h) => toggleHidden(h, k)); }}
           onAssignLevel={(keys, label) => setSheetLevels((m) => {
             const next = { ...m };
@@ -11336,7 +11338,8 @@ export default function TakeoffCanvas() {
       {aiDrafts?.enabled && autoTakeoff && !loadError && (
         <AiDraftPanel autoTakeoff={autoTakeoff} conditions={conditions} user={aiDrafts.user} nowIso={nowIso}
           onChange={setAutoTakeoff} onApprove={approveAiTakeoff}
-          notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)} />
+          notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)}
+          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} />
       )}
 
       {loadError && (
