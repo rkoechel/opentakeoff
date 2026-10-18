@@ -10,11 +10,12 @@ import type { Engine } from "./engine.ts";
 import { EngineToolError } from "./engine.ts";
 import { hasPdfHeader, isEncryptedPdf } from "./pdfcheck.ts";
 import { JobFailure, VisionUnavailable, type Vision } from "./vision.ts";
-import { markDraft, reportCsv, runRecord, sheetsManifest, type DraftInfo } from "./outputs.ts";
+import { markDraft, reportCsv, runRecord, runSummary, sheetsManifest, type DraftInfo } from "./outputs.ts";
 import { draftRfis } from "./rfis.ts";
 import { LIMITS } from "./config.ts";
 import { setName, type Counts, type Finding, type JobManifest, type ManifestFile, type Point, type ScheduleRow } from "./types.ts";
 import { duplicatePages, isNonPlanSheet } from "./sheetfilter.ts";
+import { titleBlockCheck, scaleCrops } from "./scalecheck.ts";
 
 export interface RunContext {
   jobId: string;
@@ -258,6 +259,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       const set = await tryStep("set_scale", () => engine.call("set_scale", { sheet: s.sheet, use_detected: true }), s.sheet);
       if (set) state.scaled.add(s.sheet);
       if (set && info.multiple_scales && !quiet && !nonPlan.has(s.sheet)) state.addFinding({ kind: "multiple_scales", sheet: s.sheet, message: `${s.sheet} has more than one scale note. The title-block scale ${info.detected_scale} was applied to the main plan; check rooms inside enlarged plans or details drawn at another scale.` });
+      if (set && !quiet && !nonPlan.has(s.sheet) && titleBlockCheck(info.detected_scale, await titleBlockText(engine, s.sheet, info)) === "differs") state.addFinding({ kind: "scale_mismatch", sheet: s.sheet, message: `${s.sheet}: the scale applied (${info.detected_scale}) does not match the scale note in the title block. Confirm it in Scale review before measuring.` });
       continue;
     }
     if (quiet) continue;
@@ -271,7 +273,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     let suggestion: string | null = null;
     // vision fallback (Ryan 2026-10-18): any plan sheet with no scale text, scans and vector sheets alike (F360-26-0173 drew its scale notes as linework)
     if (deps.vision && !state.visionOff) {
-      suggestion = await readScaleWithVision(engine, deps.vision, ctx, state, s.sheet, info);
+      for (const region of scaleCrops(info)) { suggestion = await readScaleWithVision(engine, deps.vision, ctx, state, s.sheet, region); if (suggestion || state.visionOff) break; }
     }
     if (suggestion === "NTS") {
       state.nts.add(s.sheet);
@@ -456,15 +458,11 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     if (withheld && first) state.addFinding({ kind: "transitions_withheld", sheet: first.sheet, at: first.at, message: `${withheld} finish change${withheld === 1 ? "" : "s"} across a wall need a threshold at the doorway; the engine can't locate doorways, so they were left for the estimator.` });
   }
 
-  // ── the agent's verdict, on confident rooms only ─────────────────────────
-  ctx.progress("Marking confident rooms");
-  let low = 0;
-  for (const r of state.rooms) {
-    const ok = r.fromSchedule && !r.raster && typeof r.confidence === "number" && r.confidence >= deps.verdictMinConfidence;
-    if (!ok) { low++; continue; }
-    await tryStep("mark_verdict", () => engine.call("mark_verdict", { shape_id: r.shapeId, text: `AI draft: clean trace (${r.confidence!.toFixed(2)}), finish from schedule` }), r.sheet);
-  }
-  if (low) state.addFinding({ kind: "low_confidence_rooms", message: `${low} of ${state.rooms.length} measured room${state.rooms.length === 1 ? "" : "s"} did not trace cleanly enough for the AI's check mark. Review those first.` });
+  // ── no AI check marks (Ryan 2026-10-18, OpenTakeoff AGENT_GUIDE): a room is checked only after someone looks at it ──
+  ctx.progress("Listing rooms to review");
+  const clean = state.rooms.filter((r) => r.fromSchedule && !r.raster && typeof r.confidence === "number" && r.confidence >= deps.verdictMinConfidence).length;
+  const low = state.rooms.length - clean;
+  if (low) state.addFinding({ kind: "low_confidence_rooms", message: `${low} of ${state.rooms.length} measured room${state.rooms.length === 1 ? "" : "s"} did not trace cleanly. Review those first; no room carries an AI check mark until it is reviewed.` });
 
   // RFI drafts (PR F) go in before the exports, so the register, the marked
   // set's RFI schedule and the counts all carry them
@@ -514,6 +512,9 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   // A sheet that carries a finding or a drawn room stays visible, so its checklist item and its rooms are never hidden.
   const findingSheets = new Set(state.findings.map((f) => f.sheet).filter((k): k is string => !!k));
   const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k) && !state.rooms.some((r) => r.sheet === k));
+  // end-of-run summary (Ryan 2026-10-18): every scale is AI-set and unconfirmed until someone checks it in Scale review
+  if (state.scaled.size) state.addFinding({ kind: "scales_unconfirmed", message: `All ${state.scaled.size} scale${state.scaled.size === 1 ? "" : "s"} on this set were set by the AI from the drawings and none is confirmed. Confirm each in Scale review before pricing.` });
+  state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, toReview: low, unmatched: pendingNoRow.length, rfis: state.rfisDrafted }) });
   await writeFile(path.join(ctx.outputsDir, "annotations.json"), JSON.stringify(markDraft(payload, info, [...state.nts], autoHidden)));
   await writeFile(path.join(ctx.outputsDir, "sheets.json"), JSON.stringify(sheetsManifest(m, loaded)));
   await writeFile(path.join(ctx.outputsDir, "floor360-run.json"), JSON.stringify(runRecord(info, inputsHash), null, 2));
@@ -551,12 +552,24 @@ async function findNts(engine: Engine, sheet: string): Promise<Point | null> {
   return null;
 }
 
-/** Crop the title-block corner of a scanned sheet and ask the vision model to
- *  read its scale note. A suggestion only; null when vision is unavailable. */
-async function readScaleWithVision(engine: Engine, vision: Vision, ctx: RunContext, state: RunState, sheet: string, info: { width_px: number; height_px: number }): Promise<string | null> {
-  const region = { x0: Math.round(info.width_px * 0.55), y0: Math.round(info.height_px * 0.6), x1: info.width_px, y1: info.height_px };
+/** The title-block corner text (the lower-right region the scale detector trusts); empty when the engine cannot read it. */
+async function titleBlockText(engine: Engine, sheet: string, info: { width_px: number; height_px: number }): Promise<string> {
+  try {
+    const r = await engine.call<{ text?: string }>("read_sheet_text", { sheet, region: { x0: Math.round(info.width_px * 0.55), y0: Math.round(info.height_px * 0.5), x1: info.width_px, y1: info.height_px } });
+    return r.text ?? "";
+  } catch (e) {
+    if (!(e instanceof EngineToolError)) throw e;
+    return "";
+  }
+}
+
+/**
+ * Ask the vision model to read the scale note inside one crop of a sheet (see scaleCrops).
+ * A suggestion only; null when vision is unavailable or it reads nothing.
+ */
+async function readScaleWithVision(engine: Engine, vision: Vision, ctx: RunContext, state: RunState, sheet: string, region: { x0: number; y0: number; x1: number; y1: number }): Promise<string | null> {
   // px budget from the requested DPI: image px are PDF pt × 2 (144 DPI)
-  const px = Math.max(200, Math.min(2000, Math.round(((region.x1 - region.x0) / 2) * (ctx.manifest.options.dpi / 72))));
+  const px = Math.round(Math.max(200, Math.min(2000, Math.max(region.x1 - region.x0, region.y1 - region.y0) / 2 * (ctx.manifest.options.dpi / 72))));
   let png: string;
   try {
     png = await engine.image("view_sheet", { sheet, region, px });
