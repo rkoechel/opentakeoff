@@ -49,6 +49,7 @@ export type FindingKind =
   | "multiple_scales"
   | "schedule_row_not_drawn"
   | "room_no_schedule_row"
+  | "no_room_finish_match"
   | "room_no_floor_finish"
   | "conflicting_finishes"
   | "unreadable_schedule"
