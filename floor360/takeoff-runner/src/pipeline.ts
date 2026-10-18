@@ -305,15 +305,18 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     }
   }
   const roomSheets = measurable.filter((s) => state.scaled.has(s.sheet) && !isElevation(s) && !nonPlan.has(s.sheet) && (state.roles.size === 0 || ["plan", "unknown"].includes(state.roles.get(s.sheet) ?? "unknown")));
-  if (roomSheets.length && (roomFinish || roomToTag.size)) {
+  const floorTags = [...new Set(rows.filter((r) => classifyRow(r) === "floor").map((r) => r.finishTag))];
+  const pendingNoRow: Finding[] = [];
+  let detectedRooms = 0;
+  if (roomSheets.length && (roomFinish || roomToTag.size || floorTags.length)) {
     await tryStep("propose_takeoff", () => engine.call("propose_takeoff", {
       label: `AI auto-takeoff draft · ${m.bidNumber}`,
       rationale: roomFinish
         ? `Rooms detected on the plans and assigned from the room-finish schedule on ${state.scheduleSheet}. Pending estimator review.`
-        : "Rooms detected on the plans and assigned from the finish-schedule rows in Bids. Pending estimator review.",
+        : "Rooms detected on the plans and assigned from the finish-schedule rows in Bids or the finish tags printed in the rooms. Pending estimator review.",
     }));
   }
-  if (roomSheets.length && !roomFinish && !roomToTag.size) {
+  if (roomSheets.length && !roomFinish && !roomToTag.size && !floorTags.length) {
     state.addFinding({ kind: "no_room_finish_schedule", sheet: state.scheduleSheet, message: "The set has no room-finish schedule the engine could read, and the Bids rows don't name rooms, so no rooms were assigned finishes. Assign them in the canvas." });
   }
   for (const [i, s] of roomSheets.entries()) {
@@ -336,12 +339,29 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     } else {
       const r = await tryStep("detect_rooms", () => engine.call<{ rooms: { label: string; verts?: Point[]; confidence?: number; raster_traced?: true }[] }>("detect_rooms", { sheet: s.sheet, return_verts: true }), s.sheet);
       if (!r) continue;
+      const tagHits: { tag: string; at: Point }[] = [];
+      for (const t of floorTags) {
+        const th = await tryStep("find_text", () => engine.call<{ hits: { str: string; center: Point }[] }>("find_text", { sheet: s.sheet, q: t, limit: 200 }), s.sheet);
+        for (const h of th?.hits ?? []) if (tagRe(t).test(h.str)) tagHits.push({ tag: t, at: h.center });
+      }
       for (const room of r.rooms) {
-        const tag = roomToTag.get(normTag(room.label));
+        detectedRooms++;
+        let tag = roomToTag.get(normTag(room.label));
+        if (tag === undefined && room.verts && room.verts.length >= 3) {
+          // no Bids row names this room: use the finish tag printed inside it
+          const verts = room.verts;
+          const inRoom = [...new Set(tagHits.filter((h) => insidePoly(h.at, verts)).map((h) => normTag(h.tag)))];
+          if (inRoom.length > 1) {
+            const c = centroid(verts);
+            state.addFinding({ kind: "conflicting_finishes", sheet: s.sheet, tag: room.label, at: c, rect: boxAround(c), detail: `Room ${room.label} has ${inRoom.join(" and ")} printed inside it.`, message: `Room ${room.label} on ${s.sheet} shows more than one floor finish tag (${inRoom.join(", ")}). Not measured under a guess; ask which applies.` });
+            continue;
+          }
+          if (inRoom.length === 1) tag = floorTags.find((t) => normTag(t) === inRoom[0]);
+        }
         if (tag === "") continue;   // conflicting rows, already reported
         if (!tag) {
           const c = room.verts?.length ? centroid(room.verts) : undefined;
-          state.addFinding({ kind: "room_no_schedule_row", sheet: s.sheet, tag: room.label, ...(c ? { at: c, rect: boxAround(c) } : {}), message: `Room ${room.label} on ${s.sheet} is not on any finish-schedule row in Bids. Not measured under a guess; ask for its finish.` });
+          pendingNoRow.push({ kind: "room_no_schedule_row", sheet: s.sheet, tag: room.label, ...(c ? { at: c, rect: boxAround(c) } : {}), message: `Room ${room.label} on ${s.sheet} is not on any finish-schedule row in Bids. Not measured under a guess; ask for its finish.` });
           continue;
         }
         if (!room.verts || room.verts.length < 3) continue;
@@ -350,6 +370,13 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
         await tryStep("edit_shape", () => engine.call("edit_shape", { shape_id: shot.shape_id, label: room.label }), s.sheet);
         state.rooms.push({ shapeId: shot.shape_id, sheet: s.sheet, label: room.label, condition: tag, confidence: room.confidence, raster: room.raster_traced === true, fromSchedule: true });
       }
+    }
+  }
+  if (!roomFinish && pendingNoRow.length) {
+    if (state.rooms.length === 0) {
+      state.addFinding({ kind: "no_room_finish_match", sheet: roomSheets[0]?.sheet ?? state.scheduleSheet, tag: "rooms", detail: `${detectedRooms} rooms were found on ${roomSheets.length} plan sheet(s); none matched a finish (no room-finish schedule, no rooms listed on the Bids finish rows, no finish tag printed inside a room).`, message: `${pendingNoRow.length} of ${detectedRooms} rooms could not be matched to any floor finish, so none were drawn. Ask for a room-finish schedule or a finish plan.` });
+    } else {
+      for (const f of pendingNoRow) state.addFinding(f);
     }
   }
 
@@ -497,6 +524,17 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
 function centroid(verts: Point[]): Point {
   const n = verts.length;
   return [verts.reduce((a, v) => a + v[0], 0) / n, verts.reduce((a, v) => a + v[1], 0) / n];
+}
+
+/** Ray-casting point-in-polygon test, image px. */
+function insidePoly(p: Point, verts: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const [xi, yi] = verts[i];
+    const [xj, yj] = verts[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 async function findNts(engine: Engine, sheet: string): Promise<Point | null> {
