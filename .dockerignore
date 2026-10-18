@@ -25,8 +25,15 @@ mcp/*.mcpb
 # read by the MCP server.
 web/public/models
 
-# Docs, media and fixtures: nothing in the bundle imports them.
+# Docs, media and fixtures: nothing in the bundle imports them — except the
+# public wiki pages and the tool index, which `npm run build` in mcp/ embeds as
+# MCP resources (mcp/scripts/check-wiki.mjs scans docs/wiki/*.md against its
+# allowlist). Re-including a file under an excluded directory needs the
+# directory pattern re-included as well.
 docs
+!docs/wiki
+!docs/wiki/*.md
+!docs/MCP_TOOL_INDEX.md
 demo
 web/public/demo
 web/test
