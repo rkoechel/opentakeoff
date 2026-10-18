@@ -130,9 +130,17 @@ The DGX container stops itself after 15 minutes idle. When the model is down (no
 
 The route requires the Easy Auth user. `GET /api/ai/status` reports `ready`, `busy`, `starting`, or `off`, and the AI settings dialog shows it. Upstream 429 is reported as busy. Upstream 502/503/504, Cloudflare 52x, a timeout, or no connection are reported as starting. A Cloudflare Access redirect, 401, or 403 is reported as "refused this site's credentials". Setting values are never logged or returned.
 
-## AI takeoff drafts from Bids (`/api/bids/drafts`)
+## Auto-takeoff worker on the DGX (`floor360/takeoff-runner`)
 
-Off by default. This is the reviewer side of auto-takeoff (plan Phase 2, PR D). With `FLOOR360_AI_DRAFTS` unset, every `/api/bids/drafts` path returns 404, like any other unknown `/api/` path, and the app shows nothing new. The browser learns that the feature is on only from this route. No `VITE_*` value is involved.
+The AI takeoff run for new bids (Phase 2) runs on the DGX Spark, not on this App Service. `floor360/takeoff-runner/` is a Docker image with a job API on port 8014 (`127.0.0.1` only, behind the proposed `takeoff-runner.floor360.com` Cloudflare hostname). Bids pushes a bid's plans and finish schedule, polls, and pulls the AI draft: `annotations.json`, `sheets.json`, the marked set and the report, in the job-folder layout below.
+
+- It's off unless the Spark's `/etc/takeoff-runner.env` sets `RUNNER_ENABLED=1` and `RUNNER_TOKEN`. Nothing is installed yet. Install waits for Ryan's OK on port 8014 ([its README](floor360/takeoff-runner/README.md)).
+- It's CPU only and never touches a container. It reaches takeoff-vision only through the waker's memory gate, so Orduh Up keeps the GPU.
+- This App Service needs no setting for it. The field contract for Bids and for the draft banner is [CONTRACT.md](floor360/takeoff-runner/CONTRACT.md). The review side in this app is the next section.
+
+## Auto-takeoff drafts from Bids (`/api/bids/drafts`)
+
+Off by default. This is the reviewer side of auto-takeoff (plan Phase 2, PR D): estimators claim, check, and approve the drafts the worker above produced. With `FLOOR360_AI_DRAFTS` unset, every `/api/bids/drafts` path returns 404, like any other unknown `/api/` path, and the app shows nothing new. The browser learns that the feature is on only from this route. No `VITE_*` value is involved.
 
 When it's on, `floor360-bids-drafts.mjs` (copied into `dist/`) calls Bids server to server. The browser never calls Bids itself.
 
