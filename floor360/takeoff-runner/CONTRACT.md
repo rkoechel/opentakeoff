@@ -64,10 +64,17 @@ The file is the engine's own `opentakeoff.takeoff_canvas.v1` payload (`export_ta
 ```
 
 - `status` is `"draft"` from the runner. PR D owns the other values (for example `"approved"`, with who and when). The runner never writes anything but `"draft"`.
-- `checklistItems` is the Phase 1 §8 list. `wall_tile_elevations` appears only when the schedule has a wall-tile row. `checklist` is always `{}` from the runner. PR D records `{ "<item>": { "by": "<Easy Auth name>", "at": "<ISO time>" } }` there.
+- `checklistItems` is the Phase 1 §8 list. `wall_tile_elevations` appears only when the schedule has a wall-tile row. `checklist` is always `{}` from the runner. PR D records `{ "<item>": { "by": "<Easy Auth email>", "at": "<ISO time>" } }` there.
 - Machine work stays pencil whatever the marker says: every shape is `origin.actor: "agent"`, `origin.reviewed: false`, every scale is `scale_confirmed: false`, and the only approval marks are the agent's AGENT diamonds. The runner can't create a human approval, and this key doesn't either.
 
-**Known gap for PR D.** Today's browser keeps the key on load and drops it on the first save. `hydrate` in `TakeoffCanvas.jsx` reads only the fields it knows, and `buildTakeoffDocument` (`web/src/lib/takeoffDocument.js`) writes only `TAKEOFF_DOCUMENT_KEYS`. So the marker survives until an estimator edits the project, and then it's gone. PR D must either carry `floor360AutoTakeoff` through `hydrate` and `buildTakeoffDocument` (and add it to `TAKEOFF_DOCUMENT_KEYS` and the protocol inventory), or treat `.opentakeoff/floor360-run.json` as the durable record and the in-file key as a hint. The runner doesn't change the browser.
+**How the browser keeps it (PR D).** The key survives every save. `hydrate` in `TakeoffCanvas.jsx` keeps the loaded object as is (`readAutoTakeoff` in `web/src/lib/aiDraft.js`), and `buildTakeoffDocument` (`web/src/lib/takeoffDocument.js`) writes it back: `floor360AutoTakeoff` is in `TAKEOFF_DOCUMENT_KEYS` and in the [protocol inventory](../../protocol/INVENTORY.md). A value that isn't an object with a string `status` is dropped. Keys the browser doesn't read (`counts`, `findings`, `engine`, `jobId`, …) ride through unchanged.
+
+- The **AI draft, not verified** banner and checklist show only when `status` is `"draft"` and this site's `FLOOR360_AI_DRAFTS` route is on. With the route off, the key is still carried and nothing new shows.
+- The checklist is the eight items above, plus `wall_tile_elevations` when `checklistItems` lists it or a condition in the project is wall tile. The eight always show, and ids the browser has no label for are ignored. Each check writes `checklist.<item> = {by, at}`; unchecking deletes it and locks Approve again.
+- **Approve AI takeoff** unlocks only when every item is checked. It sets `status: "approved"`, `approvedBy` and `approvedAt`. After that save lands, the browser tells Bids (`POST /api/bids/drafts/:runId/approved`, using `runId`) and stamps `bidsNotifiedAt`.
+- Approving changes no shape's `origin.reviewed`, no `scale_confirmed` and no approval seal.
+- RFI drafts are ordinary `rfis[]` records, which the browser already loads, saves and shows in the RFI panel.
+- `.opentakeoff/floor360-run.json` is Bids' record. The browser doesn't read it.
 
 ## `floor360-run.json`
 

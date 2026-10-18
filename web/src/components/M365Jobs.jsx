@@ -19,6 +19,8 @@ import { setActiveStore } from "../lib/store.js";
 import { LOW_MEMORY_DEVICE } from "../lib/deviceClass";
 import { byteBudget } from "../lib/pdfBytes";
 import { createProject, jobHref, listProjects, projectErrorMessage } from "../lib/msgraph/projects.js";
+import { floor360PrivateBuild } from "../lib/privateBuild.js";
+import AiDraftsSection from "./AiDraftsSection.jsx";
 
 const centered = {
   minHeight: "100vh", display: "flex", flexDirection: "column",
@@ -167,6 +169,7 @@ export function M365ProjectsGate({ cfg }) {
           <button type="submit" style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>New project</button>
         </form>
         {createErr ? <div style={errStyle} role="alert">{createErr}</div> : null}
+        {floor360PrivateBuild() ? <AiDraftsSection /> : null}
         {listErr ? <div style={errStyle} role="alert">{listErr}</div> : null}
         {projects && projects.length > 8 ? (
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter projects" className="field-input" aria-label="Filter projects" />

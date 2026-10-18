@@ -221,6 +221,10 @@ import { applyShapeCommand, geomSnapshot, vertsEqual, recordCommand } from "../l
 import { applyApprovalCommand, sanitizeApprovals, approvalInk, APPROVAL_R } from "../lib/approvals.js";
 import { findCutoutParent, subtractCutout, recomposeCutouts, cutRunsAcross } from "../lib/cutout.js";
 import { normalizeAgentReview } from "../lib/reviewState.js";
+import { approveAutoTakeoff, markBidsNotified, readAutoTakeoff } from "../lib/aiDraft.js";
+import { loadAiDrafts, notifyApproved } from "../lib/bidsDrafts.js";
+import { floor360PrivateBuild } from "../lib/privateBuild.js";
+import AiDraftPanel from "../components/AiDraftPanel.jsx";
 import { oneClickEnabled, ONE_CLICK_GATE_MESSAGE, commandBoxEnabled, ocrEnabled } from "../lib/gate.js";
 import { computeShapeMetrics, needsMetrics, recalibrateShapes, linearVerticalFt } from "../lib/shapeMetrics.js";
 import { fmtCheckLen, parseLenInput, checkVerdict, M_PER_FT, areaVal, areaUnit, lenVal, lenUnit, calInputToFeet, heightVal, heightUnit, heightInputToFeet, heightStep, dimInputStr, dimLabel, volVal, volUnit } from "../lib/units";
@@ -452,6 +456,13 @@ export default function TakeoffCanvas() {
   // confirms, changes or marks NTS in the review panel. NTS is the one new
   // persisted fact (additive `nts_sheets`).
   const [ntsSheets, setNtsSheets] = useState([]);
+  // FLOOR360 auto-takeoff draft status (additive `floor360AutoTakeoff`, kept
+  // as loaded so unknown keys survive). The banner/checklist show only when
+  // the /api/bids/drafts route says AI drafts are on (aiDrafts.enabled).
+  const [autoTakeoff, setAutoTakeoff] = useState(null);
+  const [aiDrafts, setAiDrafts] = useState(null);
+  const [bidsNotice, setBidsNotice] = useState({ state: "idle", error: "" });
+  const pendingNotifyRef = useRef("");   // runId to report once the approval is saved
   const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
   const [scaleScan, setScaleScan] = useState({ running: false, keys: [] }); // every page key the batch pass has seen
   const [scheduleCands, setScheduleCands] = useState(null);   // ranked finish-schedule candidates (null = not looked yet)
@@ -2019,6 +2030,9 @@ export default function TakeoffCanvas() {
     setSheetLevels(sanitizeSheetLevels(a.sheet_levels));
     // additive `nts_sheets` (scale review): else-clear like sheet_levels
     setNtsSheets(sanitizeNtsSheets(a.nts_sheets));
+    // additive `floor360AutoTakeoff`: else-clear, carried as-is
+    setAutoTakeoff(readAutoTakeoff(a));
+    pendingNotifyRef.current = "";
     // additive `layer_overrides` (#85 — per-sheet PDF-layer Wall/Off overrides
     // for the One-Click mask): same else-clear + shape gate as sheet_levels.
     // Masks are a lazy per-sheet cache — drop them so a loaded snapshot's
@@ -2955,7 +2969,7 @@ export default function TakeoffCanvas() {
     shapes, markups, rfis, approvals, proposals, condition_edit_proposals: conditionEditProposals, rules,
     sheet_group: sheetGroup, last_group: lastGroup, sheet_tabs: openTabs, stitches,
     sheet_levels: sheetLevels, layer_overrides: layerOverrides, provenance_counters: provCounters,
-    nts_sheets: ntsSheets,
+    nts_sheets: ntsSheets, floor360AutoTakeoff: autoTakeoff,
   });
   // Runtime restore of a saved payload — the Revisions panel's Restore lands
   // here. A runtime load (unlike mount) can interrupt work in
@@ -3145,6 +3159,42 @@ export default function TakeoffCanvas() {
     } catch (e) { setCommitMsg(`Couldn't reset profile: ${e?.message || e}`); }
   };
 
+  // ── FLOOR360 auto-takeoff draft (lib/aiDraft.js) ──────────────────────────
+  // Only a project carrying floor360AutoTakeoff asks the route whether AI
+  // drafts are on; every other project makes no new request.
+  const hasAutoTakeoff = !!autoTakeoff;
+  useEffect(() => {
+    if (!hasAutoTakeoff || aiDrafts || !floor360PrivateBuild()) return;
+    let live = true;
+    loadAiDrafts().then((r) => { if (live) setAiDrafts(r); });
+    return () => { live = false; };
+  }, [hasAutoTakeoff, aiDrafts]);
+  const sendBidsNotice = (runId) => {
+    if (!runId) return;
+    setBidsNotice({ state: "sending", error: "" });
+    notifyApproved(runId).then((r) => {
+      if (r.ok) {
+        setAutoTakeoff((at) => (at && at.runId === runId ? markBidsNotified(at, nowIso()) : at));
+        setBidsNotice({ state: "done", error: "" });
+      } else setBidsNotice({ state: "error", error: r.error });
+    });
+  };
+  const approveAiTakeoff = () => {
+    const next = approveAutoTakeoff(autoTakeoff, conditions, aiDrafts?.user?.email, nowIso());
+    if (!next) return;
+    pendingNotifyRef.current = typeof next.runId === "string" ? next.runId : "";
+    setBidsNotice({ state: pendingNotifyRef.current ? "saving" : "idle", error: "" });
+    setAutoTakeoff(next);
+  };
+  // Bids hears about an approval only after the save that carries it lands.
+  const afterSaveRef = useRef(() => {});
+  afterSaveRef.current = (payload) => {
+    const runId = pendingNotifyRef.current;
+    if (!runId || payload?.floor360AutoTakeoff?.status !== "approved" || payload.floor360AutoTakeoff.runId !== runId) return;
+    pendingNotifyRef.current = "";
+    sendBidsNotice(runId);
+  };
+
   // markups MUST be in the deps (a cloud/callout/text or an RFI link is real work);
   // omitting it dropped markup saves and could persist a stale markups array.
   useEffect(() => {
@@ -3173,7 +3223,7 @@ export default function TakeoffCanvas() {
       // pre-adopt payload) → don't push stale over the winner; go idle so the canvas
       // can drain and re-hydrate. Closes the last pre-scheduled-save loss window.
       if (remotePendingRender.current) { setSaveState("idle"); return; }
-      store.saveAnnotations(payload).then(() => setSaveState("saved")).catch((e) => {
+      store.saveAnnotations(payload).then(() => { setSaveState("saved"); afterSaveRef.current(payload); }).catch((e) => {
         // surface the failure rather than dropping to a silent "idle" — with inline
         // image markups a QuotaExceededError is a realistic failure mode, and a
         // silent one loses the WHOLE payload (shapes, quantities, everything) with
@@ -3188,7 +3238,7 @@ export default function TakeoffCanvas() {
     // state it serializes, so listing buildPayload (a new identity each render)
     // would fire a save on every render instead of only on a real change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units, ntsSheets]);
+  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units, ntsSheets, autoTakeoff]);
   useEffect(() => { saveStateRef.current = saveState; }, [saveState]);
 
   // Flush a pending debounced save on navigate-away (unmount), and warn before a
@@ -11275,6 +11325,12 @@ export default function TakeoffCanvas() {
           onCreate={createFromSchedule}
           onClose={() => setImportRead(null)}
         />
+      )}
+
+      {aiDrafts?.enabled && autoTakeoff && !loadError && (
+        <AiDraftPanel autoTakeoff={autoTakeoff} conditions={conditions} user={aiDrafts.user} nowIso={nowIso}
+          onChange={setAutoTakeoff} onApprove={approveAiTakeoff}
+          notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)} />
       )}
 
       {loadError && (

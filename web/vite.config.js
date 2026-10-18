@@ -129,7 +129,7 @@ export default defineConfig({
       closeBundle() {
         const dist = path.join(webDir, "dist");
         // the server and its same-origin API routes (dependency-free Node)
-        for (const name of ["floor360-static.mjs", "floor360-ocr-read.mjs", "floor360-ai-proxy.mjs"]) {
+        for (const name of ["floor360-static.mjs", "floor360-ocr-read.mjs", "floor360-ai-proxy.mjs", "floor360-bids-drafts.mjs"]) {
           copyFileSync(path.join(webDir, "scripts", name), path.join(dist, name));
         }
         copyFileSync(path.join(repoRoot, "LICENSE"), path.join(dist, "LICENSE"));
