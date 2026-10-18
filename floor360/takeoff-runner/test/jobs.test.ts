@@ -123,7 +123,7 @@ test("a full run: done, counts, findings with sheet refs, no AI check marks, dra
 });
 
 test("no room-finish schedule in the PDF: Bids rows that name rooms assign them; others are reported, dismissed rows ignored", async () => {
-  const tri = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  const tri = [[200, 200], [300, 200], [300, 300], [200, 300]];   // clear of the CPT-1 text the fake plan prints at (5, 5)
   const r = await rig({
     handlers: () => smallSet({
       find_schedule: () => { throw new EngineToolError("find_schedule", "no schedule"); },
@@ -150,6 +150,61 @@ test("no room-finish schedule in the PDF: Bids rows that name rooms assign them;
     assert.deepEqual(job.findings.filter((f) => f.kind === "conflicting_finishes").map((f) => f.tag), ["106"]);
     assert.ok(!job.findings.some((f) => f.tag === "EP-1"), "a dismissed row never counts");
     assert.ok(e.calls.some((c) => c.tool === "propose_takeoff" && /Bids/.test(c.args.rationale)));
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("finish tags printed inside rooms assign them; a room with two tags is a finding, not a guess", async () => {
+  const sq = (x: number, y: number) => [[x, y], [x + 100, y], [x + 100, y + 100], [x, y + 100]];
+  const r = await rig({
+    handlers: () => smallSet({
+      find_schedule: () => { throw new EngineToolError("find_schedule", "no schedule"); },
+      find_text: (a) => {
+        if (a.q === "e") return { sheet: a.sheet, q: "e", count: 10, truncated: false, hits: [] };
+        if (a.q === "LVT-2") return { sheet: a.sheet, q: a.q, count: 2, truncated: false, hits: [{ str: "LVT-2", center: [250, 50] }, { str: "LVT-2", center: [60, 60] }] };
+        if (a.q === "CPT-1") return { sheet: a.sheet, q: a.q, count: 1, truncated: false, hits: [{ str: "CPT-1", center: [50, 50] }] };
+        return { sheet: a.sheet, q: a.q, count: 0, truncated: false, hits: [] };
+      },
+      detect_rooms: () => ({ detected: 3, rooms: [{ label: "101", nverts: 4, verts: sq(0, 0) }, { label: "102", nverts: 4, verts: sq(200, 0) }, { label: "103", nverts: 4, verts: sq(500, 500) }] }),
+      measure_polygon: (a) => ({ area_sf: 100, perimeter_lf: 40, nverts: 4, shape_id: `m-${a.condition}` }),
+      edit_shape: (a) => ({ shape_id: a.shape_id }),
+    }),
+  });
+  try {
+    const m = setManifest({ scheduleRows: [{ finishTag: "CPT-1", category: "Carpet tile" }, { finishTag: "LVT-2", category: "LVT" }] });
+    const job = await runOne(r, m);
+    assert.equal(job.status, "done", job.reason);
+    const e = r.engines[0];
+    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => [c.args.sheet, c.args.condition]), [["A-plan.pdf", "LVT-2"]]);
+    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args), [{ shape_id: "m-LVT-2", label: "102" }]);
+    assert.deepEqual(job.findings.filter((f) => f.kind === "conflicting_finishes").map((f) => f.tag), ["101"]);
+    assert.deepEqual(job.findings.filter((f) => f.kind === "room_no_schedule_row").map((f) => f.tag), ["103"]);
+    assert.ok(!job.findings.some((f) => f.kind === "no_room_finish_match" || f.kind === "no_room_finish_schedule"));
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("no room matches any finish: one consolidated question, not one RFI per room", async () => {
+  const sq = (x: number, y: number) => [[x, y], [x + 100, y], [x + 100, y + 100], [x, y + 100]];
+  const r = await rig({
+    handlers: () => smallSet({
+      find_schedule: () => { throw new EngineToolError("find_schedule", "no schedule"); },
+      detect_rooms: () => ({ detected: 3, rooms: [{ label: "101", nverts: 4, verts: sq(200, 200) }, { label: "102", nverts: 4, verts: sq(400, 200) }, { label: "103", nverts: 4, verts: sq(600, 200) }] }),
+    }),
+  });
+  try {
+    const m = setManifest({ scheduleRows: [{ finishTag: "LVT-9", category: "LVT" }] });
+    const job = await runOne(r, m);
+    assert.equal(job.status, "done", job.reason);
+    const e = r.engines[0];
+    assert.ok(!e.calls.some((c) => c.tool === "measure_polygon"), "nothing drawn under a guess");
+    assert.equal(job.findings.filter((f) => f.kind === "room_no_schedule_row").length, 0, "no per-room questions");
+    const q = job.findings.filter((f) => f.kind === "no_room_finish_match");
+    assert.equal(q.length, 1);
+    assert.match(q[0].message, /3 of 3 rooms/);
+    assert.match(q[0].detail ?? "", /no finish tag printed inside a room/);
   } finally {
     await r.cleanup();
   }
