@@ -18,6 +18,7 @@ const RFI_KIND: Partial<Record<FindingKind, string>> = {
   nts_sheet: "scale",
   schedule_row_not_drawn: "schedule_row_not_drawn",
   room_no_schedule_row: "room_no_schedule_row",
+  no_room_finish_match: "no_room_finish_match",
   conflicting_finishes: "conflicting_finishes",
   unreadable_schedule: "unreadable_schedule",
   wall_tile_no_elevation: "wall_tile_no_elevation",
@@ -45,6 +46,8 @@ export function draftFor(f: Finding, sheet: string): Draft | null {
       return { title: `Finish ${tag} not shown on plans`, question: `The finish schedule lists ${tag}${detail}, but no plan shows where it goes. Please confirm its locations, or confirm it is deleted.` };
     case "room_no_schedule_row":
       return { title: `Room ${tag}: finish not scheduled`, question: `Room ${tag} on ${sheet} has no row in the room finish schedule. Please confirm its floor and base finishes.` };
+    case "no_room_finish_match":
+      return { title: "Room finishes needed", question: `The plans on ${sheet} show rooms, but the documents don't say which floor finish goes in which room.${detail} Please issue a room finish schedule or a finish plan with a finish tag in each room.` };
     case "conflicting_finishes":
       return { title: `Conflicting finish: ${tag}`, question: `The documents give more than one finish for ${tag}.${detail} Please confirm which finish applies.` };
     case "unreadable_schedule":
