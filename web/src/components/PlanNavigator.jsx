@@ -31,6 +31,7 @@ import { listConflictCopies } from "../lib/fs/fsProvider.js";
 import { m365Config, M365_ENABLED_KEY } from "../lib/msgraph/config.js";
 import { metaGet, metaPut, metaDelete } from "../lib/store.js";
 import { groupSheetsByLevel, sortGalleryGroups } from "../lib/sheetLevels.js";
+import { isHidden, visibleKeys, hiddenCount, canHide } from "../lib/hiddenSheets.js";
 import { renderThumb, loadThumb, saveThumb, thumbPixelWidth } from "../lib/thumbs.js";
 import * as pdfjsLib from "pdfjs-dist";
 import { runPlanSearch, filesToIndex, pagesToIndex, galleryEscStep, createChangeSignal, needsRead, keysToLookUp, canLookUp, galleryReadView, unreadLine, thumbIndexStep, adoptEntry, galleryCountLine, needsTextPass, createWalkFailures, searchFailedLine, retryWalk } from "../lib/planSearch";
@@ -80,7 +81,7 @@ export default function PlanNavigator({
   // page-count cache that lets a known set open without reading its bytes
   onCloseMany, onClearWorkspace, knownPages = {}, onPages,
   onCloseProject, onBrowseProjects,
-  levels = {}, onAssignLevel,
+  levels = {}, onAssignLevel, hiddenSheets = [], onToggleHidden,
   // stitches (#161): persisted match-line composites — created from a 2..MAX_GROUP
   // selection, reopened/deleted from their strip
   stitches = [], onStitch, onOpenStitch, onDeleteStitch,
@@ -89,6 +90,7 @@ export default function PlanNavigator({
 }) {
   const navigate = useNavigate();
   const [previewSheet, setPreviewSheet] = useState(null);
+  const [showHidden, setShowHidden] = useState(false); // FLOOR360 Hide sheet: reveal hidden sheets in the gallery
   const previewOpenRef = useRef(false);
   previewOpenRef.current = !!previewSheet;
   const [previewSize, setPreviewSize] = useState("large");
@@ -720,10 +722,11 @@ export default function PlanNavigator({
   // read in drawing order. The Unassigned group keeps stable file/page order
   // regardless of whether other groups have levels — see sortGalleryGroups's
   // comment for why this must be a PER-GROUP gate, not a whole-gallery one.
-  const groups = sortGalleryGroups(groupSheetsByLevel(allKeys, levels), labelOf);
+  const shownKeys = visibleKeys(allKeys, hiddenSheets, showHidden); // FLOOR360 Hide sheet
+  const groups = sortGalleryGroups(groupSheetsByLevel(shownKeys, levels), labelOf);
   // a search shows its hits as one ungrouped run, in searchPlan's rank order —
   // never through the level grouping/sort above, which would reorder them
-  const shownGroups = search ? (search.hits.length ? [{ level: null, keys: search.hits.map((h) => h.key) }] : []) : groups;
+  const shownGroups = search ? (search.hits.some((h) => showHidden || !isHidden(hiddenSheets, h.key)) ? [{ level: null, keys: search.hits.map((h) => h.key).filter((k) => showHidden || !isHidden(hiddenSheets, k)) }] : []) : groups;
   const assignLevel = () => {
     const label = window.prompt('Level for the selected sheets (e.g. "L1", "Level 2", "Garage") — empty clears:', "");
     if (label === null) return;
@@ -835,6 +838,7 @@ export default function PlanNavigator({
           </select>
         </>
       )}
+      {mode === "plan" && hiddenCount(allKeys, hiddenSheets) > 0 && (<button type="button" onClick={() => setShowHidden((v) => !v)} aria-pressed={showHidden} title="Show or hide the sheets you hid from this plan set" style={ctrlBtn}>{showHidden ? "Hide hidden" : `Show hidden (${hiddenCount(allKeys, hiddenSheets)})`}</button>)}
       {mode === "plan" && sheets.length > 0 && (onCloseMany || onClearWorkspace) && (
         <button onClick={() => { setMSel([]); setMode("manage"); }}
           title="Manage the plan set — remove several PDFs at once, or clear the whole workspace"
@@ -1018,6 +1022,7 @@ export default function PlanNavigator({
                 style={{ border: isSel ? "1.5px solid var(--cobalt)" : "1px solid var(--ink-faint)", background: "var(--paper-bright)", cursor: "pointer", position: "relative", boxShadow: isSel ? "var(--shadow-2)" : "var(--shadow-1)" }}>
                 <button type="button" aria-label={`Select ${labelOf(key)}`} aria-pressed={isSel} onClick={(e) => { e.stopPropagation(); toggleSel(key); }} style={{ position: "absolute", top: 8, left: 8, zIndex: 2, width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", border: isSel ? "none" : "1.5px solid var(--ink-faint)", background: isSel ? "var(--cobalt)" : "var(--paper-bright)", color: "var(--paper-bright)", fontFamily: "var(--f-mono)", fontSize: 12, fontWeight: 700 }}>{isSel ? idx + 1 : ""}</button>
                 <div style={{ position: "absolute", top: 8, right: 8, zIndex: 2, display: "flex", gap: 6 }}>
+                  {onToggleHidden && (canHide(cnt) || isHidden(hiddenSheets, key)) && (<button type="button" onClick={(e) => { e.stopPropagation(); onToggleHidden(key); }} title={isHidden(hiddenSheets, key) ? "Unhide this sheet" : "Hide this sheet from the plan set, search and tabs (the PDF is not changed)"} style={ctrlBtn}>{isHidden(hiddenSheets, key) ? "Unhide" : "Hide"}</button>)}
                   <button type="button" onClick={(e) => { e.stopPropagation(); setPreviewSheet(key); }} style={ctrlBtn}>Preview</button>
                   {isFirstPageOfPdf && onClosePdf && (
                     <button onClick={(e) => { e.stopPropagation(); requestClose(parsed.file); }} title={cloudMode ? "Close this PDF — unload it from the plan set (it stays in Drive)" : "Close this PDF — remove it from the plan set (local plans aren't stored elsewhere)"}
