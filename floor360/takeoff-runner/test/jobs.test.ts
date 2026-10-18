@@ -432,3 +432,18 @@ test("vision fallback reads a vector plan sheet whose scale note has no text lay
     await r.cleanup();
   }
 });
+
+test("a main plan with several scale notes gets the title-block scale and a multiple_scales finding", async () => {
+  const r = await rig({ handlers: () => smallSet({ sheet_info: (a: any) => ({ sheet: a.sheet, page: 1, width_pt: 1224, height_pt: 792, width_px: 2448, height_px: 1584, detected_scale: "1/8\" = 1'-0\"", multiple_scales: a.sheet === "A-plan.pdf" ? true : undefined, seg_count: 5000, has_vector_linework: true, scale_set: false, shape_count: 0, layers: [] }) }) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const multi = job.findings.filter((f) => f.kind === "multiple_scales");
+    assert.deepEqual(multi.map((f) => f.sheet), ["A-plan.pdf"]);
+    assert.match(multi[0].message, /title-block scale .* was applied to the main plan/);
+    assert.ok(r.engines[0].calls.some((c) => c.tool === "set_scale" && c.args.sheet === "A-plan.pdf" && c.args.use_detected === true), "the title-block scale is applied");
+    assert.ok(!job.findings.some((f) => f.kind === "no_scale" && f.sheet === "A-plan.pdf"));
+  } finally {
+    await r.cleanup();
+  }
+});

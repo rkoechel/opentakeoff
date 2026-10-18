@@ -99,7 +99,7 @@ Bids adds `docSetHash` (its own hash: file content hashes plus the finish-schedu
 |---|---|
 | `no_scale` | No readable scale note. A scan may carry the AI's reading of the note as a suggestion; it's never applied. |
 | `nts_sheet` | The sheet says NOT TO SCALE. |
-| `multiple_scales` | Several scale notes on one sheet; left unscaled. |
+| `multiple_scales` | Several scale notes on one sheet; the title-block scale is applied to the main plan, check rooms in enlarged plans or details. |
 | `schedule_row_not_drawn` | A Bids schedule row's tag appears on no plan sheet. |
 | `tag_not_measured` | The tag is on a plan, but no room was measured under it. |
 | `room_no_schedule_row` | A detected room has no schedule row. |

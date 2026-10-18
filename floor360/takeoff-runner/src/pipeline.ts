@@ -254,16 +254,14 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     const info = await tryStep("sheet_info", () => engine.call<{ detected_scale?: string; multiple_scales?: true; has_vector_linework: boolean; width_px: number; height_px: number }>("sheet_info", { sheet: s.sheet }), s.sheet);
     if (!info) continue;
     const quiet = isElevation(s);   // elevations: scale applied when noted, never an RFI
-    if (info.detected_scale && !info.multiple_scales) {
-      if (await tryStep("set_scale", () => engine.call("set_scale", { sheet: s.sheet, use_detected: true }), s.sheet)) state.scaled.add(s.sheet);
+    if (info.detected_scale) {
+      const set = await tryStep("set_scale", () => engine.call("set_scale", { sheet: s.sheet, use_detected: true }), s.sheet);
+      if (set) state.scaled.add(s.sheet);
+      if (set && info.multiple_scales && !quiet && !nonPlan.has(s.sheet)) state.addFinding({ kind: "multiple_scales", sheet: s.sheet, message: `${s.sheet} has more than one scale note. The title-block scale ${info.detected_scale} was applied to the main plan; check rooms inside enlarged plans or details drawn at another scale.` });
       continue;
     }
     if (quiet) continue;
     if (nonPlan.has(s.sheet)) continue;   // cover, spec, schedule and detail sheets: a scale applies when noted, never an RFI
-    if (info.detected_scale && info.multiple_scales) {
-      state.addFinding({ kind: "multiple_scales", sheet: s.sheet, message: `${s.sheet} carries more than one scale note (enlarged plans or details). Left unscaled: set the scale for the area you measure.` });
-      continue;
-    }
     const nts = await findNts(engine, s.sheet);
     if (nts) {
       state.nts.add(s.sheet);
