@@ -472,6 +472,20 @@ test("non-plan sheets (detail-only) get no scale RFI and are hidden at import", 
   }
 });
 
+test("a sheet guessed non-plan from its number (A2.1, engine role unknown) gets no scale RFI but still gets room detection", async () => {
+  const withA21 = (h: Record<string, (a: any) => unknown>) => ({ ...h, load_plan: (a: any) => { const out: any = h.load_plan(a); return { ...out, sheets: out.sheets.map((s: any) => (s.sheet === "A-plan.pdf" ? { ...s, sheet_number: "A2.1" } : s)) }; } });
+  const r = await rig({ handlers: () => withA21(smallSet({ sheet_graph: () => ({ available: true, sheets: [{ sheet: "A-plan.pdf", role: "unknown" }, { sheet: "A-plan.pdf#2", role: "plan" }, { sheet: "B-schedule.pdf", role: "schedule" }] }) })) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const ann = JSON.parse(await readFile(path.join(r.dataDir, "jobs", job.id, "outputs", "annotations.json"), "utf8"));
+    assert.ok(r.engines[0].calls.some(c => c.tool === "detect_rooms" && c.args.sheet === "A-plan.pdf"), "a guessed non-plan sheet still gets room detection");
+    assert.ok(!(ann.hidden_sheets ?? []).includes("A-plan.pdf"), "a sheet with drawn rooms is not auto-hidden");
+  } finally {
+    await r.cleanup();
+  }
+});
+
 test("vision fallback reads a vector plan sheet whose scale note has no text layer", async () => {
   const r = await rig({ handlers: () => smallSet({ sheet_info: (a: any) => ({ sheet: a.sheet, page: 1, width_pt: 1224, height_pt: 792, width_px: 2448, height_px: 1584, detected_scale: a.sheet === "A-plan.pdf" ? "1/8\" = 1'-0\"" : undefined, seg_count: 5000, has_vector_linework: true, scale_set: false, shape_count: 0, layers: [] }) }) });
   try {
