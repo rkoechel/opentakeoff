@@ -30,3 +30,41 @@ test("#375: a note the exporter split across runs still detects through the fall
   const items = [item("SCALE:", 4000, 4000), item('1/4"', 4100, 4000), item("=", 4150, 4000), item("1'-0\"", 4180, 4000)];
   assert.equal(detectScale({ items } as never, VP)?.label, '1/4" = 1\'-0"');
 });
+
+const one = (s: string) => detectScale({ items: [item(s, 100, 100)] } as never, VP)?.label ?? null;
+const A = (f: string) => `${f}" = 1'-0"`;
+
+test(`fix C: INCH / FOOT / FT words read as inch and foot marks`, () => {
+  assert.equal(one(`SCALE: 1/8 INCH = 1 FOOT`), A(`1/8`));
+  assert.equal(one(`1/4 INCHES = 1 FT`), A(`1/4`));
+  assert.equal(one(`3/16 INCH = 1 FT. 0 INCHES`), A(`3/16`));
+});
+
+test(`fix C: =1'0" and =1'-0 variants`, () => {
+  assert.equal(one(`1/4" = 1'0"`), A(`1/4`));
+  assert.equal(one(`1/2" = 1'-0`), A(`1/2`));
+});
+
+test(`fix C: ratio keys for architectural scales, never 1:4, 1:8, 1:12 or 1:16`, () => {
+  assert.equal(one(`SCALE 1:48`), A(`1/4`));
+  assert.equal(one(`1:96`), A(`1/8`));
+  assert.equal(one(`1:192`), A(`1/16`));
+  assert.equal(one(`1:128`), A(`3/32`));
+  assert.equal(one(`1:64`), A(`3/16`));
+  assert.equal(one(`1:32`), A(`3/8`));
+  assert.equal(one(`1:24`), A(`1/2`));
+  assert.equal(one(`1:16`), null);
+  assert.equal(one(`1:12`), null);
+  assert.equal(one(`1:8`), null);
+  assert.equal(one(`1:4`), null);
+  assert.equal(one(`1:25`), `1:25`);
+  assert.equal(one(`1:250`), `1:250`);
+});
+
+test(`fix C: 1/32", 6" and 1" = 100' scales without breaking 1/16" or 1" = 10'`, () => {
+  assert.equal(one(A(`1/32`)), A(`1/32`));
+  assert.equal(one(A(`6`)), A(`6`));
+  assert.equal(one(A(`1/16`)), A(`1/16`));
+  assert.equal(one(`1" = 100'`), `1" = 100'`);
+  assert.equal(one(`1" = 10'`), `1" = 10'`);
+});

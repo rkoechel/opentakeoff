@@ -14,6 +14,7 @@ import { markDraft, reportCsv, runRecord, sheetsManifest, type DraftInfo } from 
 import { draftRfis } from "./rfis.ts";
 import { LIMITS } from "./config.ts";
 import { setName, type Counts, type Finding, type JobManifest, type ManifestFile, type Point, type ScheduleRow } from "./types.ts";
+import { duplicatePages, isNonPlanSheet } from "./sheetfilter.ts";
 
 export interface RunContext {
   jobId: string;
@@ -171,11 +172,25 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     const f = byFile.get(s.sheet.split("#")[0]);
     if (f) state.fileOfSheet.set(s.sheet, f);
   }
+  // ── duplicate input pages (Ryan 2026-10-18): a page sent twice is read once ──
+  // Same rendered page = same sheet. Duplicates get no scale pass, no rooms and no findings, and are hidden at import.
+  const pageHash = new Map<string, string>();
+  for (const [i, s] of state.sheets.entries()) {
+    ctx.progress("Checking for duplicate pages", i + 1, state.sheets.length);
+    try {
+      const png = await engine.image("view_sheet", { sheet: s.sheet, px: 200 });
+      pageHash.set(s.sheet, createHash("sha256").update(`${s.width_px}x${s.height_px}|${png}`).digest("hex"));
+    } catch (e) {
+      if (ctx.signal.aborted || !(e instanceof EngineToolError)) throw e;
+    }
+  }
+  const dupOf = duplicatePages(state.sheets.map((s) => s.sheet), pageHash);
 
   // ── index: sheet roles and schedules ─────────────────────────────────────
   ctx.progress("Indexing the set");
   const graph = await tryStep("sheet_graph", () => engine.call<{ available: boolean; sheets: { sheet: string; role: string }[] }>("sheet_graph"));
   for (const s of graph?.sheets ?? []) state.roles.set(s.sheet, s.role);
+  const nonPlan = new Set(state.sheets.filter((s) => !dupOf.has(s.sheet) && isNonPlanSheet(state.roles.get(s.sheet), s.sheet_number)).map((s) => s.sheet));   // cover, spec, schedule, detail-only: no scale RFIs, hidden at import
   let roomFinish = false;
   try {
     const rf = await engine.call<{ matches: { sheet: string; region: { x0: number; y0: number; x1: number; y1: number } }[] }>("find_schedule", { kind: "room finish" });
@@ -231,7 +246,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   const measurable = state.sheets.filter((s) => {
     const role = state.fileOfSheet.get(s.sheet)?.role;
     const g = state.roles.get(s.sheet);
-    return role !== "schedule" && g !== "schedule" && g !== "legend";
+    return role !== "schedule" && g !== "schedule" && g !== "legend" && !dupOf.has(s.sheet);
   });
   const isElevation = (s: SheetSummary) => state.fileOfSheet.get(s.sheet)?.role === "elevations" || state.roles.get(s.sheet) === "elevation";
   for (const [i, s] of measurable.entries()) {
@@ -239,15 +254,14 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
     const info = await tryStep("sheet_info", () => engine.call<{ detected_scale?: string; multiple_scales?: true; has_vector_linework: boolean; width_px: number; height_px: number }>("sheet_info", { sheet: s.sheet }), s.sheet);
     if (!info) continue;
     const quiet = isElevation(s);   // elevations: scale applied when noted, never an RFI
-    if (info.detected_scale && !info.multiple_scales) {
-      if (await tryStep("set_scale", () => engine.call("set_scale", { sheet: s.sheet, use_detected: true }), s.sheet)) state.scaled.add(s.sheet);
+    if (info.detected_scale) {
+      const set = await tryStep("set_scale", () => engine.call("set_scale", { sheet: s.sheet, use_detected: true }), s.sheet);
+      if (set) state.scaled.add(s.sheet);
+      if (set && info.multiple_scales && !quiet && !nonPlan.has(s.sheet)) state.addFinding({ kind: "multiple_scales", sheet: s.sheet, message: `${s.sheet} has more than one scale note. The title-block scale ${info.detected_scale} was applied to the main plan; check rooms inside enlarged plans or details drawn at another scale.` });
       continue;
     }
     if (quiet) continue;
-    if (info.detected_scale && info.multiple_scales) {
-      state.addFinding({ kind: "multiple_scales", sheet: s.sheet, message: `${s.sheet} carries more than one scale note (enlarged plans or details). Left unscaled: set the scale for the area you measure.` });
-      continue;
-    }
+    if (nonPlan.has(s.sheet)) continue;   // cover, spec, schedule and detail sheets: a scale applies when noted, never an RFI
     const nts = await findNts(engine, s.sheet);
     if (nts) {
       state.nts.add(s.sheet);
@@ -255,20 +269,21 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       continue;
     }
     let suggestion: string | null = null;
-    if (!info.has_vector_linework && deps.vision && !state.visionOff && !(await hasText(s.sheet))) {
+    // vision fallback (Ryan 2026-10-18): any plan sheet with no scale text, scans and vector sheets alike (F360-26-0173 drew its scale notes as linework)
+    if (deps.vision && !state.visionOff) {
       suggestion = await readScaleWithVision(engine, deps.vision, ctx, state, s.sheet, info);
     }
     if (suggestion === "NTS") {
       state.nts.add(s.sheet);
-      state.addFinding({ kind: "nts_sheet", sheet: s.sheet, message: `${s.sheet} is a scan the AI read as NOT TO SCALE. Nothing was measured on it; confirm on the drawing.` });
+      state.addFinding({ kind: "nts_sheet", sheet: s.sheet, message: `${s.sheet} has no scale text and the AI read it as NOT TO SCALE. Nothing was measured on it; confirm on the drawing.` });
       continue;
     }
     state.addFinding({
       kind: "no_scale",
       sheet: s.sheet,
       message: suggestion
-        ? `${s.sheet} is a scan with no readable scale; the AI read the note as "${suggestion}" (not applied). Confirm it in Scale review before measuring.`
-        : `${s.sheet} has no scale note the engine could read. Left unscaled; set the scale by hand or ask for a scaled sheet.`,
+        ? `${s.sheet} has no scale text the engine could read; the AI read the note as "${suggestion}" (not applied). Confirm it in Scale review before measuring.`
+        : `${s.sheet} has no scale note the engine could read. Left unscaled; set the scale by hand or ask for a scaled sheet.`
     });
   }
 
@@ -289,6 +304,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       }
     }
   }
+  // Ryan 2026-10-18 (option b): a sheet guessed non-plan from its sheet number still gets room detection; only an engine role other than plan or unknown skips it.
   const roomSheets = measurable.filter((s) => state.scaled.has(s.sheet) && !isElevation(s) && (state.roles.size === 0 || ["plan", "unknown"].includes(state.roles.get(s.sheet) ?? "unknown")));
   const floorTags = [...new Set(rows.filter((r) => classifyRow(r) === "floor").map((r) => r.finishTag))];
   const pendingNoRow: Finding[] = [];
@@ -494,7 +510,11 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   };
   const loaded = [...new Set(state.sheets.map((s) => s.sheet.split("#")[0]))];
   const inputsHash = createHash("sha256").update(m.files.map((f) => f.sha256).sort().join("\n")).digest("hex");
-  await writeFile(path.join(ctx.outputsDir, "annotations.json"), JSON.stringify(markDraft(payload, info, [...state.nts])));
+  // auto-hide at import (Ryan 2026-10-18): non-plan sheets and duplicate pages go in hidden_sheets, restorable with Show hidden.
+  // A sheet that carries a finding or a drawn room stays visible, so its checklist item and its rooms are never hidden.
+  const findingSheets = new Set(state.findings.map((f) => f.sheet).filter((k): k is string => !!k));
+  const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k) && !state.rooms.some((r) => r.sheet === k));
+  await writeFile(path.join(ctx.outputsDir, "annotations.json"), JSON.stringify(markDraft(payload, info, [...state.nts], autoHidden)));
   await writeFile(path.join(ctx.outputsDir, "sheets.json"), JSON.stringify(sheetsManifest(m, loaded)));
   await writeFile(path.join(ctx.outputsDir, "floor360-run.json"), JSON.stringify(runRecord(info, inputsHash), null, 2));
   await writeFile(path.join(ctx.outputsDir, "findings.json"), JSON.stringify({ findings: state.findings }, null, 2));

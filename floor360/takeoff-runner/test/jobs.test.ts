@@ -443,3 +443,76 @@ test("restart: a run cut off mid-way is failed, a started job still waiting runs
     await cleanup();
   }
 });
+
+test("duplicate input pages are skipped: no scale finding, no rooms, hidden at import", async () => {
+  const r = await rig({ handlers: () => smallSet({ view_sheet: (a: any) => (a.region ? "iVBORw0KGgo=" : a.sheet === "B-schedule.pdf" ? "schedule-page" : "same-page") }) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const ann = JSON.parse(await readFile(path.join(r.dataDir, "jobs", job.id, "outputs", "annotations.json"), "utf8"));
+    assert.ok(!job.findings.some((f) => f.sheet === "A-plan.pdf#2"), "a duplicate page gets no findings");
+    assert.ok(!r.engines[0].calls.some((c) => c.tool === "sheet_info" && c.args.sheet === "A-plan.pdf#2"), "no scale pass on the duplicate");
+    assert.deepEqual(ann.hidden_sheets, ["A-plan.pdf#2"]);
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("non-plan sheets (detail-only) get no scale RFI and are hidden at import", async () => {
+  const r = await rig({ handlers: () => smallSet({ sheet_graph: () => ({ available: true, sheets: [{ sheet: "A-plan.pdf", role: "plan" }, { sheet: "A-plan.pdf#2", role: "detail" }, { sheet: "B-schedule.pdf", role: "schedule" }] }) }) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const ann = JSON.parse(await readFile(path.join(r.dataDir, "jobs", job.id, "outputs", "annotations.json"), "utf8"));
+    assert.ok(!job.findings.some((f) => f.kind === "no_scale"), "no scale RFI on a detail sheet");
+    assert.ok(!r.engines[0].calls.some((c) => c.tool === "view_sheet" && c.args.region), "no vision call for a non-plan sheet");
+    assert.deepEqual(ann.hidden_sheets, ["A-plan.pdf#2"]);
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("a sheet guessed non-plan from its number (A2.1, engine role unknown) gets no scale RFI but still gets room detection", async () => {
+  const withA21 = (h: Record<string, (a: any) => unknown>) => ({ ...h, load_plan: (a: any) => { const out: any = h.load_plan(a); return { ...out, sheets: out.sheets.map((s: any) => (s.sheet === "A-plan.pdf" ? { ...s, sheet_number: "A2.1" } : s)) }; } });
+  const r = await rig({ handlers: () => withA21(smallSet({ sheet_graph: () => ({ available: true, sheets: [{ sheet: "A-plan.pdf", role: "unknown" }, { sheet: "A-plan.pdf#2", role: "plan" }, { sheet: "B-schedule.pdf", role: "schedule" }] }) })) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const ann = JSON.parse(await readFile(path.join(r.dataDir, "jobs", job.id, "outputs", "annotations.json"), "utf8"));
+    assert.ok(r.engines[0].calls.some(c => c.tool === "detect_rooms" && c.args.sheet === "A-plan.pdf"), "a guessed non-plan sheet still gets room detection");
+    assert.ok(!(ann.hidden_sheets ?? []).includes("A-plan.pdf"), "a sheet with drawn rooms is not auto-hidden");
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("vision fallback reads a vector plan sheet whose scale note has no text layer", async () => {
+  const r = await rig({ handlers: () => smallSet({ sheet_info: (a: any) => ({ sheet: a.sheet, page: 1, width_pt: 1224, height_pt: 792, width_px: 2448, height_px: 1584, detected_scale: a.sheet === "A-plan.pdf" ? "1/8\" = 1'-0\"" : undefined, seg_count: 5000, has_vector_linework: true, scale_set: false, shape_count: 0, layers: [] }) }) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const ann = JSON.parse(await readFile(path.join(r.dataDir, "jobs", job.id, "outputs", "annotations.json"), "utf8"));
+    const noScale = job.findings.filter((f) => f.kind === "no_scale");
+    assert.deepEqual(noScale.map((f) => f.sheet), ["A-plan.pdf#2"]);
+    assert.match(noScale[0].message, /has no scale text the engine could read; the AI read the note as/);
+    assert.ok(r.engines[0].calls.some((c) => c.tool === "view_sheet" && c.args.sheet === "A-plan.pdf#2" && c.args.region), "vision was asked even though the sheet has linework");
+    assert.equal(ann.hidden_sheets, undefined);
+  } finally {
+    await r.cleanup();
+  }
+});
+
+test("a main plan with several scale notes gets the title-block scale and a multiple_scales finding", async () => {
+  const r = await rig({ handlers: () => smallSet({ sheet_info: (a: any) => ({ sheet: a.sheet, page: 1, width_pt: 1224, height_pt: 792, width_px: 2448, height_px: 1584, detected_scale: "1/8\" = 1'-0\"", multiple_scales: a.sheet === "A-plan.pdf" ? true : undefined, seg_count: 5000, has_vector_linework: true, scale_set: false, shape_count: 0, layers: [] }) }) });
+  try {
+    const job = await runOne(r);
+    assert.equal(job.status, "done", job.reason);
+    const multi = job.findings.filter((f) => f.kind === "multiple_scales");
+    assert.deepEqual(multi.map((f) => f.sheet), ["A-plan.pdf"]);
+    assert.match(multi[0].message, /title-block scale .* was applied to the main plan/);
+    assert.ok(r.engines[0].calls.some((c) => c.tool === "set_scale" && c.args.sheet === "A-plan.pdf" && c.args.use_detected === true), "the title-block scale is applied");
+    assert.ok(!job.findings.some((f) => f.kind === "no_scale" && f.sheet === "A-plan.pdf"));
+  } finally {
+    await r.cleanup();
+  }
+});

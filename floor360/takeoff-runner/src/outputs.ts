@@ -48,11 +48,13 @@ export function draftMarker(info: DraftInfo): Record<string, unknown> {
 /** The engine's export_takeoff payload, marked as a draft. Additive only: the
  *  engine's own keys are untouched except project_name (empty from a headless
  *  session) and nts_sheets (the browser's Scale review list). */
-export function markDraft(payload: Record<string, unknown>, info: DraftInfo, ntsSheets: string[]): Record<string, unknown> {
+export function markDraft(payload: Record<string, unknown>, info: DraftInfo, ntsSheets: string[], hiddenSheets: readonly string[] = []): Record<string, unknown> {
   const out: Record<string, unknown> = { ...payload };
   if (!out.project_name) out.project_name = `${info.manifest.projectName} - ${info.manifest.bidNumber}`;
   const nts = new Set([...(Array.isArray(out.nts_sheets) ? out.nts_sheets as string[] : []), ...ntsSheets]);
   if (nts.size) out.nts_sheets = [...nts];
+  const hidden = new Set([...(Array.isArray(out.hidden_sheets) ? out.hidden_sheets as string[] : []), ...hiddenSheets]);
+  if (hidden.size) out.hidden_sheets = [...hidden];
   out[DRAFT_MARKER_KEY] = draftMarker(info);
   return out;
 }
