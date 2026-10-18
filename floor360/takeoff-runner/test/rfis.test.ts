@@ -70,7 +70,7 @@ test("each of the six questions drafts one pending agent RFI on its sheet; cloud
   assert.deepEqual(s.findings.slice(0, 6).map((f) => f.rfi), ["RFI-001", "RFI-002", "RFI-003", "RFI-004", "RFI-005", "RFI-006"]);
   assert.ok(s.findings.slice(6).every((f) => f.rfi === undefined), "other findings stay findings");
   assert.ok(!e.calls.some((c) => /send|email|export/.test(c.tool)), "nothing is sent or exported from here");
-  assert.deepEqual([...RFI_FINDING_KINDS].sort(), ["conflicting_finishes", "no_scale", "nts_sheet", "room_no_schedule_row", "schedule_row_not_drawn", "unreadable_schedule", "wall_tile_no_elevation"]);
+  assert.deepEqual([...RFI_FINDING_KINDS].sort(), ["conflicting_finishes", "no_room_finish_match", "no_scale", "nts_sheet", "room_no_schedule_row", "schedule_row_not_drawn", "unreadable_schedule", "wall_tile_no_elevation"]);
 });
 
 test("NTS drafts the scale question too", async () => {
