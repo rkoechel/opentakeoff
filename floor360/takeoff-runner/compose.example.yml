@@ -1,0 +1,26 @@
+# Compose equivalent of the README's docker run line. Example only; nothing
+# here is installed. No GPU, published on 127.0.0.1 only.
+services:
+  takeoff-runner:
+    image: takeoff-runner:${RUNNER_TAG:?set RUNNER_TAG to the built image tag}
+    container_name: takeoff-runner
+    restart: unless-stopped
+    user: "10014:10014"
+    ports:
+      - "127.0.0.1:8014:8014"
+    cpus: 6
+    mem_limit: 12g
+    memswap_limit: 12g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    env_file:
+      - /etc/takeoff-runner.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/lib/takeoff-runner:/var/lib/takeoff-runner
+      - /etc/takeoff-runner/takeoff-vision.key:/run/secrets/takeoff-vision.key:ro
+      - /etc/takeoff-runner/takeoff-waker.token:/run/secrets/takeoff-waker.token:ro
