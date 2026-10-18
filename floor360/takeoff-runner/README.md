@@ -89,15 +89,40 @@ Nothing here is installed yet. **None of these steps touches the existing contai
      --build-arg RUNNER_BUILD_SHA=$(git rev-parse HEAD) \
      -t takeoff-runner:$(git rev-parse --short HEAD) .
    ```
-3. **Create the data directory and secret files** for a dedicated uid (10014, no host account):
+3. **Create the data directory and copy the two secrets** for a dedicated uid (10014, no host account):
    ```bash
    sudo install -d -m 0700 -o 10014 -g 10014 /var/lib/takeoff-runner
    sudo install -d -m 0755 /etc/takeoff-runner
-   # the same vLLM key takeoff-vision already uses, and the waker's WAKER_TOKEN
-   sudo install -m 0400 -o 10014 -g 10014 /dev/null /etc/takeoff-runner/takeoff-vision.key
-   sudo install -m 0400 -o 10014 -g 10014 /dev/null /etc/takeoff-runner/takeoff-waker.token
-   sudoedit /etc/takeoff-runner/takeoff-vision.key /etc/takeoff-runner/takeoff-waker.token
    ```
+   Both secrets already live on the Spark: the vLLM key takeoff-vision uses (`/root/.floor360/takeoff-vision-api-key`) and the waker's `WAKER_TOKEN` (in `/etc/takeoff-vision-waker.env`). Copy them; nothing below prints a value or a hash, only `match` or `MISMATCH`:
+   ```bash
+   sudo sh -s <<'EOF'
+   set -eu
+   umask 077
+   # The WAKER_TOKEN value as systemd's EnvironmentFile hands it to the waker: last
+   # assignment, no "WAKER_TOKEN=" prefix, no surrounding whitespace, quotes or newline.
+   waker_token() {
+     sed -n 's/^[[:space:]]*WAKER_TOKEN=//p' /etc/takeoff-vision-waker.env | tail -n 1 |
+       sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/" |
+       tr -d '\n'
+   }
+   [ -n "$(waker_token)" ] || { echo "WAKER_TOKEN not found in /etc/takeoff-vision-waker.env" >&2; exit 1; }
+
+   install -m 0400 -o 10014 -g 10014 /root/.floor360/takeoff-vision-api-key /etc/takeoff-runner/takeoff-vision.key
+   waker_token > /etc/takeoff-runner/takeoff-waker.token
+   chown 10014:10014 /etc/takeoff-runner/takeoff-waker.token
+   chmod 0400 /etc/takeoff-runner/takeoff-waker.token
+
+   [ "$(sha256sum < /root/.floor360/takeoff-vision-api-key)" = "$(sha256sum < /etc/takeoff-runner/takeoff-vision.key)" ] \
+     && echo "vision key: match" || echo "vision key: MISMATCH"
+   [ "$(waker_token | sha256sum)" = "$(sha256sum < /etc/takeoff-runner/takeoff-waker.token)" ] \
+     && echo "waker token: match" || echo "waker token: MISMATCH"
+   EOF
+   sudo stat -c '%u:%g %a %n' /etc/takeoff-runner/takeoff-vision.key /etc/takeoff-runner/takeoff-waker.token
+   # 10014:10014 400 /etc/takeoff-runner/takeoff-vision.key
+   # 10014:10014 400 /etc/takeoff-runner/takeoff-waker.token
+   ```
+   Both lines must say `match`. The runner reads each file whole and trims surrounding whitespace (`readSecretFile` in `src/vision.ts`), so the vision key is copied byte for byte (a trailing newline in the source is harmless), and the token file holds the bare value, exactly what the waker compares against after its own `strip()`. `stat` uses the numeric `%u:%g` because uid 10014 has no host account (`%U:%G` would print `UNKNOWN:UNKNOWN`).
 4. **Write the env file** (mode 600). Generate `RUNNER_TOKEN` on the Spark and never paste it into chat. Keep `RUNNER_ENABLED=0` until Ryan says to turn it on.
    ```bash
    sudo install -m 0600 -o root -g root floor360/takeoff-runner/takeoff-runner.env.example /etc/takeoff-runner.env
@@ -134,6 +159,8 @@ Nothing here is installed yet. **None of these steps touches the existing contai
 8. **Turn on (Ryan's call, later):** set `RUNNER_ENABLED=1`, then `docker rm -f takeoff-runner` and rerun the step 5 line. Bids gets `AUTO_TAKEOFF_RUNNER_URL=https://takeoff-runner.floor360.com` and `AUTO_TAKEOFF_RUNNER_TOKEN` (PR C).
 
 **Rollback:** `docker rm -f takeoff-runner`, then in the Zero Trust dashboard delete the `takeoff-runner.floor360.com` Public Hostname and its Access application. No cloudflared restart. Optionally `docker image rm takeoff-runner:<sha>`, and remove `/var/lib/takeoff-runner`, `/etc/takeoff-runner.env` and `/etc/takeoff-runner/`. No other container, service or port was changed, so there's nothing else to undo.
+
+**Key rotation:** when the takeoff-vision key or the waker token rotates, re-run the whole step 3 copy block, which refreshes **both** runner copies (`takeoff-vision.key` and `takeoff-waker.token`) and re-runs the sha256 check. Both lines must say `match`, and the `stat` check must still show `10014:10014 400`. Then `docker restart takeoff-runner`: `install` replaces the key file, and a single-file bind mount keeps showing the old file until the container restarts. Never paste either value into chat or into this file.
 
 ## Tests
 
