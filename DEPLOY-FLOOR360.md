@@ -130,6 +130,43 @@ The DGX container stops itself after 15 minutes idle. When the model is down (no
 
 The route requires the Easy Auth user. `GET /api/ai/status` reports `ready`, `busy`, `starting`, or `off`, and the AI settings dialog shows it. Upstream 429 is reported as busy. Upstream 502/503/504, Cloudflare 52x, a timeout, or no connection are reported as starting. A Cloudflare Access redirect, 401, or 403 is reported as "refused this site's credentials". Setting values are never logged or returned.
 
+## AI takeoff drafts from Bids (`/api/bids/drafts`)
+
+Off by default. This is the reviewer side of auto-takeoff (plan Phase 2, PR D). With `FLOOR360_AI_DRAFTS` unset, every `/api/bids/drafts` path returns 404, like any other unknown `/api/` path, and the app shows nothing new. The browser learns that the feature is on only from this route. No `VITE_*` value is involved.
+
+When it's on, `floor360-bids-drafts.mjs` (copied into `dist/`) calls Bids server to server. The browser never calls Bids itself.
+
+| Site route | Bids call |
+| --- | --- |
+| `GET /api/bids/drafts` | `GET <BIDS_API_URL>/api/auto-takeoff/drafts` |
+| `POST /api/bids/drafts/:runId/claim` | `POST <BIDS_API_URL>/api/auto-takeoff/runs/:runId/claim`. The first claim wins. A 409 passes back who claimed the run and when. |
+| `POST /api/bids/drafts/:runId/approved` | `POST <BIDS_API_URL>/api/auto-takeoff/runs/:runId/approved` |
+
+| App setting | Value |
+| --- | --- |
+| `FLOOR360_AI_DRAFTS` | Unset (off). `on` (or `1` / `true`) turns the route on. Turn it on only after the dependencies below are in place. |
+| `BIDS_API_URL` | `https://bids.floor360.com`. HTTPS only. Any other value reads as "Bids isn't set up on this site". |
+| `BIDS_API_AUDIENCE` | Optional. Defaults to `api://f2471322-f309-465c-b467-6915a020f5da` (the Bids Easy Auth app). |
+| `BIDS_API_TIMEOUT_MS` | Optional. Defaults to `15000`. It applies to the token request and to each Bids call. |
+| `AZURE_CLIENT_ID` | Set this only when a user-assigned identity is used instead of the system one. |
+
+- **Managed identity.** The route gets a token for `BIDS_API_AUDIENCE` from the App Service identity (`IDENTITY_ENDPOINT` / `IDENTITY_HEADER`). It's the same system-assigned identity Azure OCR uses (principal `291e4922-f17b-4748-99bd-3b676f9c5310`). The token is cached until 5 minutes before it expires and is dropped after a Bids 401. No secret is stored. Tokens are never logged or returned.
+- **Signed-in user.** Every call requires the Easy Auth user (`X-MS-CLIENT-PRINCIPAL` / `X-MS-CLIENT-PRINCIPAL-NAME`). Without it, the route answers 401. Only that user's email goes to Bids, in the `X-Auto-Takeoff-User-Email` header and as `{"email"}` in POST bodies. Cookies and the principal blob are never forwarded. A POST must be same-site JSON.
+- **Errors.** A Bids 401, 403, or login redirect shows as "Bids hasn't accepted this site's identity yet (Appendix B)". A timeout shows as "Bids didn't answer in 15 s".
+
+What it adds to the app:
+
+- **`/projects`** gets an **AI drafts** section with **Claim review** and **Open**. Open goes to `/?job=<sharepointFolderId>`, the same path an existing project opens through. Losing a claim race shows, for example, "Rob claimed this at 7:12 PM CT". Times are in Central time.
+- **The editor.** A project whose `annotations.json` has `floor360AutoTakeoff.status: "draft"` shows **AI draft, not verified** and a verification checklist: Scales, Schedule mapping, Areas and rooms, Seams and transitions, Waste and quantities, Shop drawings, Submittal docs, RFIs, plus Wall tile from elevations when any condition is wall tile. Each check records the Easy Auth email and time in the project file. Unchecking an item locks **Approve AI takeoff** again. Approve sets `status: "approved"`, `approvedBy`, and `approvedAt`. After that save lands, it posts `/approved` to Bids. If Bids isn't told, the approval stands, the banner shows the reason, and **Retry** sends it again. A successful report stamps `bidsNotifiedAt`. Machine shapes stay pending review, and APPROVED seals stay human-only. Projects without the key behave and save exactly as before.
+
+Depends on, in this order. None of it is done yet:
+
+1. Bids PR E is deployed, with its MI-only `/api/auto-takeoff/*` routes and `AUTO_TAKEOFF_CALLER_OID=291e4922-f17b-4748-99bd-3b676f9c5310`.
+2. Ryan's OK of the Bids Easy Auth change (plan Appendix B): the `AutoTakeoff.Caller` app role assigned to this site's managed identity, and the identity added to the Bids Easy Auth `allowedPrincipals`. Until then, Bids answers 403 and the AI drafts section shows the Appendix B message.
+3. Then set `BIDS_API_URL` and `FLOOR360_AI_DRAFTS=on` on this App Service.
+
+Smoke test (Ryan only, after D and E ship): open `https://takeoff.floor360.com/projects`. An **AI drafts** section should appear (empty is fine). Roll back by removing `FLOOR360_AI_DRAFTS`.
+
 ## Easy Auth and Entra
 
 Turn on Authentication for the app. Identity provider: Microsoft. Tenant: the FLOOR360 tenant, single tenant. Unauthenticated requests: redirect to the Microsoft login. Token store can stay off; the static app does not read the Easy Auth headers.

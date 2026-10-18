@@ -19,6 +19,8 @@
 // any other /api/ path is a 404, never the app. The CSP stays 'self'.
 //   POST /api/ocr/read   Azure Document Intelligence Read (floor360-ocr-read.mjs)
 //   /api/ai/*            the takeoff agent's model on the DGX (floor360-ai-proxy.mjs)
+//   /api/bids/drafts/*   AI takeoff drafts from Bids, off unless FLOOR360_AI_DRAFTS
+//                        (floor360-bids-drafts.mjs)
 
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";
@@ -26,6 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { OCR_READ_PATH, createOcrReadHandler } from "./floor360-ocr-read.mjs";
 import { AI_PATH, createAiProxyHandler } from "./floor360-ai-proxy.mjs";
+import { BIDS_DRAFTS_PATH, createBidsDraftsHandler } from "./floor360-bids-drafts.mjs";
 
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
@@ -181,7 +184,7 @@ if (isMain) {
     : path.dirname(fileURLToPath(import.meta.url));
   const port = Number(process.env.PORT) || 8080;
   const host = "0.0.0.0";
-  const routes = { [OCR_READ_PATH]: createOcrReadHandler(), [AI_PATH]: createAiProxyHandler() };
+  const routes = { [OCR_READ_PATH]: createOcrReadHandler(), [AI_PATH]: createAiProxyHandler(), [BIDS_DRAFTS_PATH]: createBidsDraftsHandler() };
   createStaticServer(root, { routes }).listen(port, host, () => {
     console.log(`floor360-static serving ${root} on ${host}:${port}`);
   });

@@ -28,6 +28,9 @@ export function jobIdFromSearch(search) {
 
 export const jobHref = (id) => `/?job=${encodeURIComponent(id)}`;
 
+/** A SharePoint folder id `?job=` will open. */
+export const isJobFolderId = (id) => ITEM_ID.test(String(id ?? ""));
+
 /** The root's job folders, newest change first. Dot-folders are ours
  *  (.opentakeoff), not jobs. */
 export async function listProjects(graph, rootId) {
