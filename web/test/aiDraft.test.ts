@@ -1,8 +1,9 @@
 // FLOOR360 auto-takeoff review: the draft / approve gate (lib/aiDraft.js), the
 // floor360AutoTakeoff key through the one document writer, and the browser
 // client of /api/bids/drafts (lib/bidsDrafts.js). Pinned: every check records
-// who and when; un-checking re-locks Approve; wall tile adds an item only when
-// a wall-tile condition exists; unknown keys survive a save; a project without
+// who and when; un-checking re-locks Approve; wall tile adds an item when a
+// wall-tile condition exists or the runner's checklistItems lists it (the
+// runner's real marker is read here); unknown keys survive a save; a project without
 // the key writes byte-identical documents; the route's 404 reads as off.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,6 +14,7 @@ import {
 import { claimDraft, claimText, formatCt, loadAiDrafts, notifyApproved } from "../src/lib/bidsDrafts.js";
 import { buildTakeoffDocument, TAKEOFF_DOCUMENT_KEYS } from "../src/lib/takeoffDocument.js";
 import { isJobFolderId } from "../src/lib/msgraph/projects.js";
+import { CHECKLIST_ITEMS as RUNNER_ITEMS, DRAFT_MARKER_KEY as RUNNER_MARKER_KEY, markDraft } from "../../floor360/takeoff-runner/src/outputs.ts";
 
 const T0 = "2026-10-18T00:12:00.000Z";   // 7:12 PM CT, Oct 17
 const ME = "rpalermo@floor360.com";
@@ -74,6 +76,37 @@ test("Approve: locked until every item (incl. wall tile) is checked; sets status
   assert.equal(approved.runId, "run_1");
   assert.equal(approveAutoTakeoff(nine, wall, "", T0), null, "no signed-in name, no approval");
   assert.equal(approveAutoTakeoff(approved, wall, ME, T0), null, "approve once");
+});
+
+test("the runner's own marker: same key and item ids; its wall-tile item gates Approve without a wall-tile condition", () => {
+  const info = (wallTile: boolean) => ({
+    manifest: { runId: "run_1", bidId: "bid-9", bidNumber: "F360-26-0170", projectName: "Perfumania Wauwatosa", files: [], scheduleRows: [], options: { includeElevations: true, dpi: 144 } },
+    jobId: "job_1", generatedAt: T0, runnerVersion: "0.1.0", engineVersion: "0.9.98",
+    counts: { sheets: 1, rooms: 2, conditions: 1, rfisDrafted: 1 },
+    findings: [{ kind: "wall_tile_no_elevation" as const, message: "Wall tile WT-1: not measured.", tag: "WT-1", rfi: "RFI-001" }],
+    wallTile,
+  });
+  assert.equal(RUNNER_MARKER_KEY, AUTO_TAKEOFF_KEY);
+  assert.deepEqual([...RUNNER_ITEMS], CHECKLIST_ITEMS.map((i) => i.id));
+  const payload = JSON.parse(JSON.stringify(markDraft({ schema: "opentakeoff.takeoff_canvas.v1", shapes: [] }, info(true), [])));
+  const at = readAutoTakeoff(payload)!;
+  assert.equal(at.status, "draft");
+  assert.deepEqual(at.checklistItems, [...RUNNER_ITEMS, WALL_TILE_ITEM.id]);
+  assert.deepEqual(checklistItems(CARPET, at).map((i) => i.id), at.checklistItems, "the runner's list, in order");
+  const eight = CHECKLIST_ITEMS.reduce((a: typeof at, it) => setCheck(a, it.id, true, ME, T0), at);
+  assert.equal(canApprove(eight, CARPET), false, "wall tile from the schedule locks Approve with only floor conditions");
+  assert.deepEqual(missingChecks(eight, CARPET).map((m) => m.id), [WALL_TILE_ITEM.id]);
+  const approved = approveAutoTakeoff(setCheck(eight, WALL_TILE_ITEM.id, true, ME, T0), CARPET, ME, T0)!;
+  assert.equal(approved.status, "approved");
+  const out = JSON.parse(JSON.stringify(buildTakeoffDocument({ conditions: CARPET, floor360AutoTakeoff: approved })))[AUTO_TAKEOFF_KEY];
+  assert.deepEqual(out.counts, { sheets: 1, rooms: 2, conditions: 1, rfisDrafted: 1 });
+  assert.deepEqual(out.findings, [{ kind: "wall_tile_no_elevation", message: "Wall tile WT-1: not measured.", tag: "WT-1", rfi: "RFI-001" }]);
+  assert.equal(out.checklist.wall_tile_elevations.by, ME);
+
+  const plain = readAutoTakeoff(JSON.parse(JSON.stringify(markDraft({ shapes: [] }, info(false), []))))!;
+  assert.equal(checklistItems(CARPET, plain).length, 8);
+  assert.equal(checklistItems([{ finish_tag: "WT-1" }], plain).at(-1), WALL_TILE_ITEM, "a wall-tile condition still adds it");
+  assert.equal(checklistItems(CARPET, { ...plain, checklistItems: ["scales", "future_item"] }).length, 8, "the eight always show; unknown ids are ignored");
 });
 
 test("Bids notice: pending after approve, cleared by markBidsNotified; never on a draft or without runId", () => {

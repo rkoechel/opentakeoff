@@ -45,7 +45,7 @@ export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, on
   }
   if (!isAiDraft(autoTakeoff)) return null;
 
-  const items = checklistItems(conditions);
+  const items = checklistItems(conditions, autoTakeoff);
   const missing = missingChecks(autoTakeoff, conditions);
   const ready = canApprove(autoTakeoff, conditions) && !!who;
   const done = items.length - missing.length;

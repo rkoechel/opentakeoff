@@ -3,8 +3,10 @@
 // key into annotations.json:
 //
 //   {"status": "draft" | "approved", "runId", "bidId", "bidNumber",
-//    "generatedAt", "runnerVersion",
+//    "generatedAt", "runnerVersion", "checklistItems": [<item id>],
 //    "checklist": {<item id>: {"by", "at"}}, "approvedBy", "approvedAt"}
+//
+// floor360/takeoff-runner/CONTRACT.md is the runner's side of this shape.
 //
 // An estimator checks every item (each records the Easy Auth name and time);
 // un-checking an item re-locks Approve. Approve is a human act: it never
@@ -41,10 +43,13 @@ export function isWallTileCondition(c) {
     .some((v) => typeof v === "string" && WALL_TILE_TEXT.test(v));
 }
 
-/** The checklist for this project: the eight items, plus wall tile when any
- *  condition is wall tile. */
-export function checklistItems(conditions) {
-  const wall = Array.isArray(conditions) && conditions.some(isWallTileCondition);
+/** The checklist for this project: the eight items, plus wall tile when the
+ *  runner listed it in `checklistItems` (its schedule had a wall-tile row,
+ *  which may never become a condition) or any condition is wall tile. The
+ *  eight always show; ids this build has no label for are ignored. */
+export function checklistItems(conditions, at) {
+  const listed = isObj(at) && Array.isArray(at.checklistItems) && at.checklistItems.includes(WALL_TILE_ITEM.id);
+  const wall = listed || (Array.isArray(conditions) && conditions.some(isWallTileCondition));
   return wall ? [...CHECKLIST_ITEMS, WALL_TILE_ITEM] : [...CHECKLIST_ITEMS];
 }
 
@@ -83,7 +88,7 @@ export function setCheck(at, id, checked, by, nowIso) {
 
 /** The items still unchecked, in checklist order. */
 export function missingChecks(at, conditions) {
-  return checklistItems(conditions).filter((it) => !checkOf(at, it.id));
+  return checklistItems(conditions, at).filter((it) => !checkOf(at, it.id));
 }
 
 /** Approve unlocks only on a draft with every item checked. */
