@@ -11339,7 +11339,7 @@ export default function TakeoffCanvas() {
         <AiDraftPanel autoTakeoff={autoTakeoff} conditions={conditions} user={aiDrafts.user} nowIso={nowIso}
           onChange={setAutoTakeoff} onApprove={approveAiTakeoff}
           notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)}
-          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} />
+          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={showHiddenSheets ? 0 : hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} />
       )}
 
       {loadError && (
