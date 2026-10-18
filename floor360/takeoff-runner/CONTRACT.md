@@ -99,7 +99,8 @@ Bids adds `docSetHash` (its own hash: file content hashes plus the finish-schedu
 |---|---|
 | `no_scale` | No readable scale note. A scan may carry the AI's reading of the note as a suggestion; it's never applied. |
 | `nts_sheet` | The sheet says NOT TO SCALE. |
-| `multiple_scales` | Several scale notes on one sheet; the title-block scale is applied to the main plan, check rooms in enlarged plans or details. |
+| `multiple_scales` | Several scale notes on one sheet; the title-block scale is applied to the main plan, check rooms in enlarged plans or details.
+| `scale_mismatch` | The scale applied does not match the scale note in the title block. |
 | `schedule_row_not_drawn` | A Bids schedule row's tag appears on no plan sheet. |
 | `tag_not_measured` | The tag is on a plan, but no room was measured under it. |
 | `room_no_schedule_row` | A detected room has no schedule row. |
@@ -111,7 +112,9 @@ Bids adds `docSetHash` (its own hash: file content hashes plus the finish-schedu
 | `base_gross_perimeter` | Base derived as full perimeter; openings not deducted. |
 | `base_multiple_types` | Several base types; base left for the estimator. |
 | `transitions_withheld` | Finish changes across a wall that need a threshold at a doorway. |
-| `low_confidence_rooms` | Rooms that didn't get the AGENT check mark. |
+| `low_confidence_rooms` | Rooms that did not trace cleanly; review those first. No room gets an AI check mark. |
+| `scales_unconfirmed` | Every scale was set by the AI from the drawings; none is confirmed until checked in Scale review. |
+| `run_summary` | One end-of-run line: sheets read, scaled, unscaled, hidden, rooms drawn, rooms to review, RFIs drafted. |
 | `vision_unavailable` | The vision model was unavailable; scans keep their scale question. |
 | `step_failed` | An engine step refused; `tag` names it. |
 

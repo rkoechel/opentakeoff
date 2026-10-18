@@ -47,6 +47,7 @@ export type FindingKind =
   | "no_scale"
   | "nts_sheet"
   | "multiple_scales"
+  | "scale_mismatch"
   | "schedule_row_not_drawn"
   | "room_no_schedule_row"
   | "room_no_floor_finish"
@@ -59,6 +60,8 @@ export type FindingKind =
   | "base_multiple_types"
   | "transitions_withheld"
   | "low_confidence_rooms"
+  | "scales_unconfirmed"
+  | "run_summary"
   | "vision_unavailable"
   | "step_failed";
 
