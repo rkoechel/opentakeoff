@@ -31,9 +31,10 @@ COPY --from=build /app/floor360/takeoff-runner/dist runner/dist
 
 RUN mkdir -p /var/lib/takeoff-runner && chown node:node /var/lib/takeoff-runner
 
-# Inside the container the API listens on all interfaces so a published port
-# reaches it; the host side is published on 127.0.0.1 only (README.md).
-ENV RUNNER_HOST=0.0.0.0 \
+# The container runs with --network host (README.md), so the API binds the
+# host's loopback only. Never the wildcard address: under the host network
+# that would be every host interface.
+ENV RUNNER_HOST=127.0.0.1 \
     RUNNER_PORT=8014 \
     RUNNER_DATA_DIR=/var/lib/takeoff-runner \
     RUNNER_MCP_ENTRY=/app/mcp/dist/server.js \
@@ -42,6 +43,6 @@ ENV RUNNER_HOST=0.0.0.0 \
 USER node
 EXPOSE 8014
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:8014/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.RUNNER_PORT || 8014) + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
 # nice 10: the takeoff engine (a child of this process) yields CPU to everything else on the box
 CMD ["nice", "-n", "10", "node", "runner/dist/main.js"]

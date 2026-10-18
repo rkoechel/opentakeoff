@@ -16,14 +16,14 @@ It's off by default. With `RUNNER_ENABLED` unset, every job route answers `503 {
 |---|---|---|
 | `RUNNER_ENABLED` | unset (off) | `1` turns the job API on. Anything else answers 503 on every job route. |
 | `RUNNER_TOKEN` | unset | Bearer token Bids sends. Compared in constant time. Enabled without a token answers 503 `runner not configured`. |
-| `RUNNER_HOST` / `RUNNER_PORT` | `127.0.0.1` / `8014` | Listen address. The image sets `0.0.0.0` inside the container. The host publishes `127.0.0.1:8014` only. |
+| `RUNNER_HOST` / `RUNNER_PORT` | `127.0.0.1` / `8014` | Listen address. The image default is `127.0.0.1` too. The container runs with `--network host`, so this is the Spark's own loopback: cloudflared reaches it, nothing off the box does. Never set `0.0.0.0`. |
 | `RUNNER_DATA_DIR` | `/var/lib/takeoff-runner` | Jobs, uploaded files and outputs. |
 | `RUNNER_CONCURRENCY` | `1` | Fixed: one job at a time. Any other value is ignored, with a log line. |
 | `RUNNER_JOB_TIMEOUT_MIN` | `60` | Run budget. Time spent waiting for memory doesn't count. |
 | `RUNNER_RETENTION_DAYS` | `7` | A job and every file of its own is deleted this long after it finishes (or after it was created, if it never ran). |
 | `RUNNER_VERDICT_MIN_CONFIDENCE` | `0.9` | A room gets the agent's AGENT check mark only at or above this trace confidence, assigned from a schedule row and vector-traced. |
 | `RUNNER_DPI` | `200` | Default render resolution for the vision crop (a job can ask for 72–300). The engine's vector tracing doesn't depend on it. |
-| `VISION_BASE_URL` | `http://127.0.0.1:8010/v1` | takeoff-vision (vLLM, OpenAI-compatible). |
+| `VISION_BASE_URL` | `http://127.0.0.1:8010/v1` | takeoff-vision (vLLM, OpenAI-compatible). Ends in `/v1`: the runner appends `/models` and `/chat/completions`. On the Spark: `http://100.72.198.58:8010/v1`. |
 | `VISION_API_KEY_FILE` | unset | File holding the vLLM `--api-key`. Read when used, never logged. |
 | `VISION_MODEL` | unset | Unset: the first id `/v1/models` lists. |
 | `WAKER_URL` | `http://127.0.0.1:8012` | The takeoff-vision waker. |
@@ -63,9 +63,9 @@ Wall tile is never measured by guess. Each wall-tile row becomes a finding for t
 
 Nothing here is installed yet. **None of these steps touches the existing containers or services, or ports 8000–8003, 8010 (takeoff-vision) or 8012 (the waker).** The runner only calls 8010 and 8012 as a client, and only once Ryan turns it on.
 
-1. **Check the facts first.**
-   - Port free: `ss -ltn | grep -c ':8014 '` prints `0`. If 8014 is taken, use **8016** everywhere below (and check it the same way).
-   - What takeoff-vision and the waker listen on: `ss -ltn | grep -E ':(8010|8012) '`. This decides the networking choice in step 5.
+1. **Check the facts first.** Deployment verified these on Oct 17, 2026: Docker 29.6.2, and ports 8014 and 8016 both free. Re-check the ports with `ss -ltn` right before installing.
+   - Port free: `ss -ltn | grep -c ':8014 '` prints `0`. If 8014 is taken, use **8016** everywhere below (`RUNNER_PORT=8016` in the env file, and the dashboard service in step 7), and check it the same way.
+   - takeoff-vision and the waker: `ss -ltn | grep -E ':(8010|8012) '` shows takeoff-vision on the tailnet address (`100.72.198.58:8010`) and the waker on `127.0.0.1:8012`.
    - Docker is there: `docker version --format '{{.Server.Version}}'`.
 2. **Build the image** from a checkout of the merged commit:
    ```bash
@@ -85,26 +85,23 @@ Nothing here is installed yet. **None of these steps touches the existing contai
 4. **Write the env file** (mode 600). Generate `RUNNER_TOKEN` on the Spark and never paste it into chat. Keep `RUNNER_ENABLED=0` until Ryan says to turn it on.
    ```bash
    sudo install -m 0600 -o root -g root floor360/takeoff-runner/takeoff-runner.env.example /etc/takeoff-runner.env
-   sudoedit /etc/takeoff-runner.env   # RUNNER_TOKEN=$(openssl rand -hex 32); VISION_BASE_URL / WAKER_URL per step 5
+   sudoedit /etc/takeoff-runner.env   # RUNNER_TOKEN=$(openssl rand -hex 32); keep RUNNER_HOST=127.0.0.1
    ```
-5. **Start it.** Networking, from step 1:
-   - takeoff-vision and the waker listen on `0.0.0.0`: set `VISION_BASE_URL=http://host.docker.internal:8010/v1` and `WAKER_URL=http://host.docker.internal:8012`.
-   - They listen on the tailnet address: set `http://100.72.198.58:8010/v1` and `http://100.72.198.58:8012`.
-   - Either way, run:
+   The example already holds the Spark's addresses: `RUNNER_HOST=127.0.0.1`, `RUNNER_PORT=8014`, `VISION_BASE_URL=http://100.72.198.58:8010/v1` (it must end in `/v1`) and `WAKER_URL=http://127.0.0.1:8012`.
+5. **Start it** on the host network. With `RUNNER_HOST=127.0.0.1` the API binds the Spark's loopback only, and nothing is published:
    ```bash
    docker run -d --name takeoff-runner \
      --restart unless-stopped \
-     -p 127.0.0.1:8014:8014 \
+     --network host \
      --cpus 6 --memory 12g --memory-swap 12g --pids-limit 512 \
      --user 10014:10014 --security-opt no-new-privileges --cap-drop ALL \
-     --env-file /etc/takeoff-runner.env \
-     --add-host=host.docker.internal:host-gateway \
+     --env-file /etc/takeoff-runner.env -e RUNNER_HOST=127.0.0.1 \
      -v /var/lib/takeoff-runner:/var/lib/takeoff-runner \
      -v /etc/takeoff-runner/takeoff-vision.key:/run/secrets/takeoff-vision.key:ro \
      -v /etc/takeoff-runner/takeoff-waker.token:/run/secrets/takeoff-waker.token:ro \
      takeoff-runner:<short sha>
    ```
-   - They listen on `127.0.0.1` only (the waker's default): a bridged container can't reach them. Use the host network instead: in the env file set `RUNNER_HOST=127.0.0.1` and keep `VISION_BASE_URL` / `WAKER_URL` at `127.0.0.1`, then run the same line with `--network host` in place of `-p 127.0.0.1:8014:8014` and `--add-host=...`. The API then binds the host's loopback only.
+   Bridge networking isn't supported by default: a bridged container can't reach the waker on the host's loopback (`127.0.0.1:8012`).
 
    There's deliberately no `--gpus`. [compose.example.yml](compose.example.yml) is the same thing as a Compose file.
 6. **Smoke it** on the Spark:
@@ -113,18 +110,14 @@ Nothing here is installed yet. **None of these steps touches the existing contai
    curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8014/jobs  # 503 while RUNNER_ENABLED=0
    docker inspect --format '{{.State.Health.Status}}' takeoff-runner          # healthy
    ```
-7. **Add one cloudflared ingress rule** in the existing tunnel's `config.yml`, above the catch-all. It's an addition only; don't edit or remove any existing rule:
-   ```yaml
-     - hostname: takeoff-runner.floor360.com
-       service: http://127.0.0.1:8014
-   ```
-   - For a dashboard-managed tunnel, add the public hostname `takeoff-runner.floor360.com` with service `http://127.0.0.1:8014`.
-   - Put `takeoff-runner.floor360.com` behind the existing Cloudflare Access app (or a new app with the same service-token policy) so Bids' `SPARK_CF_ACCESS_CLIENT_ID` / `SPARK_CF_ACCESS_CLIENT_SECRET` work and nothing else does. `/health` behind Access is fine; Bids sends the token on every call.
-   - Restart cloudflared, or let the dashboard push the change.
+7. **Publish it through the existing tunnel, in the Cloudflare Zero Trust dashboard.** cloudflared on the Spark is remotely managed (tunnel token, host network, no local `config.yml`), so this is all dashboard work:
+   - On the existing tunnel, add a Public Hostname `takeoff-runner.floor360.com` with service `http://127.0.0.1:8014`. It's an addition only; don't edit or remove any existing hostname.
+   - Add an Access application for `takeoff-runner.floor360.com`. Its policy allows the existing Bids service token (the one behind `SPARK_CF_ACCESS_CLIENT_ID` / `SPARK_CF_ACCESS_CLIENT_SECRET`) and nothing else. `/health` behind Access is fine; Bids sends the token on every call.
+   - **No local cloudflared config edit and NO cloudflared restart: the dashboard pushes the change to the running connector.**
    - From outside: `curl -s -H "CF-Access-Client-Id: $ID" -H "CF-Access-Client-Secret: $SECRET" https://takeoff-runner.floor360.com/health` prints `{"ok":true}`; without the headers, Access refuses.
 8. **Turn on (Ryan's call, later):** set `RUNNER_ENABLED=1`, then `docker rm -f takeoff-runner` and rerun the step 5 line. Bids gets `AUTO_TAKEOFF_RUNNER_URL=https://takeoff-runner.floor360.com` and `AUTO_TAKEOFF_RUNNER_TOKEN` (PR C).
 
-**Rollback:** `docker rm -f takeoff-runner`, then remove the ingress rule (and the public hostname / DNS record if one was added) and restart cloudflared. Optionally `docker image rm takeoff-runner:<sha>`, and remove `/var/lib/takeoff-runner`, `/etc/takeoff-runner.env` and `/etc/takeoff-runner/`. No other container, service or port was changed, so there's nothing else to undo.
+**Rollback:** `docker rm -f takeoff-runner`, then in the Zero Trust dashboard delete the `takeoff-runner.floor360.com` Public Hostname and its Access application. No cloudflared restart. Optionally `docker image rm takeoff-runner:<sha>`, and remove `/var/lib/takeoff-runner`, `/etc/takeoff-runner.env` and `/etc/takeoff-runner/`. No other container, service or port was changed, so there's nothing else to undo.
 
 ## Tests
 
