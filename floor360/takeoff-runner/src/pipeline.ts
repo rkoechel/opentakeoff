@@ -513,7 +513,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k));
   // end-of-run summary (Ryan 2026-10-18): every scale is AI-set and unconfirmed until someone checks it in Scale review
   if (state.scaled.size) state.addFinding({ kind: "scales_unconfirmed", message: `All ${state.scaled.size} scale${state.scaled.size === 1 ? "" : "s"} on this set were set by the AI from the drawings and none is confirmed. Confirm each in Scale review before pricing.` });
-  state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, toReview: low, rfis: state.rfisDrafted }) });
+  state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, toReview: low, unmatched: pendingNoRow.length, rfis: state.rfisDrafted }) });
   await writeFile(path.join(ctx.outputsDir, "annotations.json"), JSON.stringify(markDraft(payload, info, [...state.nts], autoHidden)));
   await writeFile(path.join(ctx.outputsDir, "sheets.json"), JSON.stringify(sheetsManifest(m, loaded)));
   await writeFile(path.join(ctx.outputsDir, "floor360-run.json"), JSON.stringify(runRecord(info, inputsHash), null, 2));

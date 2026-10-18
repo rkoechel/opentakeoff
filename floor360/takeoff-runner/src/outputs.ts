@@ -120,6 +120,6 @@ export function contentTypeFor(name: string): string {
 /**
  * The end-of-run summary line for the AI draft checklist: what was read, scaled, hidden, drawn and asked.
  */
-export function runSummary(c: { sheets: number; scaled: number; unscaled: number; hidden: number; rooms: number; toReview: number; rfis: number }): string {
-  return `AI run summary: ${c.sheets} sheets read, ${c.scaled} scaled by the AI (unconfirmed), ${c.unscaled} left unscaled, ${c.hidden} hidden as non-plan or duplicate, ${c.rooms} rooms drawn (${c.toReview} to review first), ${c.rfis} RFIs drafted.`;
+export function runSummary(c: { sheets: number; scaled: number; unscaled: number; hidden: number; rooms: number; toReview: number; rfis: number; unmatched: number }): string {
+  return `AI run summary: ${c.sheets} sheets read, ${c.scaled} scaled by the AI (unconfirmed), ${c.unscaled} left unscaled, ${c.hidden} hidden as non-plan or duplicate, ${c.rooms} rooms drawn (${c.toReview} to review first), ${c.unmatched} found with no finish match (not drawn), ${c.rfis} RFIs drafted.`;
 }

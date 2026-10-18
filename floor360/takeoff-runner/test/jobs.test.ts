@@ -204,6 +204,7 @@ test("no room matches any finish: one consolidated question, not one RFI per roo
     const q = job.findings.filter((f) => f.kind === "no_room_finish_match");
     assert.equal(q.length, 1);
     assert.match(q[0].message, /3 of 3 rooms/);
+    assert.match(job.findings.find(x => x.kind === "run_summary")?.message ?? "", /0 rooms drawn .*3 found with no finish match \(not drawn\)/);
     assert.match(q[0].detail ?? "", /no finish tag printed inside a room/);
   } finally {
     await r.cleanup();
