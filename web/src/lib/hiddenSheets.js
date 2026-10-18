@@ -4,10 +4,11 @@ export function sanitizeHiddenSheets(raw) {
   if (!Array.isArray(raw)) return [];
   const seen = new Set();
   return raw.filter((s) => {
+    if (typeof s !== 'string') return false;
     const trimmed = s.trim();
     if (!trimmed) return false;
-    if (seen.has(trimmed)) return false;
-    seen.add(trimmed);
+    if (seen.has(s)) return false;
+    seen.add(s);
     return true;
   });
 }
