@@ -306,7 +306,8 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       }
     }
   }
-  const roomSheets = measurable.filter((s) => state.scaled.has(s.sheet) && !isElevation(s) && !nonPlan.has(s.sheet) && (state.roles.size === 0 || ["plan", "unknown"].includes(state.roles.get(s.sheet) ?? "unknown")));
+  // Ryan 2026-10-18 (option b): a sheet guessed non-plan from its sheet number still gets room detection; only an engine role other than plan or unknown skips it.
+  const roomSheets = measurable.filter((s) => state.scaled.has(s.sheet) && !isElevation(s) && (state.roles.size === 0 || ["plan", "unknown"].includes(state.roles.get(s.sheet) ?? "unknown")));
   const floorTags = [...new Set(rows.filter((r) => classifyRow(r) === "floor").map((r) => r.finishTag))];
   const pendingNoRow: Finding[] = [];
   let detectedRooms = 0;
@@ -508,9 +509,9 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   const loaded = [...new Set(state.sheets.map((s) => s.sheet.split("#")[0]))];
   const inputsHash = createHash("sha256").update(m.files.map((f) => f.sha256).sort().join("\n")).digest("hex");
   // auto-hide at import (Ryan 2026-10-18): non-plan sheets and duplicate pages go in hidden_sheets, restorable with Show hidden.
-  // A sheet that carries a finding stays visible so its checklist item is never hidden.
+  // A sheet that carries a finding or a drawn room stays visible, so its checklist item and its rooms are never hidden.
   const findingSheets = new Set(state.findings.map((f) => f.sheet).filter((k): k is string => !!k));
-  const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k));
+  const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k) && !state.rooms.some((r) => r.sheet === k));
   // end-of-run summary (Ryan 2026-10-18): every scale is AI-set and unconfirmed until someone checks it in Scale review
   if (state.scaled.size) state.addFinding({ kind: "scales_unconfirmed", message: `All ${state.scaled.size} scale${state.scaled.size === 1 ? "" : "s"} on this set were set by the AI from the drawings and none is confirmed. Confirm each in Scale review before pricing.` });
   state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, toReview: low, unmatched: pendingNoRow.length, rfis: state.rfisDrafted }) });
