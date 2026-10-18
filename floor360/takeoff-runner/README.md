@@ -55,7 +55,23 @@ All routes except `/health` need `Authorization: Bearer $RUNNER_TOKEN`.
 5. Detects rooms on the scaled plan sheets and commits each under the floor finish its own room-finish schedule row states. When the PDF has no room-finish schedule, it uses Bids' rows that name rooms. A room with no row, or with two finishes, is reported and never measured under a guess.
 6. Derives base (gross perimeter, with a finding that door openings weren't deducted) when the schedule has exactly one base type, and transitions where two finishes butt together.
 7. Puts the agent's AGENT check mark (pencil, never the estimator's APPROVED seal) on rooms that traced cleanly.
-8. Writes the project file marked as a draft, the marked set, the report (JSON and CSV), `floor360-run.json`, and `findings.json`.
+8. Drafts RFIs for the questions the drawings left open (below).
+9. Writes the project file marked as a draft, the marked set, the report (JSON and CSV), `floor360-run.json`, and `findings.json`.
+
+### RFI drafts
+
+Six kinds of finding become RFI drafts in the project's RFI register:
+
+- no scale, or NOT TO SCALE
+- a schedule row never drawn
+- a room with no schedule row
+- conflicting finishes
+- an unreadable scanned schedule
+- wall tile with no usable elevation
+
+Each draft goes through the engine's `create_rfi`, so it's **pending**, raised by the agent (`origin.actor: "agent"`, `reviewed: false`). It sits on the sheet it concerns, with a revision cloud linked to it when the finding knows the spot. There's one RFI per (kind, sheet, tag). The drafts print in the marked set's RFI schedule, `counts.rfisDrafted` counts them, and each finding carries its RFI number in `rfi`.
+
+**Nothing is sent.** An estimator accepts each draft in the register; a person exports or emails it. Drafting follows `RUNNER_ENABLED` like everything else here.
 
 Wall tile is never measured by guess. Each wall-tile row becomes a finding for the estimator.
 

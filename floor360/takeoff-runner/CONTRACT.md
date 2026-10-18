@@ -86,7 +86,7 @@ Bids adds `docSetHash` (its own hash: file content hashes plus the finish-schedu
 
 ## Findings
 
-`{kind, message, sheet?, tag?, at?, rect?, rfi?}`. `message` is a plain sentence for the estimator. `sheet` is a sheet key. `at` and `rect` are image px (PDF points × 2, origin at the top left), the engine's coordinate space. Findings are deduplicated by `(kind, sheet, tag)`.
+`{kind, message, sheet?, tag?, at?, rect?, detail?, rfi?}`. `message` is a plain sentence for the estimator. `sheet` is a sheet key. `at` and `rect` are image px (PDF points × 2, origin at the top left), the engine's coordinate space. Findings are deduplicated by `(kind, sheet, tag)`.
 
 | `kind` | When |
 |---|---|
@@ -108,4 +108,13 @@ Bids adds `docSetHash` (its own hash: file content hashes plus the finish-schedu
 | `vision_unavailable` | The vision model was unavailable; scans keep their scale question. |
 | `step_failed` | An engine step refused; `tag` names it. |
 
-`counts.rfisDrafted` is the number of RFI drafts written into the project (PR F; 0 before it).
+## RFI drafts (PR F)
+
+These finding kinds become pending RFI drafts in the project's register: `no_scale` and `nts_sheet` (one scale question per sheet), `schedule_row_not_drawn`, `room_no_schedule_row`, `conflicting_finishes`, `unreadable_schedule` and `wall_tile_no_elevation`.
+
+- They're written by the engine's `create_rfi`, so they land in `annotations.json` `rfis[]` with the panel's own numbering (`RFI-001`, …), `status: "open"`, `sheet_id`, and `origin: {actor: "agent", reviewed: false}`.
+- A finding with `at` or `rect` also gets a `cloud` markup whose `rfi_id` links it to the draft.
+- There's one draft per (kind, sheet, tag), and every finding it answers carries its number in `rfi`.
+- A finding with no sheet in the set goes on the schedule sheet (else the first sheet) without a cloud.
+- `counts.rfisDrafted` is the number drafted, and the marked set prints them in its RFI schedule.
+- The runner never sends an RFI and has no way to. The estimator accepts each one in the RFI panel, and a person exports or emails it. `detail`, when present on a finding, is the text quoted into the RFI question.
