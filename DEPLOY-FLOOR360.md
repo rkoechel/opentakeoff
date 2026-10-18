@@ -130,6 +130,14 @@ The DGX container stops itself after 15 minutes idle. When the model is down (no
 
 The route requires the Easy Auth user. `GET /api/ai/status` reports `ready`, `busy`, `starting`, or `off`, and the AI settings dialog shows it. Upstream 429 is reported as busy. Upstream 502/503/504, Cloudflare 52x, a timeout, or no connection are reported as starting. A Cloudflare Access redirect, 401, or 403 is reported as "refused this site's credentials". Setting values are never logged or returned.
 
+## Auto-takeoff worker on the DGX (`floor360/takeoff-runner`)
+
+The AI takeoff run for new bids (Phase 2) runs on the DGX Spark, not on this App Service. `floor360/takeoff-runner/` is a Docker image with a job API on port 8014 (`127.0.0.1` only, behind the proposed `takeoff-runner.floor360.com` Cloudflare hostname). Bids pushes a bid's plans and finish schedule, polls, and pulls the AI draft: `annotations.json`, `sheets.json`, the marked set and the report, in the job-folder layout below.
+
+- It's off unless the Spark's `/etc/takeoff-runner.env` sets `RUNNER_ENABLED=1` and `RUNNER_TOKEN`. Nothing is installed yet. Install waits for Ryan's OK on port 8014 ([its README](floor360/takeoff-runner/README.md)).
+- It's CPU only and never touches a container. It reaches takeoff-vision only through the waker's memory gate, so Orduh Up keeps the GPU.
+- This App Service needs no setting for it. The field contract for Bids and for the draft banner is [CONTRACT.md](floor360/takeoff-runner/CONTRACT.md).
+
 ## Easy Auth and Entra
 
 Turn on Authentication for the app. Identity provider: Microsoft. Tenant: the FLOOR360 tenant, single tenant. Unauthenticated requests: redirect to the Microsoft login. Token store can stay off; the static app does not read the Easy Auth headers.

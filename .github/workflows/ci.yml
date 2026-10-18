@@ -140,6 +140,36 @@ jobs:
           path: ${{ runner.temp }}/mcp-workflow-bench
           if-no-files-found: warn
 
+  # floor360/takeoff-runner: the FLOOR360 auto-takeoff worker (off unless
+  # RUNNER_ENABLED=1 on the Spark). Node 22 like its image. Its suite fakes the
+  # vision model, the waker and the clock, and runs the real engine from mcp/
+  # on demo/sample-finish-plan.pdf, so it needs the web and mcp installs too.
+  takeoff-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: floor360/takeoff-runner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            mcp/package-lock.json
+            floor360/takeoff-runner/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: npm ci
+        working-directory: mcp
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
   # Publishing the MCP server is fully unattended ONCE an mcp-v* tag exists —
   # but nothing ever checked that a change to mcp/ came with a version bump, so
   # "publish when needed" quietly depended on remembering. This is the check.
