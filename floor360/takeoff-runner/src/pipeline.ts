@@ -11,6 +11,7 @@ import { EngineToolError } from "./engine.ts";
 import { hasPdfHeader, isEncryptedPdf } from "./pdfcheck.ts";
 import { JobFailure, VisionUnavailable, type Vision } from "./vision.ts";
 import { markDraft, reportCsv, runRecord, sheetsManifest, type DraftInfo } from "./outputs.ts";
+import { draftRfis } from "./rfis.ts";
 import { LIMITS } from "./config.ts";
 import { setName, type Counts, type Finding, type JobManifest, type ManifestFile, type Point, type ScheduleRow } from "./types.ts";
 
@@ -38,7 +39,7 @@ export interface PipelineDeps {
   verdictMinConfidence: number;
   now?: () => Date;
   /** Runs after the takeoff and before the exports, so anything it adds to the
-   *  session (RFI drafts, PR F) lands in every output. */
+   *  session lands in every output. Default: draftRfis (rfis.ts). */
   beforeExport?: (engine: Engine, state: RunState) => Promise<void>;
 }
 
@@ -281,7 +282,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       const k = normTag(room);
       const prev = roomToTag.get(k);
       if (prev && normTag(prev) !== normTag(r.finishTag)) {
-        state.addFinding({ kind: "conflicting_finishes", tag: room, sheet: state.scheduleSheet, message: `Room ${room} is listed under two floor finishes (${prev} and ${r.finishTag}). It was not assigned; ask which finish applies.` });
+        state.addFinding({ kind: "conflicting_finishes", tag: room, sheet: state.scheduleSheet, detail: `Bids lists room ${room} under both ${prev} and ${r.finishTag}.`, message: `Room ${room} is listed under two floor finishes (${prev} and ${r.finishTag}). It was not assigned; ask which finish applies.` });
         roomToTag.set(k, "");
       } else if (prev === undefined) {
         roomToTag.set(k, r.finishTag);
@@ -310,7 +311,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       }
       for (const u of r.unresolved ?? []) {
         if (/ambiguous/i.test(u.reason)) {
-          state.addFinding({ kind: "conflicting_finishes", sheet: s.sheet, tag: u.label, at: u.seed, rect: boxAround(u.seed), message: `Room ${u.label} on ${s.sheet}: the schedule gives more than one floor finish (${u.reason}). Not measured under a guess; ask which applies.` });
+          state.addFinding({ kind: "conflicting_finishes", sheet: s.sheet, tag: u.label, at: u.seed, rect: boxAround(u.seed), detail: `For room ${u.label} the room finish schedule reads: ${u.reason}.`, message: `Room ${u.label} on ${s.sheet}: the schedule gives more than one floor finish (${u.reason}). Not measured under a guess; ask which applies.` });
         } else if (/no\s+(schedule\s+)?row|not\s+in\s+the\s+schedule|no room-finish row/i.test(u.reason)) {
           state.addFinding({ kind: "room_no_schedule_row", sheet: s.sheet, tag: u.label, at: u.seed, rect: boxAround(u.seed), message: `Room ${u.label} on ${s.sheet} has no row in the room-finish schedule. Not measured under a guess; ask for its finish.` });
         } else {
@@ -345,7 +346,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   for (const list of byTag.values()) {
     const variants = new Set(list.map((r) => `${(r.category ?? "").toLowerCase()}|${(r.product ?? "").toLowerCase()}`));
     if (variants.size > 1) {
-      state.addFinding({ kind: "conflicting_finishes", tag: list[0].finishTag, sheet: state.scheduleSheet, message: `${list[0].finishTag} is called out two ways in the finish schedule (${list.map((r) => r.product || r.category || "unnamed").join(" / ")}). Ask which is current.` });
+      state.addFinding({ kind: "conflicting_finishes", tag: list[0].finishTag, sheet: state.scheduleSheet, detail: `The finish schedule describes it as ${list.map((r) => r.product || r.category || "unnamed").join(" and as ")}.`, message: `${list[0].finishTag} is called out two ways in the finish schedule (${list.map((r) => r.product || r.category || "unnamed").join(" / ")}). Ask which is current.` });
     }
   }
   const planSheets = measurable.filter((s) => !isElevation(s));
@@ -358,7 +359,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       if (h) { hit = { sheet: s.sheet, at: h.center }; break; }
     }
     if (!hit) {
-      state.addFinding({ kind: "schedule_row_not_drawn", tag: list[0].finishTag, sheet: state.scheduleSheet, ...(state.scheduleRegion ? { rect: state.scheduleRegion } : {}), message: `${list[0].finishTag} (${list[0].product || list[0].category || "finish"}) is on the finish schedule but never drawn on the plans. Ask where it goes, or whether it's deleted.` });
+      state.addFinding({ kind: "schedule_row_not_drawn", tag: list[0].finishTag, sheet: state.scheduleSheet, ...(state.scheduleRegion ? { rect: state.scheduleRegion } : {}), detail: `(${list[0].product || list[0].category || "finish"})`, message: `${list[0].finishTag} (${list[0].product || list[0].category || "finish"}) is on the finish schedule but never drawn on the plans. Ask where it goes, or whether it's deleted.` });
     } else {
       state.addFinding({ kind: "tag_not_measured", tag: list[0].finishTag, sheet: hit.sheet, at: hit.at, message: `${list[0].finishTag} is tagged on ${hit.sheet} but no room was measured under it. Measure it in the canvas.` });
     }
@@ -422,7 +423,9 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   }
   if (low) state.addFinding({ kind: "low_confidence_rooms", message: `${low} of ${state.rooms.length} measured room${state.rooms.length === 1 ? "" : "s"} did not trace cleanly enough for the AI's check mark. Review those first.` });
 
-  if (deps.beforeExport) await deps.beforeExport(engine, state);
+  // RFI drafts (PR F) go in before the exports, so the register, the marked
+  // set's RFI schedule and the counts all carry them
+  await (deps.beforeExport ?? draftRfis)(engine, state);
 
   // ── exports ──────────────────────────────────────────────────────────────
   ctx.progress("Writing the project file");

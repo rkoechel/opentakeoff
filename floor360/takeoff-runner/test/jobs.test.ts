@@ -65,7 +65,7 @@ test("a full run: done, counts, findings with sheet refs, verdicts on confident 
   try {
     const job = await runOne(r);
     assert.equal(job.status, "done", job.reason);
-    assert.deepEqual(job.counts, { sheets: 3, rooms: 2, conditions: 2, rfisDrafted: 0 });
+    assert.deepEqual(job.counts, { sheets: 3, rooms: 2, conditions: 2, rfisDrafted: 5 });
     assert.deepEqual(r.statuses, ["running"]);
     const e = r.engines[0];
     assert.equal(e.closed, true, "the engine process is closed after the run");

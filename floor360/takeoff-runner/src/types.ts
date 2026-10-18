@@ -73,6 +73,8 @@ export interface Finding {
   at?: Point;
   /** A box worth clouding, image px. */
   rect?: [Point, Point];
+  /** What the documents say, quoted into the RFI question (PR F). */
+  detail?: string;
   /** The RFI drafted for this finding, when one was (PR F). */
   rfi?: string;
 }

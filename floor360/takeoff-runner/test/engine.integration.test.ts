@@ -74,6 +74,18 @@ test("a real run: rooms from the schedule, verdicts, draft-marked project file, 
 
     await assertBrowserOpens(path.join(h.dataDir, "jobs", id, "outputs"), { "sample-finish-plan.pdf": bytes });
 
+    // RFI drafts (PR F): in the register, pending, agent-raised, one per finding that carries a number
+    assert.ok(job.counts.rfisDrafted >= 3, `rfisDrafted ${job.counts.rfisDrafted}`);
+    assert.equal(ann.rfis.length, job.counts.rfisDrafted);
+    assert.ok(ann.rfis.every((r: any) => r.origin?.actor === "agent" && r.origin?.reviewed === false && r.status === "open"), "every draft is pending agent pencil");
+    const numbered = new Set(job.findings.filter((f: any) => f.rfi).map((f: any) => f.rfi));
+    assert.equal(numbered.size, job.counts.rfisDrafted);
+    assert.deepEqual([...numbered].sort(), ann.rfis.map((r: any) => r.number).sort());
+    const clouded = ann.markups.filter((m: any) => m.type === "cloud" && m.rfi_id);
+    assert.ok(clouded.length >= 1, "rooms with a seed get a cloud linked to their RFI");
+    assert.ok(ann.rfis.some((r: any) => /Finish ZZZ-9 not shown on plans/.test(r.subject)));
+    assert.ok(ann.rfis.some((r: any) => /Wall tile WT-1/.test(r.subject)));
+
     const kinds = new Set(job.findings.map((f: any) => f.kind));
     assert.ok(kinds.has("schedule_row_not_drawn"), "ZZZ-9 is never drawn");
     assert.ok(kinds.has("wall_tile_no_elevation"), "wall tile left for the estimator");
