@@ -59,7 +59,7 @@ export function smallSet(overrides: Record<string, Handler> = {}): Record<string
       if (a.q === "CPT-1" && a.sheet === "A-plan.pdf") return { sheet: a.sheet, q: a.q, count: 1, truncated: false, hits: [{ str: "CPT-1", bbox: [0, 0, 10, 10], center: [5, 5] }] };
       return { sheet: a.sheet, q: a.q, count: 0, truncated: false, hits: [] };
     },
-    view_sheet: () => "iVBORw0KGgo=",
+    view_sheet: (a) => (a.region ? "iVBORw0KGgo=" : `page-${a.sheet}`),   // a whole-page render differs per sheet (page dedupe); a region crop is the vision input
     propose_takeoff: () => ({ proposal_id: "p1" }),
     detect_rooms: (a) => {
       const ring = [[0.1, 0.1], [0.3, 0.1], [0.3, 0.3], [0.1, 0.3]];
