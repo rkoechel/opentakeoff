@@ -25,7 +25,7 @@ It's off by default. With `RUNNER_ENABLED` unset, every job route answers `503 {
 | `RUNNER_DPI` | `200` | Default render resolution for the vision crop (a job can ask for 72–300). The engine's vector tracing doesn't depend on it. |
 | `VISION_BASE_URL` | `http://127.0.0.1:8010/v1` | takeoff-vision (vLLM, OpenAI-compatible). Ends in `/v1`: the runner appends `/models` and `/chat/completions`. On the Spark: `http://100.72.198.58:8010/v1`. |
 | `VISION_API_KEY_FILE` | unset | File holding the vLLM `--api-key`. Read when used, never logged. |
-| `VISION_MODEL` | Qwen2.5-VL-7B-Instruct-AWQ-tools | Pinned in the example env so the runner never picks another model; unset falls back to the first id /v1/models lists. |
+| `VISION_MODEL` | unset | The example env pins `Qwen2.5-VL-7B-Instruct-AWQ-tools` so the runner never picks another model; unset falls back to the first id /v1/models lists. |
 | `WAKER_URL` | `http://127.0.0.1:8012` | The takeoff-vision waker. |
 | `WAKER_TOKEN_FILE` | unset | File holding the waker's `WAKER_TOKEN`. Unset: no waker calls; the model is tried as it is. |
 | `NO_MEMORY_RETRY_MIN` / `NO_MEMORY_MAX_MIN` | `15` / `240` | On `no_memory` the job waits and retries every 15 minutes for up to 4 hours, then fails. |
