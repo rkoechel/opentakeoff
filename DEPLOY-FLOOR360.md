@@ -160,7 +160,7 @@ When it's on, `floor360-bids-drafts.mjs` (copied into `dist/`) calls Bids server
 
 - **Managed identity.** The route gets a token for `BIDS_API_AUDIENCE` from the App Service identity (`IDENTITY_ENDPOINT` / `IDENTITY_HEADER`). It's the same system-assigned identity Azure OCR uses (principal `291e4922-f17b-4748-99bd-3b676f9c5310`). The token is cached until 5 minutes before it expires and is dropped after a Bids 401. No secret is stored. Tokens are never logged or returned.
 - **Signed-in user.** Every call requires the Easy Auth user (`X-MS-CLIENT-PRINCIPAL` / `X-MS-CLIENT-PRINCIPAL-NAME`). Without it, the route answers 401. Only that user's email goes to Bids, in the `X-Auto-Takeoff-User-Email` header and as `{"email"}` in POST bodies. Cookies and the principal blob are never forwarded. A POST must be same-site JSON.
-- **Errors.** A Bids 401, 403, or login redirect shows as "Bids hasn't accepted this site's identity yet (Appendix B)". A timeout shows as "Bids didn't answer in 15 s".
+- **Errors.** A Bids 401, 403, or login redirect shows as "Bids hasn't accepted this site's identity yet (Appendix B)". A timeout shows as "Bids didn't answer in 15 s". A Bids 5xx shows as "Bids couldn't answer right now (HTTP 500)." and logs one warning, `bids-drafts GET /api/auto-takeoff/drafts upstream 500 body: <snippet>`. The snippet is the first 200 characters of the response body, with bearer tokens, JWTs, secret fields, long hex or base64 runs, and email addresses replaced by `[redacted]`. An Easy Auth 500.73, for example, shows there as an IIS HTML page, not as a Bids error.
 
 What it adds to the app:
 

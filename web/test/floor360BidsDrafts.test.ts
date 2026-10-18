@@ -4,7 +4,8 @@
 // no call); the Easy Auth user is required; only that user's email is
 // forwarded; the managed-identity token is cached until 5 min before expiry;
 // Bids 401/403 reads as the Appendix B message; a 409 claim passes through;
-// no token is ever returned or logged.
+// a Bids 5xx logs one warn line with a redacted 200-char body snippet; no
+// token or email is ever returned or logged.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -13,7 +14,7 @@ import { join } from "node:path";
 import { createStaticServer } from "../scripts/floor360-static.mjs";
 import {
   BIDS_DRAFTS_PATH, BIDS_REFUSED_MESSAGE, DEFAULT_BIDS_API_AUDIENCE, USER_EMAIL_HEADER,
-  bidsDraftsConfig, createBidsDraftsHandler, createIdentityToken, easyAuthUser, sanitizeDraft,
+  bidsDraftsConfig, createBidsDraftsHandler, createIdentityToken, easyAuthUser, redactUpstreamSnippet, sanitizeDraft,
 } from "../scripts/floor360-bids-drafts.mjs";
 
 const BIDS = "https://bids.test";
@@ -26,7 +27,7 @@ const DRAFT = {
 };
 
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
-type Reply = { status: number; body?: unknown } | Error;
+type Reply = { status: number; body?: unknown; text?: string } | Error;
 
 function fakes({ bids = [] as Reply[], identity = [] as Reply[], clock = { now: Date.parse("2026-10-17T19:00:00Z") } } = {}) {
   const calls: Call[] = [];
@@ -41,20 +42,22 @@ function fakes({ bids = [] as Reply[], identity = [] as Reply[], clock = { now: 
     }
     const r = bids.length ? bids.shift()! : { status: 200, body: { drafts: [DRAFT] } };
     if (r instanceof Error) throw r;
+    if (r.text !== undefined) return new Response(r.text, { status: r.status, headers: { "Content-Type": "text/html" } });
     return r.body === undefined ? new Response("", { status: r.status }) : Response.json(r.body, { status: r.status });
   };
   return { calls, fetchImpl, clock, identityCalls: () => calls.filter((c) => c.url.startsWith("http://identity.local")), bidsCalls: () => calls.filter((c) => c.url.startsWith(BIDS)) };
 }
 
-async function withServer(env: Record<string, string>, f: ReturnType<typeof fakes>, fn: (base: string, logs: string[]) => Promise<void>) {
+async function withServer(env: Record<string, string>, f: ReturnType<typeof fakes>, fn: (base: string, logs: string[], warns: string[]) => Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), "bids-drafts-"));
   const logs: string[] = [];
-  const log = { info: (m: string) => logs.push(m), warn: (m: string) => logs.push(m) } as unknown as Console;
+  const warns: string[] = [];
+  const log = { info: (m: string) => logs.push(m), warn: (m: string) => { logs.push(m); warns.push(m); } } as unknown as Console;
   const handler = createBidsDraftsHandler({ env, fetchImpl: f.fetchImpl as unknown as typeof fetch, nowMs: () => f.clock.now, log });
   const server = createStaticServer(dir, { routes: { [BIDS_DRAFTS_PATH]: handler } });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const { port } = server.address() as { port: number };
-  try { await fn(`http://127.0.0.1:${port}`, logs); } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
+  try { await fn(`http://127.0.0.1:${port}`, logs, warns); } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }
 
 const USER = { "X-MS-CLIENT-PRINCIPAL-NAME": "rpalermo@floor360.com" };
@@ -239,6 +242,123 @@ test("timeout and unreachable Bids, missing URL or identity: readable errors, us
   await withServer(ON, fakes({ identity: [{ status: 400, body: { error: "bad resource" } }] }), async (base) => {
     assert.equal((await (await get(base)).json()).code, "no_token");
   });
+});
+
+const LIST_FAILED = (status: number) => ({
+  enabled: true, user: { email: "rpalermo@floor360.com", name: "rpalermo@floor360.com" }, drafts: [],
+  error: `Bids couldn't answer right now (HTTP ${status}).`, code: "bids_failed",
+});
+
+test("Bids 500 with an HTML body: one warn line with the status and the first 200 chars; response unchanged", async () => {
+  const html = `<!DOCTYPE html>\n<html>\n  <head>\n    <title>500.73 - Internal Server Error</title>\n  </head>\n  <body>\n    <h1>Server Error</h1>\n    <p>The page cannot be displayed because an internal server error has occurred. Most likely causes: the request could not be routed.</p>\n  </body>\n</html>\n`;
+  const f = fakes({ bids: [{ status: 500, text: html }] });
+  await withServer(ON, f, async (base, logs, warns) => {
+    const res = await get(base);
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), LIST_FAILED(500));
+    assert.equal(warns.length, 1);
+    const prefix = "bids-drafts GET /api/auto-takeoff/drafts upstream 500 body: ";
+    assert.ok(warns[0].startsWith(prefix), warns[0]);
+    const snippet = warns[0].slice(prefix.length);
+    assert.equal(snippet, html.replace(/\s+/g, " ").trim().slice(0, 200));
+    assert.equal(snippet.length, 200);
+    assert.match(snippet, /^<!DOCTYPE html> <html> <head> <title>500\.73 - Internal Server Error<\/title>/);
+    assert.ok(logs.includes("bids-drafts GET upstream 500"), "the status line is still there");
+  });
+});
+
+test("Bids 500 body with a Bearer token, a JWT, an access_token field and emails: none reach the log", async () => {
+  const jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJyb2IiLCJhdWQiOiJhcGk6Ly94In0.c2lnbmF0dXJlLXNlZ21lbnQtaGVyZQ";
+  const body = [
+    "Easy Auth failed. Authorization: Bearer mi-token-1",
+    `x-ms-token-aad-id-token: ${jwt}`,
+    `{"access_token":"at-plain-secret-value","refresh_token": "rt-plain-secret","error":"invalid"}`,
+    "redirect /callback?code=authcode-plain&state=ok&sig=sasSigPlain&client_secret=cs-plain",
+    "password=hunter2-plain user rpalermo@floor360.com cc bwright@floor360.com and rpalermo%40floor360.com",
+  ].join("\n");
+  const f = fakes({ bids: [{ status: 500, text: body }] });
+  await withServer(ON, f, async (base, logs, warns) => {
+    const res = await get(base);
+    assert.deepEqual(await res.json(), LIST_FAILED(500));
+    assert.equal(warns.length, 1);
+    const all = logs.join("\n");
+    for (const secret of ["mi-token", jwt.slice(0, 20), "eyJ", "at-plain-secret-value", "rt-plain-secret", "authcode-plain", "sasSigPlain", "cs-plain", "hunter2-plain", "rpalermo", "bwright", "floor360.com", "id-hdr"]) {
+      assert.ok(!all.includes(secret), `${secret} leaked: ${all}`);
+    }
+    assert.match(warns[0], /upstream 500 body: Easy Auth failed\. Authorization: Bearer \[redacted\]/);
+    assert.match(warns[0], /"access_token":"\[redacted\]"/);
+  });
+});
+
+test("Bids 503 with an empty body logs (empty)", async () => {
+  const f = fakes({ bids: [{ status: 503 }, { status: 504, text: " \n\t " }] });
+  await withServer(ON, f, async (base, _logs, warns) => {
+    const res = await get(base);
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), LIST_FAILED(503));
+    await get(base);
+    assert.deepEqual(warns, [
+      "bids-drafts GET /api/auto-takeoff/drafts upstream 503 body: (empty)",
+      "bids-drafts GET /api/auto-takeoff/drafts upstream 504 body: (empty)",
+    ]);
+  });
+});
+
+test("a long Bids 5xx body is cut to 200 chars after redaction, so a cut can't leave part of a secret", async () => {
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstu";
+  const body = "a ".repeat(95) + jwt + " tail ".repeat(100);
+  const f = fakes({ bids: [{ status: 500, text: body }] });
+  await withServer(ON, f, async (base, _logs, warns) => {
+    await get(base);
+    const snippet = warns[0].split(" body: ")[1];
+    assert.equal(snippet.length, 200);
+    assert.ok(snippet.endsWith("a [redacted]"), snippet);
+    assert.ok(!snippet.includes("eyJ"));
+  });
+  assert.equal(redactUpstreamSnippet("password=hunter2 " + "z".repeat(500)), ("password=[redacted] " + "z".repeat(500)).slice(0, 200));
+  assert.equal(redactUpstreamSnippet("x".repeat(50), 10), "x".repeat(10));
+});
+
+test("Bids 200 and 403 keep their logging: no body line", async () => {
+  const f = fakes({ bids: [{ status: 200, body: { drafts: [DRAFT] } }, { status: 403, text: "<html>Forbidden rpalermo@floor360.com</html>" }] });
+  await withServer(ON, f, async (base, logs, warns) => {
+    assert.equal((await get(base)).status, 200);
+    const refused = await get(base);
+    assert.equal(refused.status, 502);
+    assert.equal((await refused.json()).code, "bids_refused");
+    assert.deepEqual(warns, []);
+    assert.deepEqual(logs, ["bids-drafts GET upstream 200", "bids-drafts GET upstream 403"]);
+  });
+});
+
+test("a JSON Bids 500 is still handled: no crash, same failure, redacted JSON in the log", async () => {
+  const f = fakes({ bids: [
+    { status: 500, body: { drafts: [DRAFT], error: "db down" } },
+    { status: 500, body: { error: "boom", claimedByEmail: "bwright@floor360.com", token: "plain-tok" } },
+  ] });
+  await withServer(ON, f, async (base, _logs, warns) => {
+    const list = await get(base);
+    assert.equal(list.status, 502);
+    assert.deepEqual(await list.json(), LIST_FAILED(500));
+    const claim = await post(base, "/run_1/claim");
+    assert.equal(claim.status, 502);
+    const c = await claim.json();
+    assert.deepEqual([c.error, c.code], ["Bids couldn't answer right now (HTTP 500).", "bids_failed"]);
+    assert.equal(warns.length, 2);
+    assert.match(warns[0], /^bids-drafts GET \/api\/auto-takeoff\/drafts upstream 500 body: \{"drafts":\[\{"runId":"run_1"/);
+    assert.equal(warns[1], `bids-drafts POST /api/auto-takeoff/runs/run_1/claim upstream 500 body: {"error":"boom","claimedByEmail":"[redacted]","token":"[redacted]"}`);
+  });
+});
+
+test("redactUpstreamSnippet: long hex/base64 runs, newlines collapsed (one log line), paths kept", () => {
+  assert.equal(redactUpstreamSnippet(""), "(empty)");
+  assert.equal(redactUpstreamSnippet(null), "(empty)");
+  assert.equal(redactUpstreamSnippet("key 0123456789abcdef0123456789abcdef01234567 end"), "key [redacted] end");
+  assert.equal(redactUpstreamSnippet("sas sv=2024&x=Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MFhZWkFCQ0RFRkc+/== end"), "sas sv=2024&x=[redacted] end");
+  assert.equal(redactUpstreamSnippet("line one\r\n\tFAKE bids-drafts GET upstream 200\u0000x"), "line one FAKE bids-drafts GET upstream 200 x");
+  assert.equal(redactUpstreamSnippet("no route /api/auto-takeoff/runs/run_1/approved here"), "no route /api/auto-takeoff/runs/run_1/approved here");
+  assert.equal(redactUpstreamSnippet("tok s3cr3t and s3cr3t", 200, ["s3cr3t"]), "tok [redacted] and [redacted]");
+  assert.equal(redactUpstreamSnippet("Error 500.73 IIS Microsoft.AspNetCore.Server"), "Error 500.73 IIS Microsoft.AspNetCore.Server");
 });
 
 test("easyAuthUser: email and display name from X-MS-CLIENT-PRINCIPAL claims, else the principal name", () => {
