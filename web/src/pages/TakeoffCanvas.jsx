@@ -121,6 +121,7 @@ import { conditionTotals, verticalWallSf, downloadText } from "../lib/totals.js"
 import { measurementBreakdown } from "../lib/measurementBreakdown.js";
 import { shapesInZone } from "../lib/zone.js";
 import { sanitizeSheetLevels } from "../lib/sheetLevels.js";
+import { sanitizeHiddenSheets, isHidden, toggleHidden, visibleFindings, hiddenFindingCount } from "../lib/hiddenSheets.js";
 import { sanitizeConditionColumns, sanitizeConditionAttrs, renameColumnValue, columnLabel } from "../lib/conditionColumns.js";
 import { sanitizeShapeLabels, sanitizeShapeLabelsOnShapes, renameShapeLabel, shapeLabelValue } from "../lib/shapeLabels.js";
 import { nextHidden, revealed } from "../lib/conditionVisibility.js";
@@ -369,6 +370,8 @@ export default function TakeoffCanvas() {
   const pageLabels = labelsForFile(labelsByFile, active); // the active file's only: page numbers repeat across files
   const [sheetGroup, setSheetGroup] = useState([]);   // sheetKeys shown side-by-side; [] = single-sheet mode
   const [sheetLevels, setSheetLevels] = useState({}); // sheetKey → level label ("L1") — persisted (additive `sheet_levels` key); groups the gallery for multi-floor sets
+  const [hiddenSheets, setHiddenSheets] = useState([]); // FLOOR360: sheet keys hidden from the gallery, search and tabs — persisted (additive `hidden_sheets` key); the PDF is untouched
+  const [showHiddenSheets, setShowHiddenSheets] = useState(false); // FLOOR360 Hide sheet: one Show hidden switch for the gallery and the AI checklist
   const [lastGroup, setLastGroup] = useState([]);     // most recent side-by-side composition — "Regroup" restores it
   const [focusKey, setFocusKey] = useState("");         // panel of the last click — scale/calibrate target in group mode
   // Stitches (#161): persisted match-line composites (lib/stitches.ts) — a
@@ -2030,6 +2033,8 @@ export default function TakeoffCanvas() {
     setSheetLevels(sanitizeSheetLevels(a.sheet_levels));
     // additive `nts_sheets` (scale review): else-clear like sheet_levels
     setNtsSheets(sanitizeNtsSheets(a.nts_sheets));
+    // additive `hidden_sheets` (FLOOR360 Hide sheet): else-clear like nts_sheets
+    setHiddenSheets(sanitizeHiddenSheets(a.hidden_sheets));
     // additive `floor360AutoTakeoff`: else-clear, carried as-is
     setAutoTakeoff(readAutoTakeoff(a));
     pendingNotifyRef.current = "";
@@ -2969,7 +2974,7 @@ export default function TakeoffCanvas() {
     shapes, markups, rfis, approvals, proposals, condition_edit_proposals: conditionEditProposals, rules,
     sheet_group: sheetGroup, last_group: lastGroup, sheet_tabs: openTabs, stitches,
     sheet_levels: sheetLevels, layer_overrides: layerOverrides, provenance_counters: provCounters,
-    nts_sheets: ntsSheets, floor360AutoTakeoff: autoTakeoff,
+    nts_sheets: ntsSheets, hidden_sheets: hiddenSheets, floor360AutoTakeoff: autoTakeoff,
   });
   // Runtime restore of a saved payload — the Revisions panel's Restore lands
   // here. A runtime load (unlike mount) can interrupt work in
@@ -3238,7 +3243,7 @@ export default function TakeoffCanvas() {
     // state it serializes, so listing buildPayload (a new identity each render)
     // would fire a save on every render instead of only on a real change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units, ntsSheets, autoTakeoff]);
+  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, hiddenSheets, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, units, ntsSheets, autoTakeoff]);
   useEffect(() => { saveStateRef.current = saveState; }, [saveState]);
 
   // Flush a pending debounced save on navigate-away (unmount), and warn before a
@@ -11272,6 +11277,9 @@ export default function TakeoffCanvas() {
           stitches={stitches} onStitch={createStitch} onOpenStitch={openStitch} onDeleteStitch={deleteStitch}
           onAddFiles={handleFiles}
           levels={sheetLevels}
+          hiddenSheets={hiddenSheets}
+          showHidden={showHiddenSheets} onShowHiddenChange={setShowHiddenSheets}
+          onToggleHidden={(k) => { if (!isHidden(hiddenSheets, k) && openTabs.includes(k)) closeTab(k); setHiddenSheets((h) => toggleHidden(h, k)); }}
           onAssignLevel={(keys, label) => setSheetLevels((m) => {
             const next = { ...m };
             for (const k of keys) { if (label) next[k] = label; else delete next[k]; }
@@ -11330,7 +11338,8 @@ export default function TakeoffCanvas() {
       {aiDrafts?.enabled && autoTakeoff && !loadError && (
         <AiDraftPanel autoTakeoff={autoTakeoff} conditions={conditions} user={aiDrafts.user} nowIso={nowIso}
           onChange={setAutoTakeoff} onApprove={approveAiTakeoff}
-          notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)} />
+          notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)}
+          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={showHiddenSheets ? 0 : hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} />
       )}
 
       {loadError && (
