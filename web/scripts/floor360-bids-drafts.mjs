@@ -186,6 +186,35 @@ export function sanitizeClaim(b) {
   return out;
 }
 
+const SECRET_KEYS = "access_token|id_token|refresh_token|client_secret|password|secret|token|sig|code";
+const REDACTIONS = [
+  [new RegExp(`(["'](?:${SECRET_KEYS})["']\\s*:\\s*)(?:"(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*'|[^,}\\]\\s]+)`, "gi"), "$1\"[redacted]\""],
+  [new RegExp(`(\\b(?:${SECRET_KEYS})\\s*=\\s*)[^&\\s"'<>,;]+`, "gi"), "$1[redacted]"],
+  [/\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi, "Bearer [redacted]"],
+  [/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, "[redacted]"],
+  [/\b[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g, "[redacted]"],
+  [/[A-Za-z0-9._%+-]+(?:@|%40)[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/gi, "[redacted]"],
+];
+// A 32+ run of hex, or of base64 that mixes letters and digits. Lowercase
+// slash paths (/api/auto-takeoff/runs/run_1/claim) stay readable.
+const LONG_RUN = /[A-Za-z0-9+/_-]{32,}={0,2}/g;
+const secretRun = (s) => /^[0-9a-f]+$/i.test(s)
+  || (/\d/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s))
+  || (/\d/.test(s) && /[a-z]/i.test(s) && !s.includes("/"));
+
+/** An upstream body made safe for one log line: tokens, JWTs, secret
+ *  key-value pairs, long hex/base64 runs and emails become [redacted] before
+ *  whitespace is collapsed and the text is cut to max characters. Exact
+ *  strings in known (the bearer, the user's email) are redacted first. */
+export function redactUpstreamSnippet(text, max = 200, known = []) {
+  let s = String(text ?? "");
+  for (const k of known) if (k) s = s.split(k).join("[redacted]");
+  for (const [re, to] of REDACTIONS) s = s.replace(re, to);
+  s = s.replace(LONG_RUN, (m) => (secretRun(m) ? "[redacted]" : m));
+  s = s.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim();
+  return s ? s.slice(0, max) : "(empty)";
+}
+
 /** A Bids status the browser can't use, as {status, error}. A redirect (to
  *  the Easy Auth login), 401 or 403 is Bids not accepting this identity. */
 export function bidsFailure(status) {
@@ -230,6 +259,14 @@ export function createBidsDraftsHandler({ env = process.env, fetchImpl = globalT
     log.info?.(`bids-drafts ${method} upstream ${res.status}`);
     if (res.status === 401) token.drop();
     let body = null;
+    if (res.status >= 500) {
+      let text = null;
+      try { text = await res.text(); } catch { /* unreadable */ }
+      const snippet = text == null ? "(unreadable)" : redactUpstreamSnippet(text, 200, [bearer, user.email]);
+      log.warn?.(`bids-drafts ${method} ${path} upstream ${res.status} body: ${snippet}`);
+      try { body = JSON.parse(text); } catch { /* not JSON */ }
+      return { status: res.status, body };
+    }
     try { body = await res.json(); } catch { /* not JSON */ }
     return { status: res.status, body };
   }
