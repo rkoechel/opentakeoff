@@ -2,8 +2,9 @@
 // project list at /projects and the job canvas at /?job=<folderId>.
 //
 //   M365ProjectsGate  sign in with Microsoft, list the job folders under the
-//                     build's project root ("OpenTakeoff Projects"), open one,
-//                     or create a new one.
+//                     build's project root ("OpenTakeoff Projects"), grouped by
+//                     salesperson folder (older jobs at the top level too), open
+//                     one, or create a new one in a salesperson folder.
 //   M365JobGate       sign in, install cloudStore on the job folder with the
 //                     Graph client (PDFs in the folder, annotations in
 //                     .opentakeoff/), then mount the canvas.
@@ -18,7 +19,7 @@ import TakeoffCanvas from "../pages/TakeoffCanvas.jsx";
 import { setActiveStore } from "../lib/store.js";
 import { LOW_MEMORY_DEVICE } from "../lib/deviceClass";
 import { byteBudget } from "../lib/pdfBytes";
-import { createProject, jobHref, listProjects, projectErrorMessage } from "../lib/msgraph/projects.js";
+import { UNASSIGNED_GROUP, createProject, filterProjectGroups, jobHref, listProjectGroups, projectErrorMessage } from "../lib/msgraph/projects.js";
 import { floor360PrivateBuild } from "../lib/privateBuild.js";
 import AiDraftsSection from "./AiDraftsSection.jsx";
 
@@ -111,10 +112,28 @@ const fmtDate = (iso) => {
   return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
 };
 
+/** Job rows; each opens /?job=<folder id>, so a job opens the same at the top level or in a salesperson folder. */
+function ProjectList({ projects }) {
+  return (
+    <ul style={{ listStyle: "none", margin: 0, padding: 0, borderTop: projects.length ? "1px solid var(--ink-faint)" : "none" }}>
+      {projects.map((p) => (
+        <li key={p.id} style={{ borderBottom: "1px solid var(--ink-faint)" }}>
+          <Link to={jobHref(p.id)} style={{ display: "flex", gap: 12, padding: "10px 4px", color: "inherit", textDecoration: "none" }}>
+            <span style={{ fontWeight: 600 }}>{p.name}</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-muted)" }}>{fmtDate(p.modifiedTime)}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function M365ProjectsGate({ cfg }) {
   const { status, graph, signIn, err } = useM365(cfg);
   const navigate = useNavigate();
-  const [projects, setProjects] = useState(null);
+  const [listing, setListing] = useState(null);   // { groups: [{ id, name, projects }], projects } (old top-level jobs)
+  const cache = useRef(new Map());                 // folder id -> children; Refresh starts over
+  const [group, setGroup] = useState(UNASSIGNED_GROUP);
   const [listErr, setListErr] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -124,7 +143,10 @@ export function M365ProjectsGate({ cfg }) {
   const refresh = () => {
     if (!graph) return;
     setListErr("");
-    listProjects(graph, cfg.folderId).then(setProjects).catch((e) => { setProjects([]); setListErr(projectErrorMessage(e)); });
+    cache.current = new Map();
+    listProjectGroups(graph, cfg.folderId, cache.current)
+      .then(setListing)
+      .catch((e) => { setListing({ groups: [], projects: [] }); setListErr(projectErrorMessage(e)); });
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(refresh, [graph]);
@@ -141,7 +163,7 @@ export function M365ProjectsGate({ cfg }) {
     setCreateErr("");
     setBusy(true);
     try {
-      const made = await createProject(graph, cfg.folderId, name);
+      const made = await createProject(graph, cfg.folderId, name, group);
       navigate(jobHref(made.id));
     } catch (e2) {
       setCreateErr(projectErrorMessage(e2));
@@ -149,8 +171,11 @@ export function M365ProjectsGate({ cfg }) {
       setBusy(false);
     }
   };
-  const q = filter.trim().toLowerCase();
-  const shown = (projects || []).filter((p) => !q || p.name.toLowerCase().includes(q));
+  const shown = filterProjectGroups(listing || { groups: [], projects: [] }, filter);
+  const total = listing ? listing.projects.length + listing.groups.reduce((n, g) => n + g.projects.length, 0) : 0;
+  const shownCount = shown.projects.length + shown.groups.reduce((n, g) => n + g.projects.length, 0);
+  // New project: any salesperson folder in the list, plus Unassigned.
+  const groupNames = [...new Set([UNASSIGNED_GROUP, ...(listing?.groups || []).map((g) => g.name)])];
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--paper-bright)", color: "var(--ink)", padding: "32px 24px" }} data-m365-projects="">
@@ -166,28 +191,35 @@ export function M365ProjectsGate({ cfg }) {
         <form onSubmit={create} style={{ display: "flex", gap: 8 }}>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="New project: job name or number"
             className="field-input" aria-label="New project name" style={{ flex: 1 }} disabled={busy} />
+          <select value={group} onChange={(e) => setGroup(e.target.value)} className="field-input" aria-label="Salesperson folder" disabled={busy}
+            title="The salesperson folder the new project goes in">
+            {groupNames.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
           <button type="submit" style={{ ...primaryBtn, opacity: busy ? 0.6 : 1 }} disabled={busy}>New project</button>
         </form>
         {createErr ? <div style={errStyle} role="alert">{createErr}</div> : null}
         {floor360PrivateBuild() ? <AiDraftsSection /> : null}
         {listErr ? <div style={errStyle} role="alert">{listErr}</div> : null}
-        {projects && projects.length > 8 ? (
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter projects" className="field-input" aria-label="Filter projects" />
+        {total > 8 ? (
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter projects or salespeople" className="field-input" aria-label="Filter projects" />
         ) : null}
-        {projects === null ? <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>Loading projects…</div> : null}
-        {projects && !projects.length && !listErr ? (
+        {listing === null ? <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>Loading projects…</div> : null}
+        {listing && !total && !listErr ? (
           <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>No projects yet. Name one above to start.</div>
         ) : null}
-        <ul style={{ listStyle: "none", margin: 0, padding: 0, borderTop: shown.length ? "1px solid var(--ink-faint)" : "none" }}>
-          {shown.map((p) => (
-            <li key={p.id} style={{ borderBottom: "1px solid var(--ink-faint)" }}>
-              <Link to={jobHref(p.id)} style={{ display: "flex", gap: 12, padding: "10px 4px", color: "inherit", textDecoration: "none" }}>
-                <span style={{ fontWeight: 600 }}>{p.name}</span>
-                <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--ink-muted)" }}>{fmtDate(p.modifiedTime)}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        {listing && total > 0 && !shownCount ? <div style={{ fontSize: 13, color: "var(--ink-muted)" }}>No project matches.</div> : null}
+        {shown.groups.map((g) => (
+          <section key={g.id} data-salesperson-group={g.name}>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-muted)", margin: "4px 0" }}>{g.name}</div>
+            <ProjectList projects={g.projects} />
+          </section>
+        ))}
+        {shown.projects.length ? (
+          <section data-salesperson-group="">
+            {shown.groups.length ? <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink-muted)", margin: "4px 0" }}>Other projects</div> : null}
+            <ProjectList projects={shown.projects} />
+          </section>
+        ) : null}
       </div>
     </div>
   );
