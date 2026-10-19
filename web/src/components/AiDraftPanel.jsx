@@ -18,7 +18,7 @@ const btn = { padding: "5px 12px", border: "1px solid var(--ink-faint)", backgro
 const muted = { color: "var(--ink-muted)", fontSize: 11.5 };
 
 /** notice: {state: "idle" | "saving" | "sending" | "error" | "done", error} */
-export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, onChange, onApprove, notice, onRetry, findings = [], hiddenFindings = 0, labelOf }) {
+export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, onChange, onApprove, notice, onRetry, findings = [], hiddenFindings = 0, labelOf, tbdRooms = 0 }) {
   const [open, setOpen] = useState(true);
   const who = user?.email || "";
 
@@ -65,6 +65,7 @@ export default function AiDraftPanel({ autoTakeoff, conditions, user, nowIso, on
       {open ? (
         <div style={{ borderTop: "1px solid var(--ink-faint)", padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
           {!who ? <div style={{ ...muted, color: "var(--c-danger)" }}>Your sign-in name isn't available, so checks can't be recorded. Reload the page.</div> : null}
+          {tbdRooms > 0 ? <div data-testid="ai-draft-finish-tbd" style={{ border: "1px dashed #8a8f98", background: "rgba(138, 143, 152, 0.12)", padding: "5px 8px" }}><strong>{`${tbdRooms} room${tbdRooms === 1 ? "" : "s"} drawn as Finish TBD`}</strong>{" (grey). They aren't priced. Select each one, change its condition to the right finish, then accept it."}</div> : null}
           {items.map((it) => {
             const c = checkOf(autoTakeoff, it.id);
             return (

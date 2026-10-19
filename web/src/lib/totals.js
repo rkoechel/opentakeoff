@@ -55,6 +55,9 @@ function accumulateRole(acc, s) {
   }
 }
 
+/** A condition the AI auto-takeoff drew as Finish TBD (finishStatus "tbd", tag FINISH-TBD): its rooms need a finish before they are priced. */
+export function isFinishTbd(c) { return !!c && (c.finishStatus === "tbd" || String(c.finish_tag || "").toUpperCase() === "FINISH-TBD"); }
+
 /**
  * @param {{seamByShape?: Map<any, number>}|null} [ctx] the figured roll-layout
  *   seam length per SHAPE (lib/rollTakeoff.js seamLfByShape) — what a
@@ -92,7 +95,7 @@ export function conditionTotals(conditions, shapes, ctx = null) {
       return { name: m.name, unit: m.unit || "", per, basis: m.basis || "area", round: m.round !== false, note: m.note || "", basis_qty: round2(basisVal), qty };
     });
     return {
-      id: c.id, finish_tag: c.finish_tag, color: c.color, fill: c.fill, hatch: c.hatch,
+      id: c.id, finish_tag: c.finish_tag, color: c.color, fill: c.fill, hatch: c.hatch, ...(isFinishTbd(c) ? { finish_tbd: true } : {}),
       multiplier: mult, waste_pct: waste, shape_count: cs.length,
       floor_sf: round2(floor), wall_sf: round2(wall), border_sf: round2(border),
       lf: round2(lf), ea,
@@ -359,8 +362,10 @@ export function materialsSummary(rows) {
 
 // NB: the CSV TOTAL row emits g[key] for any column key present here — adding
 // a key that collides with a CSV column key changes that row (golden-guarded).
+// Finish TBD rows (AI-drawn rooms with no finish yet, Ryan 2026-10-18) are never priced: they stay out of the grand total.
 export function grandTotals(rows) {
-  const sum = (k) => rows.reduce((n, r) => n + (r[k] || 0), 0);
+  const priced = rows.filter((r) => !r.finish_tbd);
+  const sum = (k) => priced.reduce((n, r) => n + (r[k] || 0), 0);
   return {
     total_sf: round2(sum("total_sf")), total_sf_net: round2(sum("total_sf_net")),
     lf: round2(sum("lf")), lf_net: round2(sum("lf_net")),

@@ -65,7 +65,7 @@ test("a full run: done, counts, findings with sheet refs, no AI check marks, dra
   try {
     const job = await runOne(r);
     assert.equal(job.status, "done", job.reason);
-    assert.deepEqual(job.counts, { sheets: 3, rooms: 2, conditions: 2, rfisDrafted: 5 });
+    assert.deepEqual(job.counts, { sheets: 3, rooms: 2, tbdRooms: 0, conditions: 2, rfisDrafted: 5, roomsBySheet: { "A-plan.pdf": { detected: 4, withFinish: 2, tbd: 0 } } });
     assert.deepEqual(r.statuses, ["running"]);
     const e = r.engines[0];
     assert.equal(e.closed, true, "the engine process is closed after the run");
@@ -144,9 +144,9 @@ test("no room-finish schedule in the PDF: Bids rows that name rooms assign them;
     assert.equal(job.status, "done", job.reason);
     const e = r.engines[0];
     assert.deepEqual(e.calls.filter((c) => c.tool === "detect_rooms").map((c) => c.args), [{ sheet: "A-plan.pdf", return_verts: true }], "preview only: nothing commits under one guessed tag");
-    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => [c.args.sheet, c.args.condition]), [["A-plan.pdf", "CPT-1"]]);
-    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args), [{ shape_id: "m-CPT-1", label: "101" }]);
-    assert.deepEqual(job.findings.filter((f) => f.kind === "room_no_schedule_row").map((f) => f.tag), ["105"]);
+    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => [c.args.sheet, c.args.condition]), [["A-plan.pdf", "CPT-1"], ["A-plan.pdf", "FINISH-TBD"]]);
+    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args), [{ shape_id: "m-CPT-1", label: "101" }, { shape_id: "m-FINISH-TBD", label: "Finish TBD · 105" }]);
+    assert.deepEqual(job.findings.filter((f) => f.kind === "no_room_finish_match").map((f) => f.message.split(";")[0]), ["1 room drawn as Finish TBD"]);
     assert.deepEqual(job.findings.filter((f) => f.kind === "conflicting_finishes").map((f) => f.tag), ["106"]);
     assert.ok(!job.findings.some((f) => f.tag === "EP-1"), "a dismissed row never counts");
     assert.ok(e.calls.some((c) => c.tool === "propose_takeoff" && /Bids/.test(c.args.rationale)));
@@ -176,22 +176,25 @@ test("finish tags printed inside rooms assign them; a room with two tags is a fi
     const job = await runOne(r, m);
     assert.equal(job.status, "done", job.reason);
     const e = r.engines[0];
-    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => [c.args.sheet, c.args.condition]), [["A-plan.pdf", "LVT-2"]]);
-    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args), [{ shape_id: "m-LVT-2", label: "102" }]);
+    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => [c.args.sheet, c.args.condition]), [["A-plan.pdf", "LVT-2"], ["A-plan.pdf", "FINISH-TBD"]]);
+    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args), [{ shape_id: "m-LVT-2", label: "102" }, { shape_id: "m-FINISH-TBD", label: "Finish TBD · 103" }]);
     assert.deepEqual(job.findings.filter((f) => f.kind === "conflicting_finishes").map((f) => f.tag), ["101"]);
-    assert.deepEqual(job.findings.filter((f) => f.kind === "room_no_schedule_row").map((f) => f.tag), ["103"]);
-    assert.ok(!job.findings.some((f) => f.kind === "no_room_finish_match" || f.kind === "no_room_finish_schedule"));
+    assert.deepEqual(job.findings.filter((f) => f.kind === "room_no_schedule_row").map((f) => f.tag), []);
+    assert.ok(!job.findings.some((f) => f.kind === "no_room_finish_schedule"));
+    assert.deepEqual(job.findings.filter((f) => f.kind === "no_room_finish_match").map((f) => f.message.split(";")[0]), ["1 room drawn as Finish TBD"]);
   } finally {
     await r.cleanup();
   }
 });
 
-test("no room matches any finish: one consolidated question, not one RFI per room", async () => {
+test("no room matches any finish: every room drawn as an un-accepted Finish TBD draft, one consolidated question", async () => {
   const sq = (x: number, y: number) => [[x, y], [x + 100, y], [x + 100, y + 100], [x, y + 100]];
   const r = await rig({
     handlers: () => smallSet({
       find_schedule: () => { throw new EngineToolError("find_schedule", "no schedule"); },
       detect_rooms: () => ({ detected: 3, rooms: [{ label: "101", nverts: 4, verts: sq(200, 200) }, { label: "102", nverts: 4, verts: sq(400, 200) }, { label: "103", nverts: 4, verts: sq(600, 200) }] }),
+      measure_polygon: (a) => ({ area_sf: 100, perimeter_lf: 40, nverts: 4, shape_id: `m-${a.condition}-${a.verts[0][0]}` }),
+      edit_shape: (a) => ({ shape_id: a.shape_id }),
     }),
   });
   try {
@@ -199,13 +202,16 @@ test("no room matches any finish: one consolidated question, not one RFI per roo
     const job = await runOne(r, m);
     assert.equal(job.status, "done", job.reason);
     const e = r.engines[0];
-    assert.ok(!e.calls.some((c) => c.tool === "measure_polygon"), "nothing drawn under a guess");
+    assert.deepEqual(e.calls.filter((c) => c.tool === "measure_polygon").map((c) => c.args.condition), ["FINISH-TBD", "FINISH-TBD", "FINISH-TBD"], "each room drawn as Finish TBD");
+    assert.deepEqual(e.calls.filter((c) => c.tool === "edit_shape").map((c) => c.args.label), ["Finish TBD · 101", "Finish TBD · 102", "Finish TBD · 103"]);
+    assert.equal(e.calls.filter((c) => c.tool === "propose_takeoff").length, 1, "drawn inside one AI draft proposal, un-accepted");
     assert.equal(job.findings.filter((f) => f.kind === "room_no_schedule_row").length, 0, "no per-room questions");
     const q = job.findings.filter((f) => f.kind === "no_room_finish_match");
     assert.equal(q.length, 1);
-    assert.match(q[0].message, /3 of 3 rooms/);
-    assert.match(job.findings.find(x => x.kind === "run_summary")?.message ?? "", /0 rooms drawn .*3 found with no finish match \(not drawn\)/);
-    assert.match(q[0].detail ?? "", /no finish tag printed inside a room/);
+    assert.match(q[0].message, /^3 rooms drawn as Finish TBD; assign finishes\./);
+    assert.match(job.findings.find(x => x.kind === "run_summary")?.message ?? "", /0 drawn with finish, 3 drawn as Finish TBD \(0 to review first\), \d+ RFIs drafted\./);
+    assert.match(q[0].detail ?? "", /3 of 3 rooms .*no finish tag printed inside the room/);
+    assert.deepEqual(job.counts.roomsBySheet, { "A-plan.pdf": { detected: 3, withFinish: 0, tbd: 3 } }, "per-sheet room counts are saved");
   } finally {
     await r.cleanup();
   }

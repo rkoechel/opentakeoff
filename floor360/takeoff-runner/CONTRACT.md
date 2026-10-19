@@ -78,6 +78,17 @@ The file is the engine's own `opentakeoff.takeoff_canvas.v1` payload (`export_ta
 - RFI drafts are ordinary `rfis[]` records, which the browser already loads, saves and shows in the RFI panel.
 - `.opentakeoff/floor360-run.json` is Bids' record. The browser doesn't read it.
 
+### Finish TBD rooms (Ryan 2026-10-18)
+
+A room the AI outlines but cannot match to a floor finish (no room-finish schedule row, no room on a Bids finish row, no finish tag printed inside it) is drawn, not dropped:
+
+- It goes under the condition `FINISH-TBD` (name "Finish TBD", color `#8a8f98`), labeled `Finish TBD · <room>`, inside the run's AI draft proposal, so it is un-accepted and goes through normal AI draft review.
+- The condition and each of its shapes carry `"finishStatus": "tbd"` in `annotations.json`.
+- No TBD quantity is priced: the takeoff report JSON moves the row to `finish_tbd` and takes it out of `totals`, the CSV leaves it out, `counts.rooms` excludes it and `counts.tbdRooms` counts it. The browser leaves `finishStatus: "tbd"` rows out of the grand total.
+- One `no_room_finish_match` finding (RFI "Room finishes needed") reads "N rooms drawn as Finish TBD; assign finishes." The estimator assigns a finish by changing the shape's condition before accepting.
+- A sheet with a TBD room stays visible.
+- `counts.roomsBySheet` gives, per plan sheet, `{ detected, withFinish, tbd }`
+
 ## `floor360-run.json`
 
 ```json

@@ -117,7 +117,7 @@ import { buildRasterMask, RASTER_MIN_IMG_FRAC, RASTER_MIN_SEGS, RASTER_RDP_EPS }
 import { buildLayerInfos, effectiveLayerRoles, layerRoleCodes, segRoles, sanitizeLayerOverrides } from "../lib/layers";
 import { detectCandidateRule, buildRuleFromSeed, applyRuleToProject } from "../lib/rules";
 import { deriveTransitionRuns, transitionRefusal } from "../lib/transitions";
-import { conditionTotals, verticalWallSf, downloadText } from "../lib/totals.js";
+import { conditionTotals, isFinishTbd, verticalWallSf, downloadText } from "../lib/totals.js";
 import { measurementBreakdown } from "../lib/measurementBreakdown.js";
 import { shapesInZone } from "../lib/zone.js";
 import { sanitizeSheetLevels } from "../lib/sheetLevels.js";
@@ -11339,7 +11339,7 @@ export default function TakeoffCanvas() {
         <AiDraftPanel autoTakeoff={autoTakeoff} conditions={conditions} user={aiDrafts.user} nowIso={nowIso}
           onChange={setAutoTakeoff} onApprove={approveAiTakeoff}
           notice={bidsNotice} onRetry={() => sendBidsNotice(autoTakeoff.runId)}
-          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={showHiddenSheets ? 0 : hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} />
+          findings={visibleFindings(autoTakeoff.findings, hiddenSheets, showHiddenSheets)} hiddenFindings={showHiddenSheets ? 0 : hiddenFindingCount(autoTakeoff.findings, hiddenSheets)} labelOf={tabLabel} tbdRooms={shapes.filter((s) => isFinishTbd(conditions.find((c) => c.id === s.condition_id))).length} />
       )}
 
       {loadError && (
