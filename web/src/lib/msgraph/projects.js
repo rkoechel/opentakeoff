@@ -41,6 +41,67 @@ export async function listProjects(graph, rootId) {
     .sort((a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime)) || a.name.localeCompare(b.name));
 }
 
+const jobFolders = (children) => children.filter((c) => c.mimeType === FOLDER_MIME && !c.name.startsWith("."));
+const asProject = (c) => ({ id: c.id, name: c.name, modifiedTime: c.modifiedTime || "" });
+const byNewest = (a, b) => String(b.modifiedTime).localeCompare(String(a.modifiedTime)) || a.name.localeCompare(b.name);
+
+/** A top-level folder is a salesperson group when it has no .opentakeoff of its own and holds a
+ *  bid project folder ("<x> - F360-…"), or only folders (no PDFs). Otherwise it is an old job. */
+export function isSalespersonGroup(children) {
+  if (children.some((c) => c.name === ".opentakeoff")) return false;
+  const folders = jobFolders(children);
+  if (folders.some((c) => BID_PROJECT.test(c.name))) return true;
+  return folders.length > 0 && !children.some((c) => c.mimeType === PDF_MIME);
+}
+
+// Bids saves AI takeoffs as OpenTakeoff Projects/<salesperson>/<project> - <bid number>/ (Ryan, 2026-10-18).
+// Older jobs sit directly under the root, so the list reads both layouts.
+const BID_PROJECT = / - F360-\d{2}-\d+( \(\d+\))?$/i;
+const PDF_MIME = "application/pdf";
+/** The salesperson folder Bids uses when a bid has no salesperson. */
+export const UNASSIGNED_GROUP = "Unassigned";
+
+/** A folder's children, read once per cache (Refresh starts a new Map). */
+function childrenOf(graph, folderId, cache) {
+  if (!cache.has(folderId)) cache.set(folderId, graph.listChildren(folderId));
+  return cache.get(folderId);
+}
+
+/** Both layouts: { groups: [{ id, name, projects }], projects } where projects are old top-level jobs.
+ *  One children call for the root, then one per top-level folder not named like a bid project, cached. */
+export async function listProjectGroups(graph, rootId, cache = new Map()) {
+  const top = jobFolders(await childrenOf(graph, rootId, cache));
+  const groups = [];
+  const projects = [];
+  await Promise.all(top.map(async (folder) => {
+    if (BID_PROJECT.test(folder.name)) {
+      projects.push(asProject(folder));
+      return;
+    }
+    const children = await childrenOf(graph, folder.id, cache);
+    if (folder.name === UNASSIGNED_GROUP || isSalespersonGroup(children)) {
+      groups.push({ id: folder.id, name: folder.name, projects: jobFolders(children).map(asProject).sort(byNewest) });
+    } else {
+      projects.push(asProject(folder));
+    }
+  }));
+  groups.sort((a, b) => a.name.localeCompare(b.name));
+  return { groups, projects: projects.sort(byNewest) };
+}
+
+/** Search across groups: a project matches by its own name or its salesperson's; empty groups drop out. */
+export function filterProjectGroups(listing, query) {
+  const q = String(query ?? "").trim().toLowerCase();
+  if (!q) return listing;
+  const hit = (name) => name.toLowerCase().includes(q);
+  return {
+    groups: listing.groups
+      .map((g) => ({ ...g, projects: hit(g.name) ? g.projects : g.projects.filter((p) => hit(p.name)) }))
+      .filter((g) => g.projects.length > 0),
+    projects: listing.projects.filter((p) => hit(p.name)),
+  };
+}
+
 /** A job name SharePoint will take, or an error to show. */
 export function checkProjectName(raw) {
   const name = String(raw ?? "").replace(/\s+/g, " ").trim();
@@ -52,13 +113,21 @@ export function checkProjectName(raw) {
 }
 
 /** Create the job folder; refuses a name that already exists, rather than
- *  silently opening someone else's job. */
-export async function createProject(graph, rootId, raw) {
+ *  silently opening someone else's job. With a salesperson group the job goes in
+ *  <root>/<group>/, and the group folder is made first if it is missing (e.g. Unassigned). */
+export async function createProject(graph, rootId, raw, group = "") {
   const checked = checkProjectName(raw);
   if (checked.error) throw new Error(checked.error);
-  const existing = await graph.findChild(rootId, checked.name);
+  let parentId = rootId;
+  if (group) {
+    const groupName = checkProjectName(group);
+    if (groupName.error) throw new Error(groupName.error);
+    const found = await graph.findChild(rootId, groupName.name);
+    parentId = (found || (await graph.createFolder(rootId, groupName.name))).id;
+  }
+  const existing = await graph.findChild(parentId, checked.name);
   if (existing) throw new Error(`A project named "${checked.name}" already exists. Open it from the list.`);
-  return graph.createFolder(rootId, checked.name);
+  return graph.createFolder(parentId, checked.name);
 }
 
 /** A Graph failure as one plain sentence for the project screens. A 403 is

@@ -20,7 +20,9 @@ Failure reasons the runner writes: a file over 250 MB (named), over 600 MB in to
 
 `GET /jobs/:id` lists `outputs: [{name, size, sha256, contentType}]`. `<set>` is `<project name> - <bid number>` with the characters SharePoint rejects removed, and the whole name kept to 120 characters or fewer. The bid number is never trimmed.
 
-| Output | Save to (job folder = `OpenTakeoff Projects/<set>`) |
+Bids picks the job folder, not the runner: new folders go under the bid's salesperson (`Unassigned` when blank; Ryan, 2026-10-18), while a bid that already has a folder keeps it (Bids stores the folder id). Older jobs sit directly under `OpenTakeoff Projects`; the web project list shows both, grouped by salesperson.
+
+| Output | Save to (job folder = `OpenTakeoff Projects/<salesperson>/<set>`) |
 |---|---|
 | each uploaded PDF (Bids already has them) | `<job folder>/<name>`, **byte-identical and under exactly the name in the manifest**. The name is the sheet key: shapes reference `"<name>"` and `"<name>#<page>"`. |
 | `annotations.json` | `<job folder>/.opentakeoff/annotations.json` |
