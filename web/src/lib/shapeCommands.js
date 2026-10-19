@@ -157,6 +157,7 @@ const assignSnapshot = (s) => ({
   id: s.id, condition_id: s.condition_id,
   ...("updated_at" in s ? { updated_at: s.updated_at } : {}),
   ...("origin" in s ? { origin: s.origin } : {}),
+  ...("finishStatus" in s ? { finishStatus: s.finishStatus } : {}),
 });
 
 // ── the pure apply ───────────────────────────────────────────────────────────
@@ -241,6 +242,7 @@ export function applyShapeCommand(shapes, cmd) {
           const out = { ...s, condition_id: r.condition_id };
           if ("updated_at" in r) out.updated_at = r.updated_at; else delete out.updated_at;
           if ("origin" in r) out.origin = r.origin; else delete out.origin;
+          if ("finishStatus" in r) out.finishStatus = r.finishStatus; else delete out.finishStatus;
           return out;
         });
         return { shapes: next, inverse };
@@ -252,7 +254,11 @@ export function applyShapeCommand(shapes, cmd) {
         restore.push(assignSnapshot(s));
         // stampEdit's own split does the policy work: human manual shapes get a bare
         // updated_at, machine shapes the full edited/edits/freeze stamp.
-        return { ...stampEdit(s, "reassign"), condition_id: cmd.condition_id };
+        const out = { ...stampEdit(s, "reassign") };
+        out.condition_id = cmd.condition_id;
+        // a Finish TBD room given a real finish is no longer TBD (Ryan 2026-10-18); undo restores the flag
+        delete out.finishStatus;
+        return out;
       });
       return { shapes: next, inverse: { type: "reassign", restore } };
     }

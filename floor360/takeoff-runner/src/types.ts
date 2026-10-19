@@ -88,6 +88,10 @@ export interface Counts {
   rooms: number;
   conditions: number;
   rfisDrafted: number;
+  /** Rooms drawn as Finish TBD drafts (not in rooms, never in totals). */
+  tbdRooms?: number;
+  /** Rooms per plan sheet: detected by vision, drawn with a finish, drawn as Finish TBD. */
+  roomsBySheet?: Record<string, { detected: number; withFinish: number; tbd: number }>;
 }
 
 export interface OutputEntry {

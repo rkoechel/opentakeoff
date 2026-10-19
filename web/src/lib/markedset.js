@@ -19,7 +19,7 @@ import { annotationScene, pathString } from './annotationTools.js';
 // pdf-lib is lazy-loaded (like ingest's image→PDF wrap), so the export costs
 // nothing until used and the app stays zero-install.
 
-import { conditionTotals, sheetTotals, roundSheetRow, hasMultipliers, BY_SHEET_BASE_NOTE } from "./totals.js";
+import { conditionTotals, sheetTotals, isFinishTbd, roundSheetRow, hasMultipliers, BY_SHEET_BASE_NOTE } from "./totals.js";
 import { approvalInk, approvalTally, APPROVAL_R } from "./approvals.js";
 
 // The cover's author line (#314), pure for the node runner: named authors
@@ -401,14 +401,14 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
         shows(uA(r.floor_sf)) ? `${num(uA(r.floor_sf))} ${AU}` : "", shows(uA(r.wall_sf)) ? `${num(uA(r.wall_sf))} ${AU} wall` : "",
         shows(uA(r.border_sf)) ? `${num(uA(r.border_sf))} ${AU} border` : "", shows(uL(r.lf)) ? `${num(uL(r.lf))} ${LU}` : "", shows(r.ea, 0) ? `${num(r.ea, 0)} EA` : "",
       ].filter(Boolean).join(" · ");
-      draw(qty || "-", { x: 190, y, size: 10, font, color: ink });
+      draw(r.finish_tbd ? "Finish TBD (not priced)" : (qty || "-"), { x: 190, y, size: 10, font, color: ink });
       const orderQty = [
         shows(uA(r.total_sf_net)) ? `${num(uA(r.total_sf_net))} ${AU}` : "",
         shows(uL(r.lf_net)) ? `${num(uL(r.lf_net))} ${LU}` : "",
       ].filter(Boolean).join(" · ");
       // Count totals have no waste-adjusted field. Do not invent an area
       // quantity for a linear/count condition on the cover.
-      const allowance = orderQty ? `waste ${r.waste_pct}% -> ${orderQty}` : "";
+      const allowance = orderQty && !r.finish_tbd ? `waste ${r.waste_pct}% -> ${orderQty}` : "";
       draw([c.hatch && c.hatch !== "solid" ? c.hatch : "", allowance].filter(Boolean).join(" · "), { x: 420, y, size: 8.5, font, color: muted });
       y -= 15;
       if (y < 120) break;
@@ -429,7 +429,7 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
         pg.drawRectangle({ x: 66, y: y - 1, width: 9, height: 7, color: rgb(...hex(c.color)), opacity: 0.8 });
         const { floor_sf: floor, wall_sf: wall, border_sf: border, lf, ea } = roundSheetRow(r);
         const qty = [shows(uA(floor)) ? `${num(uA(floor))} ${AU}` : "", shows(uA(wall)) ? `${num(uA(wall))} ${AU} wall` : "", shows(uA(border)) ? `${num(uA(border))} ${AU} border` : "", shows(uL(lf)) ? `${num(uL(lf))} ${LU}` : "", shows(ea, 0) ? `${num(ea, 0)} EA` : ""].filter(Boolean).join(" · ");
-        draw(`${r.finish_tag}${r.multiplier > 1 ? ` ×${r.multiplier}` : ""}  ${qty}`, { x: 82, y, size: 8.5, font, color: ink });
+        draw(`${r.finish_tag}${r.multiplier > 1 ? ` ×${r.multiplier}` : ""}  ${isFinishTbd(c) ? "Finish TBD (not priced)" : qty}`, { x: 82, y, size: 8.5, font, color: ink });
         y -= 11;
       }
       y -= 5;

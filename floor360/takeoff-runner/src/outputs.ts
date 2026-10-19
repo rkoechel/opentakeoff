@@ -118,8 +118,66 @@ export function contentTypeFor(name: string): string {
 }
 
 /**
+ * Condition tag for rooms the AI found but could not match to a floor finish (Ryan 2026-10-18): drawn as un-accepted drafts, never in finish totals.
+ */
+export const FINISH_TBD_TAG = "FINISH-TBD";
+
+/**
  * The end-of-run summary line for the AI draft checklist: what was read, scaled, hidden, drawn and asked.
  */
-export function runSummary(c: { sheets: number; scaled: number; unscaled: number; hidden: number; rooms: number; toReview: number; rfis: number; unmatched: number }): string {
-  return `AI run summary: ${c.sheets} sheets read, ${c.scaled} scaled by the AI (unconfirmed), ${c.unscaled} left unscaled, ${c.hidden} hidden as non-plan or duplicate, ${c.rooms} rooms drawn (${c.toReview} to review first), ${c.unmatched} found with no finish match (not drawn), ${c.rfis} RFIs drafted.`;
+export function runSummary(c: { sheets: number; scaled: number; unscaled: number; hidden: number; rooms: number; tbd: number; toReview: number; rfis: number; unmatched: number }): string {
+  const noOutline = c.unmatched ? `${c.unmatched} found with no outline (not drawn), ` : "";
+  return `AI run summary: ${c.sheets} sheets read, ${c.scaled} scaled by the AI (unconfirmed), ${c.unscaled} left unscaled, ${c.hidden} hidden as non-plan or duplicate, ${c.rooms} drawn with finish, ${c.tbd} drawn as Finish TBD (${c.toReview} to review first), ${noOutline}${c.rfis} RFIs drafted.`
+}
+
+/**
+ * Finish TBD styling (Ryan 2026-10-18): a grey that no finish palette uses, so the estimator sees the room is not priced.
+ */
+export const FINISH_TBD_COLOR = "#8a8f98";
+
+/**
+ * Marks the FINISH-TBD condition and its shapes with finishStatus "tbd" and the TBD color, in place. Returns the shape count.
+ */
+export function markFinishTbd(payload: Record<string, unknown>): number {
+  const conds = Array.isArray(payload.conditions) ? payload.conditions as Record<string, unknown>[] : [];
+  const ids = new Set<unknown>();
+  for (const c of conds) {
+    if (String(c.finish_tag ?? "").toUpperCase() === FINISH_TBD_TAG) {
+      c.finishStatus = "tbd";
+      c.color = FINISH_TBD_COLOR;
+      c.name = "Finish TBD";
+      ids.add(c.id);
+    }
+  }
+  const shapes = Array.isArray(payload.shapes) ? payload.shapes as Record<string, unknown>[] : [];
+  let n = 0;
+  for (const s of shapes) {
+    if (ids.has(s.condition_id)) {
+      s.finishStatus = "tbd";
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Takes Finish TBD rows out of the report: they move to finish_tbd and their quantities leave totals, so no TBD square footage is priced.
+ */
+export function excludeFinishTbd(report: Record<string, unknown>): Record<string, unknown> {
+  const rows = Array.isArray(report.conditions) ? report.conditions as Record<string, unknown>[] : [];
+  const tbd = rows.filter((r) => String(r.finish_tag ?? "").toUpperCase() === FINISH_TBD_TAG);
+  if (!tbd.length) return report;
+  const out: Record<string, unknown> = { ...report, conditions: rows.filter((r) => !tbd.includes(r)), finish_tbd: tbd };
+  const t = report.totals;
+  if (t && typeof t === "object") {
+    const totals = { ...(t as Record<string, unknown>) };
+    for (const k of ["total_sf", "total_sf_net", "lf", "lf_net", "ea", "sy_net"]) {
+      if (typeof totals[k] !== "number") continue;
+      let v = totals[k] as number;
+      for (const r of tbd) if (typeof r[k] === "number") v -= r[k] as number;
+      totals[k] = Math.max(0, Math.round(v * 100) / 100);
+    }
+    out.totals = totals;
+  }
+  return out;
 }

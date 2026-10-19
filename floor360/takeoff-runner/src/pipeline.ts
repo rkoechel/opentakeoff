@@ -10,7 +10,7 @@ import type { Engine } from "./engine.ts";
 import { EngineToolError } from "./engine.ts";
 import { hasPdfHeader, isEncryptedPdf } from "./pdfcheck.ts";
 import { JobFailure, VisionUnavailable, type Vision } from "./vision.ts";
-import { markDraft, reportCsv, runRecord, runSummary, sheetsManifest, type DraftInfo } from "./outputs.ts";
+import { FINISH_TBD_TAG, excludeFinishTbd, markFinishTbd, markDraft, reportCsv, runRecord, runSummary, sheetsManifest, type DraftInfo } from "./outputs.ts";
 import { draftRfis } from "./rfis.ts";
 import { LIMITS } from "./config.ts";
 import { setName, type Counts, type Finding, type JobManifest, type ManifestFile, type Point, type ScheduleRow } from "./types.ts";
@@ -311,22 +311,31 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   const floorTags = [...new Set(rows.filter((r) => classifyRow(r) === "floor").map((r) => r.finishTag))];
   const pendingNoRow: Finding[] = [];
   let detectedRooms = 0;
-  if (roomSheets.length && (roomFinish || roomToTag.size || floorTags.length)) {
+  const tbdRooms: { shapeId: string; sheet: string; label: string }[] = [];   // Ryan 2026-10-18: unmatched rooms are drawn as Finish TBD drafts, not dropped
+  const roomsBySheet: Record<string, { detected: number; withFinish: number; tbd: number }> = {};
+  let proposed = false;
+  const propose = async (): Promise<void> => {
+    if (proposed) return;
+    proposed = true;
     await tryStep("propose_takeoff", () => engine.call("propose_takeoff", {
       label: `AI auto-takeoff draft · ${m.bidNumber}`,
-      rationale: roomFinish
-        ? `Rooms detected on the plans and assigned from the room-finish schedule on ${state.scheduleSheet}. Pending estimator review.`
-        : "Rooms detected on the plans and assigned from the finish-schedule rows in Bids or the finish tags printed in the rooms. Pending estimator review.",
+      rationale: !roomFinish && !roomToTag.size && !floorTags.length
+        ? "Rooms detected on the plans with no finish to match; drawn as Finish TBD for the estimator to assign. Pending estimator review."
+        : roomFinish
+          ? `Rooms detected on the plans and assigned from the room-finish schedule on ${state.scheduleSheet}. Pending estimator review.`
+          : "Rooms detected on the plans and assigned from the finish-schedule rows in Bids or the finish tags printed in the rooms. Pending estimator review.",
     }));
-  }
+  };
+  if (roomSheets.length && (roomFinish || roomToTag.size || floorTags.length)) await propose();
   if (roomSheets.length && !roomFinish && !roomToTag.size && !floorTags.length) {
-    state.addFinding({ kind: "no_room_finish_schedule", sheet: state.scheduleSheet, message: "The set has no room-finish schedule the engine could read, and the Bids rows don't name rooms, so no rooms were assigned finishes. Assign them in the canvas." });
+    state.addFinding({ kind: "no_room_finish_schedule", sheet: state.scheduleSheet, message: "The set has no room-finish schedule the engine could read, and the Bids rows don't name rooms, so the rooms found were drawn as Finish TBD. Assign their finishes in the canvas." });
   }
   for (const [i, s] of roomSheets.entries()) {
     ctx.progress("Finding rooms", i + 1, roomSheets.length);
     if (roomFinish) {
       const r = await tryStep("detect_rooms", () => engine.call<{ rooms: { label: string; shape_id?: string; condition?: string; confidence?: number; raster_traced?: true }[]; unresolved?: { label: string; reason: string; seed: Point }[] }>("detect_rooms", { sheet: s.sheet, assign_from_schedule: true }), s.sheet);
       if (!r) continue;
+      roomsBySheet[s.sheet] = { detected: r.rooms.length + (r.unresolved?.length ?? 0), withFinish: r.rooms.filter((x) => x.shape_id && x.condition).length, tbd: 0 };
       for (const room of r.rooms) {
         if (room.shape_id && room.condition) state.rooms.push({ shapeId: room.shape_id, sheet: s.sheet, label: room.label, condition: room.condition, confidence: room.confidence, raster: room.raster_traced === true, fromSchedule: true });
       }
@@ -349,6 +358,7 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
       }
       for (const room of r.rooms) {
         detectedRooms++;
+        const per = (roomsBySheet[s.sheet] ??= { detected: 0, withFinish: 0, tbd: 0 }); per.detected++;
         let tag = roomToTag.get(normTag(room.label));
         if (tag === undefined && room.verts && room.verts.length >= 3) {
           // no Bids row names this room: use the finish tag printed inside it
@@ -364,7 +374,19 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
         if (tag === "") continue;   // conflicting rows, already reported
         if (!tag) {
           const c = room.verts?.length ? centroid(room.verts) : undefined;
-          pendingNoRow.push({ kind: "room_no_schedule_row", sheet: s.sheet, tag: room.label, ...(c ? { at: c, rect: boxAround(c) } : {}), message: `Room ${room.label} on ${s.sheet} is not on any finish-schedule row in Bids. Not measured under a guess; ask for its finish.` });
+          if (!room.verts || room.verts.length < 3) {
+            pendingNoRow.push({ kind: "room_no_schedule_row", sheet: s.sheet, tag: room.label, ...(c ? { at: c, rect: boxAround(c) } : {}), message: `Room ${room.label} on ${s.sheet} is not on any finish-schedule row in Bids. Not measured under a guess; ask for its finish.` });
+            continue;
+          }
+          await propose();
+          const tbdShot = await tryStep("measure_polygon", () => engine.call<{ shape_id?: string }>("measure_polygon", { sheet: s.sheet, verts: room.verts, condition: FINISH_TBD_TAG }), s.sheet);
+          if (!tbdShot?.shape_id) {
+            pendingNoRow.push({ kind: "room_no_schedule_row", sheet: s.sheet, tag: room.label, ...(c ? { at: c, rect: boxAround(c) } : {}), message: `Room ${room.label} on ${s.sheet} is not on any finish-schedule row in Bids. Not measured under a guess; ask for its finish.` });
+            continue;
+          }
+          await tryStep("edit_shape", () => engine.call("edit_shape", { shape_id: tbdShot.shape_id, label: `Finish TBD · ${room.label}` }), s.sheet);
+          tbdRooms.push({ shapeId: tbdShot.shape_id, sheet: s.sheet, label: room.label });
+          per.tbd++;
           continue;
         }
         if (!room.verts || room.verts.length < 3) continue;
@@ -372,15 +394,13 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
         if (!shot?.shape_id) continue;
         await tryStep("edit_shape", () => engine.call("edit_shape", { shape_id: shot.shape_id, label: room.label }), s.sheet);
         state.rooms.push({ shapeId: shot.shape_id, sheet: s.sheet, label: room.label, condition: tag, confidence: room.confidence, raster: room.raster_traced === true, fromSchedule: true });
+        per.withFinish++;
       }
     }
   }
-  if (!roomFinish && pendingNoRow.length) {
-    if (state.rooms.length === 0) {
-      state.addFinding({ kind: "no_room_finish_match", sheet: roomSheets[0]?.sheet ?? state.scheduleSheet, tag: "rooms", detail: `${detectedRooms} rooms were found on ${roomSheets.length} plan sheet(s); none matched a finish (no room-finish schedule, no rooms listed on the Bids finish rows, no finish tag printed inside a room).`, message: `${pendingNoRow.length} of ${detectedRooms} rooms could not be matched to any floor finish, so none were drawn. Ask for a room-finish schedule or a finish plan.` });
-    } else {
-      for (const f of pendingNoRow) state.addFinding(f);
-    }
+  if (!roomFinish && (tbdRooms.length || pendingNoRow.length)) {
+    const noOutline = pendingNoRow.length ? ` ${pendingNoRow.length} more had no outline the engine could draw.` : "";
+    state.addFinding({ kind: "no_room_finish_match", sheet: tbdRooms[0]?.sheet ?? roomSheets[0]?.sheet ?? state.scheduleSheet, tag: "rooms", detail: ` ${tbdRooms.length + pendingNoRow.length} of ${detectedRooms} rooms found on ${roomSheets.length} plan sheet(s) matched no finish (no room-finish schedule row, no room on the Bids finish rows, no finish tag printed inside the room).`, message: `${tbdRooms.length} room${tbdRooms.length === 1 ? "" : "s"} drawn as Finish TBD; assign finishes.${noOutline} Ask for a room-finish schedule or a finish plan if the drawings don't say.` });
   }
 
   // ── what the schedule rows say vs what was drawn ─────────────────────────
@@ -476,25 +496,30 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   const enginePayload = path.join(ctx.workDir, "annotations.engine.json");
   await engine.call("export_takeoff", { path: enginePayload, overwrite: true });
   const payload = JSON.parse(await readFile(enginePayload, "utf8")) as Record<string, unknown>;
+  const tbdShapes = markFinishTbd(payload);   // Finish TBD rooms: flagged finishStatus "tbd", grey, never in totals
   const outputs: string[] = [];
   const markedName = `${set} - marked set.pdf`;
   const marked = await tryStep("export_marked_pdf", () => engine.call("export_marked_pdf", { path: path.join(ctx.outputsDir, markedName), project_name: set, overwrite: true }));
   if (marked) outputs.push(markedName);
   const reportName = `${set} - takeoff report.json`;
-  const report = await tryStep("export_report", () => engine.call<{ conditions?: Record<string, unknown>[] }>("export_report", { path: path.join(ctx.outputsDir, reportName), project_name: set, overwrite: true }));
-  if (report) {
+  const rawReport = await tryStep("export_report", () => engine.call<Record<string, unknown>>("export_report", { path: path.join(ctx.outputsDir, reportName), project_name: set, overwrite: true }));
+  if (rawReport) {
+    const report = excludeFinishTbd(rawReport);
+    if (report !== rawReport) await writeFile(path.join(ctx.outputsDir, reportName), JSON.stringify(report, null, 2));
     outputs.push(reportName);
     const csvName = `${set} - takeoff report.csv`;
     await writeFile(path.join(ctx.outputsDir, csvName), reportCsv(report));
     outputs.push(csvName);
   }
 
-  const shapes = Array.isArray(payload.shapes) ? payload.shapes as { measure_role?: string }[] : [];
+  const shapes = Array.isArray(payload.shapes) ? payload.shapes as { measure_role?: string; finishStatus?: string }[] : [];
   const counts: Counts = {
     sheets: state.sheets.length,
-    rooms: shapes.filter((s) => s.measure_role === "floor_area").length,
+    rooms: shapes.filter((s) => s.measure_role === "floor_area" && s.finishStatus !== "tbd").length,
     conditions: Array.isArray(payload.conditions) ? payload.conditions.length : 0,
     rfisDrafted: state.rfisDrafted,
+    roomsBySheet: roomsBySheet,
+    tbdRooms: tbdShapes,
   };
   const info: DraftInfo = {
     manifest: m,
@@ -511,10 +536,10 @@ async function runWithEngine(ctx: RunContext, deps: PipelineDeps, engine: Engine
   // auto-hide at import (Ryan 2026-10-18): non-plan sheets and duplicate pages go in hidden_sheets, restorable with Show hidden.
   // A sheet that carries a finding or a drawn room stays visible, so its checklist item and its rooms are never hidden.
   const findingSheets = new Set(state.findings.map((f) => f.sheet).filter((k): k is string => !!k));
-  const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k) && !state.rooms.some((r) => r.sheet === k));
+  const autoHidden = [...nonPlan, ...dupOf.keys()].filter((k) => !findingSheets.has(k) && !state.rooms.some((r) => r.sheet === k) && !tbdRooms.some((r) => r.sheet === k));
   // end-of-run summary (Ryan 2026-10-18): every scale is AI-set and unconfirmed until someone checks it in Scale review
   if (state.scaled.size) state.addFinding({ kind: "scales_unconfirmed", message: `All ${state.scaled.size} scale${state.scaled.size === 1 ? "" : "s"} on this set were set by the AI from the drawings and none is confirmed. Confirm each in Scale review before pricing.` });
-  state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, toReview: low, unmatched: pendingNoRow.length, rfis: state.rfisDrafted }) });
+  state.addFinding({ kind: "run_summary", message: runSummary({ sheets: state.sheets.length, scaled: state.scaled.size, unscaled: state.findings.filter((f) => f.kind === "no_scale").length, hidden: autoHidden.length, rooms: state.rooms.length, tbd: tbdRooms.length, toReview: low, unmatched: pendingNoRow.length, rfis: state.rfisDrafted }) });
   await writeFile(path.join(ctx.outputsDir, "annotations.json"), JSON.stringify(markDraft(payload, info, [...state.nts], autoHidden)));
   await writeFile(path.join(ctx.outputsDir, "sheets.json"), JSON.stringify(sheetsManifest(m, loaded)));
   await writeFile(path.join(ctx.outputsDir, "floor360-run.json"), JSON.stringify(runRecord(info, inputsHash), null, 2));
