@@ -46,6 +46,12 @@ export function floor360PrivateBuild() {
   return typeof __OT_FLOOR360_PRIVATE__ !== "undefined" && __OT_FLOOR360_PRIVATE__ === true;
 }
 
+/** Premium upsell (the Request Premium buttons, menu item, dialog and the
+ *  unprompted request prompt) is upstream marketing; the FLOOR360 private build never shows it. */
+export function showPremiumUpsell(privateBuild = floor360PrivateBuild()) {
+  return !privateBuild;
+}
+
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Graph drive ids for SharePoint libraries are "b!" + url-safe base64.
 const DRIVE_ID = /^b![A-Za-z0-9_-]{20,200}$/;

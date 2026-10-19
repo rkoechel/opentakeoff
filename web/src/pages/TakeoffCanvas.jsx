@@ -226,7 +226,7 @@ import { findCutoutParent, subtractCutout, recomposeCutouts, cutRunsAcross } fro
 import { normalizeAgentReview } from "../lib/reviewState.js";
 import { approveAutoTakeoff, markBidsNotified, readAutoTakeoff } from "../lib/aiDraft.js";
 import { loadAiDrafts, notifyApproved } from "../lib/bidsDrafts.js";
-import { floor360PrivateBuild } from "../lib/privateBuild.js";
+import { floor360PrivateBuild, showPremiumUpsell } from "../lib/privateBuild.js";
 import AiDraftPanel from "../components/AiDraftPanel.jsx";
 import { oneClickEnabled, ONE_CLICK_GATE_MESSAGE, commandBoxEnabled, ocrEnabled } from "../lib/gate.js";
 import { computeShapeMetrics, needsMetrics, recalibrateShapes, linearVerticalFt } from "../lib/shapeMetrics.js";
@@ -647,6 +647,7 @@ export default function TakeoffCanvas() {
   const [agentOpen, setAgentOpen] = useState(false);      // docked right-rail Agent panel
   const [conditionDetails, setConditionDetails] = useState(true);
   const workspacePrefs = useWorkspaceLayout();
+  const premiumUpsell = showPremiumUpsell(); // private build: no Request Premium button, menu item, dialog or prompt
   const [premiumOpen, setPremiumOpen] = useState(false);
   const premiumPrompted = useRef(false); // unprompted dialog: never twice in one app opening, even with storage blocked
   const workspaceLayout = workspacePrefs.enabled;
@@ -9049,7 +9050,7 @@ export default function TakeoffCanvas() {
       onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer?.files); }}
       style={{ position: "relative", display: "flex", flexDirection: "column", height: "100vh", "--workspace-glow-strength": workspaceArrangement.backlight / 100 }}>
       {pinWindow}
-      {premiumOpen && <PremiumInterest onClose={() => setPremiumOpen(false)} onOpenChange={onMenuDepth} />}
+      {premiumUpsell && premiumOpen && <PremiumInterest onClose={() => setPremiumOpen(false)} onOpenChange={onMenuDepth} />}
       {/* file inputs — always mounted (drag-drop and the ⋯ import path need
           the refs even while focus mode hides the bar) */}
       <input name="sheet-file" ref={fileInputRef} type="file" accept=".pdf,application/pdf,image/*,.zip,application/zip,application/x-zip-compressed,.otk" multiple style={{ display: "none" }}
@@ -9078,7 +9079,7 @@ export default function TakeoffCanvas() {
         onNavigate={() => setWorkspaceNavigationOpen((v) => !v)} navigationOpen={workspaceNavigationOpen}
         onTakeoffs={toggleTakeoffs} takeoffsOpen={takeoffsOpen} onWork={() => setAgentOpen((v) => !v)} workOpen={agentOpen} workButtonRef={workButtonRef}
         pending={shapes.filter((shape) => shape.origin?.reviewed === false).length} running={agentRunning}
-        onPremium={() => setPremiumOpen(true)} onReport={() => setShowReport(true)} onFocus={toggleFocusMode} onClassic={() => workspacePrefs.setEnabled(false)}
+        onPremium={premiumUpsell ? () => setPremiumOpen(true) : undefined} onReport={() => setShowReport(true)} onFocus={toggleFocusMode} onClassic={() => workspacePrefs.setEnabled(false)}
         onControls={() => setWorkspaceControlsOpen((v) => !v)} controlsOpen={workspaceControlsOpen} onSearch={() => setWorkspaceSearchOpen(true)}
         pinControl={pinButton}
         panelTools={<div className="calm-panel-tools" role="group" aria-label="Quantity and review tools">
@@ -9300,7 +9301,7 @@ export default function TakeoffCanvas() {
           onOpenChange={onMenuDepth}
           face={<span style={{ fontWeight: 700, letterSpacing: "0.08em" }}>⋯</span>}
           items={[
-            { id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) },
+            ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
             { id: "workspace-preview", label: workspaceLayout ? "Classic layout" : "Premium layout — compact controls", onSelect: () => workspacePrefs.setEnabled(!workspaceLayout) },
             { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
             { id: "tour", label: "Guided first takeoff", onSelect: startTour },
@@ -11307,7 +11308,7 @@ export default function TakeoffCanvas() {
       {(view === "gallery" || view === "picker") && (
         <PlanNavigator
           nameGen={namerGen} onSheetText={offerSheetText}
-          onPremium={() => setPremiumOpen(true)}
+          onPremium={premiumUpsell ? () => setPremiumOpen(true) : undefined}
           onStartTour={() => { startTour(); loadSampleForTour(); }}
           onConnect={() => setConnectOpen(true)}
           canClose={openTabs.length > 0}
@@ -11413,7 +11414,7 @@ export default function TakeoffCanvas() {
           sheetLabel={(k) => tabLabel(k)}
           sheetDims={(k) => panelByKey(k)?.img}
           onMarkedSet={exportMarkedSet} markedSetDark={darkMode}
-          onClose={() => { setShowReport(false); if (!premiumPrompted.current && shouldAutoPromptPremium(readPremiumPrompt(), shapes.length)) { premiumPrompted.current = true; setPremiumOpen(true); } }}
+          onClose={() => { setShowReport(false); if (premiumUpsell && !premiumPrompted.current && shouldAutoPromptPremium(readPremiumPrompt(), shapes.length)) { premiumPrompted.current = true; setPremiumOpen(true); } }}
         />
       )}
 
