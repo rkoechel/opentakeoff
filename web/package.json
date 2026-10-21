@@ -24,7 +24,7 @@
     "build:floor360": "node scripts/stage-ocr-model.mjs && vite build && node scripts/check-ocr-dist.mjs"
   },
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.1 <25"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.19.0",

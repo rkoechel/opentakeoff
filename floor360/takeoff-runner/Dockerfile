@@ -7,7 +7,7 @@
 #     --build-arg RUNNER_BUILD_SHA=$(git rev-parse HEAD) -t takeoff-runner:$(git rev-parse --short HEAD) .
 
 # ---- build: the MCP engine (same build as mcp/Dockerfile) and the runner ----
-FROM node:22-bookworm-slim AS build
+FROM node:24.22.1-bookworm-slim AS build
 WORKDIR /app
 COPY . .
 WORKDIR /app/mcp
@@ -16,7 +16,7 @@ WORKDIR /app/floor360/takeoff-runner
 RUN npm ci && npm run build
 
 # ---- runtime: production dependencies and the two bundles only ----
-FROM node:22-bookworm-slim AS runtime
+FROM node:24.22.1-bookworm-slim AS runtime
 ARG RUNNER_BUILD_SHA=""
 ENV NODE_ENV=production
 WORKDIR /app

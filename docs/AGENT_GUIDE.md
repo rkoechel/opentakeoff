@@ -33,7 +33,7 @@ rather than assuming the same seed always produces the same room.
 
 ## 1. Connect in 60 seconds
 
-Node 20+. No clone, no build:
+Node >=24.22.1 <25. No clone, no build:
 
 ```json
 {

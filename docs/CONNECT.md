@@ -10,9 +10,9 @@ back to it. Nothing is hosted, and there is no account to create.
 
 | Your app | How | Needs |
 |---|---|---|
-| **Claude Code** (terminal) | one command | Node 20+ |
-| **Codex CLI** (terminal) | one command | Node 20+ |
-| **Cursor** and other MCP clients | a few lines of JSON | Node 20+ |
+| **Claude Code** (terminal) | one command | Node >=24.22.1 <25 |
+| **Codex CLI** (terminal) | one command | Node >=24.22.1 <25 |
+| **Cursor** and other MCP clients | a few lines of JSON | Node >=24.22.1 <25 |
 | **Claude Desktop** | download one file, double-click | nothing else |
 | **claude.ai in a browser, the Claude mobile app, ChatGPT** | not supported yet ([why](#claudeai-the-claude-mobile-app-and-chatgpt)) | — |
 

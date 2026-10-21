@@ -25,7 +25,7 @@ No clone, no build—point your MCP client at the published package:
 }
 ```
 
-Works with Claude Code (`claude mcp add opentakeoff -- npx -y opentakeoff-mcp`), Claude Desktop, Cursor, or any stdio MCP client. Node 20+.
+Works with Claude Code (`claude mcp add opentakeoff -- npx -y opentakeoff-mcp`), Claude Desktop, Cursor, or any stdio MCP client. Node >=24.22.1 <25.
 
 ## One-click install (Claude Desktop)
 

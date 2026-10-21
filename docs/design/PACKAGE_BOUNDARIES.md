@@ -20,7 +20,7 @@ extraction with its contract stated up front. No file moves in this change.
 |---|---|---|---|
 | Browser UI | `web/src/pages`, `web/src/components` | browser only (React, DOM) | nobody outside `web/` |
 | Engine libraries | `web/src/lib/*.{js,ts}` | browser and Node; no file imports React | the UI, the MCP server, the protocol tests, the web bench |
-| MCP server | `mcp/server.ts`, `mcp/src/*.ts` | Node 20+ over stdio | `bin/server.js`, the MCPB bundle, the tests |
+| MCP server | `mcp/server.ts`, `mcp/src/*.ts` | Node >=24.22.1 <25 over stdio | `bin/server.js`, the MCPB bundle, the tests |
 | Packaged resources | `mcp/src/wiki.generated.ts`, `mcp/src/protocol.generated.ts` | embedded in the bundle | `mcp/src/resources.ts` |
 | Protocol tooling | `protocol/src`, `protocol/scripts`, `protocol/v1`, `protocol/legacy` | Node 24 dev-only, private package | `protocol/test` only; nothing at runtime |
 | Generators and guards | `mcp/scripts/check-*.mjs`, `scripts/check-version-consistency.mjs`, `protocol/scripts/check-*.mjs` | CI and `npm run build` | the build and CI |

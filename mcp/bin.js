@@ -5,8 +5,9 @@
 // module that defers the server (and its hoisted externals) behind a dynamic
 // import. Same belt as src/hush.ts, one module earlier.
 console.log = console.error.bind(console);
-// pdf.js 4.x needs Promise.withResolvers (Node 22+); polyfill here so the
-// engines floor stays Node 20 — must exist before pdfjs-dist evaluates.
+// pdf.js 4.x needs Promise.withResolvers (Node 22+). Engines require
+// >=24.22.1 <25; this polyfill stays for anything older and must exist
+// before pdfjs-dist evaluates.
 if (typeof Promise.withResolvers !== "function") {
   Promise.withResolvers = function withResolvers() {
     let resolve, reject;

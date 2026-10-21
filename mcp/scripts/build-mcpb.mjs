@@ -58,7 +58,7 @@ writeFileSync(resolve(staging, 'manifest.json'), JSON.stringify({
     entry_point: 'dist/server.js',
     mcp_config: { command: 'node', args: ['${__dirname}/dist/server.js'], env: {} },
   },
-  compatibility: { runtimes: { node: '>=20' } },
+  compatibility: { runtimes: { node: '>=24.22.1 <25' } },
 }, null, 2) + '\n')
 
 // Production dependencies only, no native optionals, no lifecycle scripts.

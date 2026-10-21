@@ -1,12 +1,12 @@
 {
   "name": "opentakeoff-mcp",
-  "version": "0.9.98",
+  "version": "0.9.99",
   "mcpName": "io.github.Kentucky-ai/opentakeoff",
   "type": "module",
   "description": "OpenTakeoff MCP server — drive the takeoff engine from your MCP client over stdio.",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=20"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "dev": "node --import tsx server.ts",

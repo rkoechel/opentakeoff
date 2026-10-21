@@ -35,7 +35,7 @@ test("the runner image and run lines ask for no GPU, use the host network and bi
   assert.match(compose, /^\s+RUNNER_HOST: 127\.0\.0\.1$/m);
   assert.doesNotMatch(compose, /^\s+(ports|extra_hosts):/m);
   assert.match(docker, /ENV RUNNER_HOST=127\.0\.0\.1 /);
-  assert.match(docker, /^FROM node:22-bookworm-slim AS runtime$/m);
+  assert.match(docker, /^FROM node:24.22.1-bookworm-slim AS runtime$/m);
 });
 
 test("cloudflared is remotely managed: the install adds a dashboard hostname and never edits or restarts cloudflared", () => {
