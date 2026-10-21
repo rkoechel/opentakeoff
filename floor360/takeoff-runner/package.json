@@ -6,7 +6,7 @@
   "description": "FLOOR360 auto-takeoff worker for the DGX Spark: a headless job API around the OpenTakeoff MCP engine. Off unless RUNNER_ENABLED=1.",
   "license": "AGPL-3.0-only",
   "engines": {
-    "node": ">=22"
+    "node": ">=24.22.1 <25"
   },
   "scripts": {
     "start": "node dist/main.js",

@@ -57,7 +57,7 @@ The file is the engine's own `opentakeoff.takeoff_canvas.v1` payload (`export_ta
   "status": "draft",
   "runId": "…", "bidId": "…", "bidNumber": "F360-26-0170", "projectName": "Perfumania Wauwatosa",
   "jobId": "…", "generatedAt": "2026-10-17T19:30:00.000Z",
-  "runnerVersion": "0.1.0+<sha>", "engine": { "name": "opentakeoff-mcp", "version": "0.9.98" },
+  "runnerVersion": "0.1.0+<sha>", "engine": { "name": "opentakeoff-mcp", "version": "0.9.99" },
   "checklistItems": ["scales", "schedule_mapping", "areas_rooms", "seams_transitions", "waste_quantities", "shop_drawings", "submittal_docs", "rfis", "wall_tile_elevations"],
   "checklist": {},
   "counts": { "sheets": 12, "rooms": 31, "conditions": 7, "rfisDrafted": 0 },

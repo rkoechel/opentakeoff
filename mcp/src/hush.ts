@@ -6,8 +6,8 @@
 // import of server.ts and pdf.ts. verbosity: 0 on getDocument is the second belt.
 console.log = console.error.bind(console);
 
-// pdf.js 4.x calls Promise.withResolvers, which Node grew in v22 — polyfill it
-// so the engines floor stays Node 20 (harmless no-op on 22+).
+// pdf.js 4.x calls Promise.withResolvers, which Node grew in v22. Engines
+// require >=24.22.1 <25; the polyfill stays for anything older (no-op on 22+).
 if (typeof (Promise as { withResolvers?: unknown }).withResolvers !== "function") {
   (Promise as unknown as { withResolvers: <T>() => unknown }).withResolvers = function withResolvers<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;

@@ -177,7 +177,7 @@ Full history: [CHANGELOG.md](CHANGELOG.md) · every capability mapped to its cod
 
 ## For agents — start here
 
-Point any stdio MCP client at the published package. Node 20+, no clone, no build:
+Point any stdio MCP client at the published package. Node >=24.22.1 <25, no clone, no build:
 
 ```json
 {
