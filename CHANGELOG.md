@@ -23,6 +23,7 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 - **Node.js 24.22.1 (CVE-2026-111497).** Docker images, `.nvmrc`, package `engines`, and CI `setup-node` pin Node 24.22.1 (`>=24.22.1 <25`). This is the October 20, 2026 security release for the Brotli decoder RCE. opentakeoff-mcp is 0.9.99 so that engines floor ships with the package.
 
+- **Company setup.** **File → Company setup…** (also in Find an action and Report → Project info) holds your trade name, address, phone, email, license number and logo, plus default overhead, profit (markup or margin), sales tax on material, proposal validity, and your inclusions, exclusions and terms. Nothing is pre-filled. It saves in this browser and travels in the `.otprofile`; importing an older profile leaves it alone. Project info and Company setup now share one company form.
 - **Estimate pricing engine (no UI yet).** `web/src/lib/estimate.js` prices a takeoff from per-condition `pricing` (`unit` SF/SY/LF/EA, `material` and `labor` $/unit) and per-material-row `price`: material on the waste-adjusted order quantity, labor on the measured quantity, then sales tax on material, overhead, and profit as a markup or a margin. A price that was never entered is reported missing, never counted as $0. Condition templates never carry prices: they stay with the project.
 - **Sheet page counts stay removed during startup.** Removing or revising a PDF while saved page counts are still loading no longer restores its old count. Other files retain their counts.
 
