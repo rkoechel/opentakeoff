@@ -53,8 +53,7 @@ export function watermarkEnabled() {
 /**
  * Closing rows for an estimate workbook tab. Empty when the flag is off, so
  * the sheet contains no "Prepared with OpenTakeoff" footer.
- * When `web/src/lib/estimateExport.js` is synced, use this instead of
- * `const foot = [[], [OT_WATERMARK]]`.
+ * `web/src/lib/estimateExport.js` uses this instead of `[[], [OT_WATERMARK]]`.
  * @returns {any[][]}
  */
 export function xlsxWatermarkFooter() {
