@@ -28,7 +28,7 @@ import { UserError } from "./format.ts";
  */
 export const PDF_PRODUCER = "OpenTakeoff";
 
-export type ExportKind = "json" | "pdf" | "dxf";
+export type ExportKind = "json" | "pdf" | "dxf" | "xlsx";
 
 /** First `n` bytes, without reading a large export into memory to look at its head. */
 async function head(p: string, n: number): Promise<Buffer> {
@@ -55,6 +55,16 @@ async function isOwnExport(outPath: string, kind: ExportKind): Promise<boolean> 
       // dxf.ts writes its authorship stamp as the very first comment group:
       // 999\nOpenTakeoff DXF export — …
       return /^999\r?\nOpenTakeoff DXF export/.test((await head(outPath, 64)).toString("utf8"));
+    }
+    if (kind === "xlsx") {
+      // The optional footer is not authorship: estimateExport.js writes it only
+      // when OT_WATERMARK is on. The Estimate tab's header row is always there.
+      const { readFile } = await import("node:fs/promises");
+      const { unzipSync, strFromU8 } = await import("fflate");
+      const sheet = unzipSync(new Uint8Array(await readFile(outPath)))["xl/worksheets/sheet1.xml"];
+      if (!sheet) return false;
+      const xml = strFromU8(sheet);
+      return xml.includes("Material $/unit") && xml.includes("Line total $");
     }
     if ((await head(outPath, 5)).toString("latin1") !== "%PDF-") return false;
     const { readFile } = await import("node:fs/promises");
