@@ -22,7 +22,6 @@ function embeddedFontNames(doc: PDFDocument): string[] {
 
 const fixturePath = fileURLToPath(new URL("./fixtures/synthetic-annotations.json", import.meta.url));
 const realPath = fileURLToPath(new URL("../../../evals/mcp-workflow-bench/plan-set/human-review-2026-09-12/takeoff-after-review.json", import.meta.url));
-const samplePdf = fileURLToPath(new URL("../../../demo/sample-finish-plan.pdf", import.meta.url));
 
 async function request(extra: Record<string, unknown> = {}) {
   const annotations = JSON.parse(await readFile(fixturePath, "utf8")) as Record<string, unknown>;
@@ -62,27 +61,26 @@ test("an approval stamp removes the DRAFT keyword and names the approver", async
   assert.doesNotMatch(keys, /DRAFT/);
 });
 
-test("the reviewed sample plan renders a cover and one finish plan", async () => {
+test("a confirmed scale is printed; a detected-only scale never becomes a PDF", async () => {
+  const confirmed = buildShopModel(await request(), {}, new Date("2026-10-25T00:00:00Z"));
+  assert.match(confirmed.sheets[0]!.scaleNote, /Scale source: confirmed/);
+  assert.match(confirmed.sheets[0]!.scaleNote, /ft per inch/);
+  const { pdf } = await renderShopDrawings(confirmed);
+  assert.ok(pdf.byteLength > 1000);
+
   const annotations = JSON.parse(await readFile(realPath, "utf8")) as Record<string, unknown>;
-  const bytes = new Uint8Array(await readFile(samplePdf));
-  const src = await PDFDocument.load(bytes);
-  const size = src.getPage(0).getSize();
   const req = parseShopDrawingsRequest({
     annotations,
-    bid: { projectName: "Sample finish plan", bidNumber: "DEMO-1", date: "2026-10-25", drawnBy: "Estimator" },
-    sheetFrames: { "sample-finish-plan.pdf": { widthPx: size.width * 2, heightPx: size.height * 2 } },
+    bid: { projectName: "Sample finish plan", bidNumber: "DEMO-1", date: "2026-10-25" },
+    sheetFrames: { "sample-finish-plan.pdf": { widthPx: 6048, heightPx: 4320 } },
   });
-  const model = buildShopModel(req, {}, new Date("2026-10-25T00:00:00Z"));
-  const { pdf, specs } = await renderShopDrawings(model, {
-    underlays: { "sample-finish-plan.pdf": { pdf: bytes, pageIndex: 0 } },
-  });
-  assert.deepEqual(specs.map((s) => `${s.number} ${s.series}`), ["SD-000 cover", "SD-101 finish"]);
-  const doc = await PDFDocument.load(pdf);
-  assert.equal(doc.getPageCount(), 2);
-  assert.ok(pdf.byteLength > 50_000, "the source plan is embedded, so the file is larger than a blank sheet");
-  if (process.env.SHOP_DRAWINGS_ARTIFACT) {
-    const { writeFile, mkdir } = await import("node:fs/promises");
-    await mkdir(process.env.SHOP_DRAWINGS_ARTIFACT, { recursive: true });
-    await writeFile(`${process.env.SHOP_DRAWINGS_ARTIFACT}/shop-drawings-finish.pdf`, pdf);
+  let refused = "";
+  try {
+    const model = buildShopModel(req, {});
+    await renderShopDrawings(model);
+  } catch (e) {
+    refused = e instanceof Error ? e.message : String(e);
   }
+  assert.match(refused, /scale not confirmed/);
+  assert.doesNotMatch(refused, /1\/8|ft per inch|Scale source|plotted to fit/);
 });

@@ -182,7 +182,7 @@ A body that isn't the shape below is `400` with one sentence, and the job is not
 
 ### Scale
 
-The run refuses if any sheet that has a floor room is marked NTS (`nts_sheets`, or a scale source that says NTS or unconfirmed), has `scale_confirmed: false`, or has no `units_per_px`. An absent `scale_confirmed` is the older reading: confirmed. The scale source and a check dimension (longest edge of the largest room, in feet and inches) are printed on each plan sheet. The plan is plotted to fit the sheet; the note says so.
+The run refuses the whole set, and writes no PDF, if any sheet that has a floor room is marked NTS (`nts_sheets`, or a scale source that says NTS or unconfirmed), has `scale_confirmed: false`, has no `units_per_px`, or its scale is only `detected`. A detected scale is not a confirmed scale. It may be used only after a person sets `scale_confirmed: true`. A printed or entered scale (`calibrated`, `standard`, or a scale note such as `1/8" = 1'-0"`) may be used without that flag. The refusal is `GET /jobs/:id` `reason`. It says `scale not confirmed` and does not include a scale or a dimension. When the scale is confirmed, each plan sheet prints the scale source and a check dimension (longest edge of the largest room, in feet and inches). The plan is plotted to fit the sheet; the note says so.
 
 A room with `origin.confidence` below 0.75, or `origin.low_confidence: true`, is flagged on the sheet and as a `low_confidence_rooms` finding. Missing roll width, tile size, pattern, nap, or base type is a `shop_drawing_note` finding. The run still draws.
 

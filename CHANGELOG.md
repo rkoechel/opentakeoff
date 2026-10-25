@@ -15,7 +15,7 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
-- **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000 and finish plans SD-101…, with a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS and unconfirmed-scale sheets are refused. The runner does not send the PDF.
+- **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000 and finish plans SD-101…, with a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS, unconfirmed, and detected-only scales are refused with `scale not confirmed` and no PDF. The runner does not send the PDF.
 
 - **Node.js 24.22.1 (CVE-2026-111497).** Docker images, `.nvmrc`, package `engines`, and CI `setup-node` pin Node 24.22.1 (`>=24.22.1 <25`). This is the October 20, 2026 security release for the Brotli decoder RCE. opentakeoff-mcp is 0.9.99 so that engines floor ships with the package.
 

@@ -127,7 +127,7 @@ function openingsOf(shape: Record<string, unknown>): number[] {
 /**
  * Build the drawing model. `frames` supplies page size in image px when the
  * annotations (or an uploaded PDF) know it. Missing size, NTS, or an
- * unconfirmed scale refuses the set.
+ * unconfirmed scale, or a scale that is only "detected", refuses the set.
  */
 export function buildShopModel(req: ShopDrawingsRequest, frames: Record<string, Frame>, now = new Date()): ShopModel {
   const ann = req.annotations;

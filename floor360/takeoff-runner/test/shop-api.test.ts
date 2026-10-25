@@ -7,6 +7,7 @@ import { api, manifestFor, startRunner, TOKEN } from "./helpers.ts";
 import { runShopDrawings, shopDrawingsPdfName } from "../src/shopdrawings/run.ts";
 
 const fixturePath = fileURLToPath(new URL("./fixtures/synthetic-annotations.json", import.meta.url));
+const realPath = fileURLToPath(new URL("../../../evals/mcp-workflow-bench/plan-set/human-review-2026-09-12/takeoff-after-review.json", import.meta.url));
 
 async function body(extra: Record<string, unknown> = {}) {
   const annotations = JSON.parse(await readFile(fixturePath, "utf8"));
@@ -66,6 +67,27 @@ test("an NTS sheet fails the job with a sentence and writes no pdf", async () =>
     assert.equal(done.json.status, "failed");
     assert.match(done.json.reason, /Refusing shop drawings:.*NTS or unconfirmed/);
     assert.equal(done.json.outputs.length, 0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("a detected-only scale fails the job, writes no pdf, and the reason has no scale", async () => {
+  const h = await startRunner({
+    execute: (ctx) => ctx.work === "shop-drawings" ? runShopDrawings(ctx) : Promise.reject(new Error("takeoff")),
+  });
+  try {
+    const created = await api(`${h.url}/jobs`, "POST", { ...manifestFor([]), files: [], options: { shopDrawings: true } });
+    const annotations = JSON.parse(await readFile(realPath, "utf8"));
+    const queued = await api(`${h.url}/jobs/${created.json.id}/shop-drawings`, "POST", await body({ annotations, bid: { projectName: "Sample finish plan", bidNumber: "DEMO-1" } }));
+    assert.equal(queued.status, 202);
+    await h.store.whenIdle();
+    const done = await api(`${h.url}/jobs/${created.json.id}`, "GET");
+    assert.equal(done.json.status, "failed");
+    assert.match(done.json.reason, /scale not confirmed/);
+    assert.doesNotMatch(done.json.reason, /1\/8|ft per inch|Scale source|plotted to fit/);
+    assert.equal(done.json.outputs.length, 0);
+    assert.deepEqual(done.json.findings, []);
   } finally {
     await h.close();
   }
