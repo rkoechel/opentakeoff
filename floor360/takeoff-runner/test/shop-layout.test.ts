@@ -1,6 +1,7 @@
 // Seam, pattern, base and transitions against the synthetic fixture.
 // Roll lengths come from rollgoods.js; this file checks the sheet uses that
 // answer, and that a 0.5 ft gap is a doorway while a shared edge is a butt.
+// The doorway mark is the whole adjacent run; the opening is not located on it.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";

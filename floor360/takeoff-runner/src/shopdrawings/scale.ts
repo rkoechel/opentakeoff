@@ -1,7 +1,9 @@
 // A wrong scale makes every length on the sheet wrong. Shop drawings refuse
 // the whole set when any room-bearing sheet is NTS, explicitly unconfirmed,
-// or has no units-per-pixel. An absent scale_confirmed is the pre-flag
-// reading (confirmed). The source string is still printed on the sheet.
+// missing units-per-pixel, or only "detected". A detected scale may be used
+// after a person sets scale_confirmed. A printed or entered scale (calibrated,
+// standard, or a scale note) may be used without that flag. The refusal names
+// the sheet and says "scale not confirmed". It does not print a scale.
 import { RENDER_SCALE } from "../../../../web/src/lib/takeoffConstants.ts";
 
 const NTS = /(^|[^A-Z])(N\.?\s?T\.?\s?S\.?|NOT\s+TO\s+SCALE)($|[^A-Z])/i;
@@ -15,6 +17,13 @@ export interface ScaleSheet {
   nts: boolean;
 }
 
+/** True when the source is a scale a person printed or entered, not a detection. */
+export function printedOrEnteredScale(source: string): boolean {
+  const s = source.trim();
+  if (!s || /^detected$/i.test(s) || /^unknown$/i.test(s)) return false;
+  return true;
+}
+
 export function scaleRefusal(sheets: ScaleSheet[]): string | null {
   const problems: string[] = [];
   for (const s of sheets) {
@@ -24,6 +33,8 @@ export function scaleRefusal(sheets: ScaleSheet[]): string | null {
       problems.push(`"${s.sheetId}" has an unconfirmed scale`);
     } else if (!(s.upp > 0)) {
       problems.push(`"${s.sheetId}" has no scale`);
+    } else if (s.scaleConfirmed !== true && !printedOrEnteredScale(s.scaleSource)) {
+      problems.push(`"${s.sheetId}" scale not confirmed`);
     }
   }
   if (!problems.length) return null;

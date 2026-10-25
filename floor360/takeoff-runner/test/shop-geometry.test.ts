@@ -58,6 +58,13 @@ test("scale gate refuses NTS and unconfirmed scales, and names the source scale"
   assert.match(scaleRefusal([{ sheetId: "A.pdf", upp: 0.02, scaleSource: "confirmed", scaleConfirmed: true, nts: true }]) ?? "", /NTS or unconfirmed/);
   assert.match(scaleRefusal([{ sheetId: "A.pdf", upp: 0.02, scaleSource: "1/8\" = 1'-0\"", scaleConfirmed: false, nts: false }]) ?? "", /unconfirmed scale/);
   assert.match(scaleRefusal([{ sheetId: "A.pdf", upp: 0, scaleSource: "detected", scaleConfirmed: null, nts: false }]) ?? "", /no scale/);
+  const detected = scaleRefusal([{ sheetId: "A.pdf", upp: 0.05555555555555555, scaleSource: "detected", scaleConfirmed: null, nts: false }]);
+  assert.match(detected ?? "", /scale not confirmed/);
+  assert.doesNotMatch(detected ?? "", /1\/8|ft per inch|Scale source|plotted to fit/);
+  assert.equal(scaleRefusal([{ sheetId: "A.pdf", upp: 0.05555555555555555, scaleSource: "detected", scaleConfirmed: true, nts: false }]), null);
+  assert.equal(scaleRefusal([{ sheetId: "A.pdf", upp: 0.05555555555555555, scaleSource: '1/8" = 1\'-0"', scaleConfirmed: null, nts: false }]), null);
+  assert.equal(scaleRefusal([{ sheetId: "A.pdf", upp: 0.02, scaleSource: "calibrated", scaleConfirmed: null, nts: false }]), null);
+  assert.equal(scaleRefusal([{ sheetId: "A.pdf", upp: 0.02, scaleSource: "standard", scaleConfirmed: null, nts: false }]), null);
   assert.equal(sourceScaleLabel(0.05555555555555555), '1/8" = 1\'-0"');
   assert.equal(sourceScaleLabel(0.02), "2.88 ft per inch");
   assert.equal(feetInches(24), "24'-0\"");
@@ -131,20 +138,17 @@ test("NTS and unconfirmed sheets refuse the whole set; a missing page size refus
   assert.throws(() => buildShopModel(bare, {}), (e: unknown) => e instanceof ShopDrawingsRefusal && /no page size/.test(e.message));
 });
 
-test("the reviewed sample takeoff is accepted: scale_confirmed is absent, source is printed", async () => {
+test("the reviewed sample is detected-only, so shop drawings are refused and no scale is printed", async () => {
   const annotations = JSON.parse(await readFile(realPath, "utf8")) as Record<string, unknown>;
   const req = parseShopDrawingsRequest({
     annotations,
     bid: { projectName: "Sample finish plan", bidNumber: "DEMO-1", date: "2026-10-25" },
     sheetFrames: { "sample-finish-plan.pdf": { widthPx: 6048, heightPx: 4320 } },
   });
-  const model = buildShopModel(req, {}, new Date("2026-10-25T00:00:00Z"));
-  assert.equal(model.sheets.length, 1);
-  assert.match(model.sheets[0]!.scaleNote, /detected/);
-  assert.match(model.sheets[0]!.scaleNote, /1\/8" = 1'-0"/);
-  assert.ok(model.sheets[0]!.rooms.some((r) => r.label === "OFFICE 136"));
-  assert.equal(model.sheets[0]!.rooms.some((r) => r.lowConfidence), false);
-  assert.match(model.warnings.join("\n"), /CPT-1 is roll goods and has no rollWidthFt/);
-  assert.match(model.warnings.join("\n"), /VCT-1 has no tile size/);
-  assert.match(model.warnings.join("\n"), /VCT-1 has no pattern named/);
+  assert.throws(() => buildShopModel(req, {}, new Date("2026-10-25T00:00:00Z")), (e: unknown) => {
+    assert.ok(e instanceof ShopDrawingsRefusal);
+    assert.match(e.message, /scale not confirmed/);
+    assert.doesNotMatch(e.message, /1\/8|ft per inch|Scale source|plotted to fit|'-\d/);
+    return true;
+  });
 });

@@ -3,6 +3,8 @@
 // is passed as that room's direction, so one override does not flip the
 // others. Transitions are deriveTransitionRuns: a gap of an inch or less is
 // a committed butt; anything wider that is still adjacent is a doorway to verify.
+// The first version draws that whole adjacent run. It does not locate the
+// opening along the run.
 import { clipRingToLaneSlab, computeRollLayout, rollCutNumbers, seamLfBySrc } from "../../../../web/src/lib/rollgoods.js";
 import { stripLenFt, stripWidthFt } from "../../../../web/src/lib/rollTakeoff.js";
 import { deriveTransitionRuns, type SheetFrame, type TransitionSourceShape } from "../../../../web/src/lib/transitions.ts";
