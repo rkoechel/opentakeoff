@@ -23,6 +23,8 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 - **Node.js 24.22.1 (CVE-2026-111497).** Docker images, `.nvmrc`, package `engines`, and CI `setup-node` pin Node 24.22.1 (`>=24.22.1 <25`). This is the October 20, 2026 security release for the Brotli decoder RCE. opentakeoff-mcp is 0.9.99 so that engines floor ships with the package.
 
+- **Dependency security refresh.** Upgrade the MCP SDK and Zod, adapt record schemas for Zod 4, and refresh affected MCP, Vite and protocol dependency locks. The MCP tool set and takeoff payloads are unchanged. The fork does not take upstream's 0.9.100 package number. [Validation evidence](docs/review/dependency-security-2026-10-24/README.md).
+
 - **MCP estimate verbs.** `set_pricing`, `set_estimate_settings`, `estimate_summary`, `export_estimate` and `export_proposal` give an agent the Estimate panel and the Proposal dialog over the same engine. Prices are the estimator's; nothing proposes or defaults one, and every unentered price is reported. Prices, markups, proposal text and client ride `export_takeoff` / `import_takeoff`. The draft document schema gains `estimate_settings` and `bid_proposal`. The server now depends on `fflate` for the workbook. The fork stays on opentakeoff-mcp 0.9.101 (upstream published these verbs as 0.9.99).
 
 - **Bid proposal PDF.** **Estimate → Proposal PDF…** downloads a letter-size proposal: Company setup letterhead, prepared-for, scope with measured quantities, base bid (lump sum or itemized to the cent), inclusions, exclusions, terms and signature blocks. The project keeps its own copy of the proposal text (`bid_proposal`), copied from Company setup the first time. `NOTICE` adds an AGPL-3.0 section 7(b) attribution term.
