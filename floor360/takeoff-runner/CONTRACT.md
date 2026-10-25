@@ -148,7 +148,7 @@ These finding kinds become pending RFI drafts in the project's register: `no_sca
 
 Create the job with `POST /jobs` first. A shop-drawings-only job may send `files: []` with `options.shopDrawings: true` (no plan PDF). If the manifest lists PDFs, they must be uploaded before this call, the same rule as `POST /jobs/:id/start`. Page size then comes from the PDF (image px = PDF points × 2, the takeoff render scale) and the page is drawn dimmed under the rooms. A takeoff that already finished can be sent here again; its earlier outputs stay, and the shop-drawings files replace only their own names.
 
-A body that isn't the shape below is `400` with one sentence, and the job is not queued. A body that is valid but the sheets are NTS, unconfirmed, or unsized becomes a **failed job** (`reason` is the sentence). No PDF is written.
+A body that isn't the shape below is `400` with one sentence, and the job is not queued. A body that is valid but the sheets are NTS, unconfirmed, unsized, or only detected becomes a **failed job** (`reason` is the sentence). No PDF is written.
 
 ### Input
 
@@ -188,7 +188,9 @@ A room with `origin.confidence` below 0.75, or `origin.low_confidence: true`, is
 
 ### Output
 
-Sheets are 11×17 in (ANSI B), landscape. Numbers: `SD-000` cover and index, `SD-101`… finish plans (one per source sheet). Seam/roll plans are `SD-201`…, tile/LVT pattern plans `SD-301`…, transitions and base `SD-401`…. This addendum's first revision draws the cover and the finish plans. Later series use the same numbers when those sheets are produced.
+Sheets are 11×17 in (ANSI B), landscape. Numbers: `SD-000` cover and index, `SD-101`… finish plans, `SD-201`… seam/roll plans, `SD-301`… tile/LVT pattern plans, `SD-401`… transitions and base. One sheet of each series per source sheet that has something to draw. A seam sheet is omitted when that finish has no `rollWidthFt`. A pattern sheet is omitted when that finish has no tile size. Transitions and base are drawn anyway: a missing base type reads "Base: type not specified", a doorway reads "TBD – verify", and a butt with no requested type reads "butt — type not specified".
+
+Seam sheets run `rollgoods.js` per room, with that room's nap as the direction (default east-west) and the roll width from the input. Allowances default to a 2 in seam, 3 in wall and 1 in doorway, the same defaults as `defaultRollSetup`. The sheet draws the strips, the seams, a nap arrow, the cut list and the seam length. Pattern sheets start on the center of the longest wall, or the override, and are labeled "Start: verify at doorway center". Only committed butt joints are drawn as transitions. A gap wider than an inch is a doorway and is not given a T-number. The first version draws the whole adjacent run as that doorway. It does not locate the opening along the run.
 
 Every sheet has a FLOOR360 title block: logo, Brandon Text, project, bid number, sheet number `SD-xxx`, sheet x of y, revision, date, drawn, checked, approved. Unapproved sheets carry a DRAFT watermark. Approved sheets name the approver.
 
