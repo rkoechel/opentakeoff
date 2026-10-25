@@ -19,14 +19,24 @@ function envExample(): Record<string, string> {
   return env;
 }
 
+function sourceFiles(rel: string): string[] {
+  const out: string[] = [];
+  for (const ent of readdirSync(dir + rel, { withFileTypes: true })) {
+    const p = `${rel}/${ent.name}`;
+    if (ent.isDirectory()) out.push(...sourceFiles(p));
+    else if (ent.name.endsWith(".ts")) out.push(p);
+  }
+  return out;
+}
+
 test("the only listener is main's HTTP server on config.host; the engine talks stdio", () => {
   const listens: string[] = [];
-  for (const f of readdirSync(dir + "src")) {
-    const src = read(`src/${f}`);
+  for (const f of sourceFiles("src")) {
+    const src = read(f);
     for (const m of src.matchAll(/\.listen\(([^,()]*),\s*([^,()]*)/g)) listens.push(`${f}: ${m[1]}, ${m[2]}`);
     assert.doesNotMatch(src, /node:net"|node:dgram"|node:https"|createSecureServer|WebSocketServer|SSEServerTransport|StreamableHTTP/, `${f} opens no other server`);
   }
-  assert.deepEqual(listens, ["main.ts: config.port, config.host"]);
+  assert.deepEqual(listens, ["src/main.ts: config.port, config.host"]);
   assert.equal(read("src/main.ts").match(/createServer\(/g)?.length, 1);
   const engine = read("src/engine.ts");
   assert.match(engine, /new StdioClientTransport\(/);
