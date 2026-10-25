@@ -17,6 +17,8 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 - **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000, finish plans SD-101…, seam/roll plans SD-201…, tile/LVT pattern plans SD-301…, and transitions and base SD-401…. Every sheet has a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS, unconfirmed, and detected-only scales are refused with `scale not confirmed` and no PDF. A seam or pattern sheet is omitted when the roll width or tile size was not supplied. The runner does not send the PDF.
 
+- **A broken image in a ZIP no longer hides the remaining plans.** Each extracted file is processed independently, so unreadable PNG/JPEG entries are skipped by their own names while later PDFs and valid scans still open. Archive limits and downstream PDF validation are unchanged.
+
 - **opentakeoff-mcp 0.9.101.** The packaged wiki status page names the shop-drawing sheets: cover, finish, seam/roll, tile pattern, transitions and base. Same version fields as 0.9.100.
 
 - **opentakeoff-mcp 0.9.100.** The packaged wiki status page records that a detected-only shop-drawing scale is refused. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
