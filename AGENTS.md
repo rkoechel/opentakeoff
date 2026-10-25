@@ -20,6 +20,8 @@ conventions. Key requirements:
 - Branch first. Run `npm run check --prefix web` before pushing, plus the relevant
   MCP/protocol checks. A merge to `main` deploys production; verify the changed
   app behavior and wait for required checks before merging.
+- Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and
+  builds only — do not add a schedule or cron workflow.
 - Every PR includes screenshots/video or measured expected-versus-observed
   stats, reproducible commands and linked evidence. Protect private project data.
 - Geometry edits must preserve existing machine originals. MCP cannot create

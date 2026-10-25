@@ -28,6 +28,7 @@ COPY --from=build /app/mcp/dist mcp/dist
 COPY --from=build /app/floor360/takeoff-runner/package.json /app/floor360/takeoff-runner/package-lock.json runner/
 RUN cd runner && npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/floor360/takeoff-runner/dist runner/dist
+COPY --from=build /app/floor360/takeoff-runner/assets runner/assets
 
 RUN mkdir -p /var/lib/takeoff-runner && chown node:node /var/lib/takeoff-runner
 

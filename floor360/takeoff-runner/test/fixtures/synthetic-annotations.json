@@ -1,0 +1,58 @@
+{
+  "schema": "opentakeoff.takeoff_canvas.v1",
+  "project_name": "SYNTHETIC SHOP DRAWINGS FIXTURE — not a real bid",
+  "sheets": [
+    {
+      "sheet_id": "SYNTHETIC-PLAN.pdf",
+      "units_per_px": 0.02,
+      "scale_source": "confirmed",
+      "scale_confirmed": true,
+      "width_px": 2000,
+      "height_px": 1000
+    }
+  ],
+  "conditions": [
+    { "id": "c-cpt", "finish_tag": "CPT-1", "color": "#2f7d54", "hatch": "diag" },
+    { "id": "c-lvt", "finish_tag": "LVT-1", "color": "#b8860b", "hatch": "plank" },
+    { "id": "c-vct", "finish_tag": "VCT-1", "color": "#2563eb", "hatch": "grid" }
+  ],
+  "shapes": [
+    {
+      "id": "room-lobby",
+      "sheet_id": "SYNTHETIC-PLAN.pdf",
+      "condition_id": "c-cpt",
+      "measure_role": "floor_area",
+      "label": "SYNTHETIC LOBBY",
+      "verts_norm": [[0.1, 0.2], [0.7, 0.2], [0.7, 0.7], [0.1, 0.7]],
+      "origin": { "actor": "human", "reviewed": true, "confidence": 0.96 }
+    },
+    {
+      "id": "room-lvt",
+      "sheet_id": "SYNTHETIC-PLAN.pdf",
+      "condition_id": "c-lvt",
+      "measure_role": "floor_area",
+      "label": "SYNTHETIC LVT",
+      "verts_norm": [[0.7, 0.2], [0.9, 0.2], [0.9, 0.7], [0.7, 0.7]],
+      "origin": { "actor": "human", "reviewed": true, "confidence": 0.91 }
+    },
+    {
+      "id": "room-office",
+      "sheet_id": "SYNTHETIC-PLAN.pdf",
+      "condition_id": "c-vct",
+      "measure_role": "floor_area",
+      "label": "SYNTHETIC OFFICE",
+      "verts_norm": [[0.1, 0.725], [0.7, 0.725], [0.7, 0.9], [0.1, 0.9]],
+      "openings": [1],
+      "origin": { "actor": "human", "reviewed": true, "confidence": 0.9 }
+    },
+    {
+      "id": "room-closet",
+      "sheet_id": "SYNTHETIC-PLAN.pdf",
+      "condition_id": "c-lvt",
+      "measure_role": "floor_area",
+      "label": "SYNTHETIC CLOSET",
+      "verts_norm": [[0.75, 0.75], [0.875, 0.75], [0.875, 0.9], [0.75, 0.9]],
+      "origin": { "actor": "agent", "reviewed": false, "confidence": 0.4 }
+    }
+  ]
+}

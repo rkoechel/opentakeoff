@@ -7,6 +7,7 @@ import { createReadStream } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { LIMITS, type RunnerConfig } from "./config.ts";
 import { HttpError, jobView, type JobStore } from "./jobs.ts";
+import { parseShopDrawingsRequest, ShopDrawingsError } from "./shopdrawings/request.ts";
 import { ManifestError, parseManifest } from "./types.ts";
 
 export interface HandlerDeps {
@@ -27,20 +28,20 @@ export function tokenMatches(header: string | undefined, token: string): boolean
   return timingSafeEqual(a, b);
 }
 
-function readJson(req: IncomingMessage, limit: number): Promise<unknown> {
+function readJson(req: IncomingMessage, limit: number, tooLarge = "The manifest is too large.", badJson = "Send a JSON job manifest."): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
     req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size > limit) { reject(new HttpError(413, "The manifest is too large.")); req.destroy(); return; }
+      if (size > limit) { reject(new HttpError(413, tooLarge)); req.destroy(); return; }
       chunks.push(c);
     });
     req.on("end", () => {
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
       } catch {
-        reject(new HttpError(400, "Send a JSON job manifest."));
+        reject(new HttpError(400, badJson));
       }
     });
     req.on("error", reject);
@@ -52,6 +53,7 @@ const ROUTES: { method: string; re: RegExp; name: string }[] = [
   { method: "POST", re: /^\/jobs$/, name: "create" },
   { method: "PUT", re: new RegExp(`^/jobs/${SEG}/files/${SEG}$`), name: "upload" },
   { method: "POST", re: new RegExp(`^/jobs/${SEG}/start$`), name: "start" },
+  { method: "POST", re: new RegExp(`^/jobs/${SEG}/shop-drawings$`), name: "shop-drawings" },
   { method: "GET", re: new RegExp(`^/jobs/${SEG}$`), name: "get" },
   { method: "GET", re: new RegExp(`^/jobs/${SEG}/outputs/${SEG}$`), name: "output" },
   { method: "POST", re: new RegExp(`^/jobs/${SEG}/cancel$`), name: "cancel" },
@@ -84,7 +86,7 @@ export function createRunnerHandler(d: HandlerDeps) {
     if (!hit) { json(res, 404, { error: "not found" }); return; }
     if (hit.r.method !== req.method) { json(res, 405, { error: `use ${hit.r.method}` }); return; }
     const [a, b] = (hit.m as RegExpExecArray).slice(1).map((s) => { try { return decodeURIComponent(s); } catch { return ""; } });
-    const route = `/jobs${hit.r.name === "create" ? "" : `/:id`}${hit.r.name === "upload" ? "/files/:fileId" : hit.r.name === "output" ? "/outputs/:name" : hit.r.name === "start" || hit.r.name === "cancel" ? `/${hit.r.name}` : ""}`;
+    const route = `/jobs${hit.r.name === "create" ? "" : `/:id`}${hit.r.name === "upload" ? "/files/:fileId" : hit.r.name === "output" ? "/outputs/:name" : hit.r.name === "start" || hit.r.name === "cancel" || hit.r.name === "shop-drawings" ? `/${hit.r.name}` : ""}`;
     try {
       switch (hit.r.name) {
         case "create": {
@@ -103,6 +105,14 @@ export function createRunnerHandler(d: HandlerDeps) {
         }
         case "start": {
           const job = await d.store.start(a);
+          json(res, 202, jobView(job));
+          done(202, route);
+          return;
+        }
+        case "shop-drawings": {
+          const body = await readJson(req, LIMITS.maxShopDrawingsBytes, "The shop drawings request is too large.", "Send a JSON shop drawings request.");
+          const request = parseShopDrawingsRequest(body);
+          const job = await d.store.startShopDrawings(a, request);
           json(res, 202, jobView(job));
           done(202, route);
           return;
@@ -131,7 +141,7 @@ export function createRunnerHandler(d: HandlerDeps) {
         }
       }
     } catch (e) {
-      if (e instanceof ManifestError) { json(res, 400, { error: e.message }); done(400, route); return; }
+      if (e instanceof ManifestError || e instanceof ShopDrawingsError) { json(res, 400, { error: e.message }); done(400, route); return; }
       if (e instanceof HttpError) {
         // drain an upload body we refused, so the client sees the answer
         if (!req.readableEnded) req.resume();

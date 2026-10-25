@@ -141,3 +141,63 @@ These finding kinds become pending RFI drafts in the project's register: `no_sca
 - A finding with no sheet in the set goes on the schedule sheet (else the first sheet) without a cloud.
 - `counts.rfisDrafted` is the number drafted, and the marked set prints them in its RFI schedule.
 - The runner never sends an RFI and has no way to. The estimator accepts each one in the RFI panel, and a person exports or emails it. `detail`, when present on a finding, is the text quoted into the RFI question.
+
+## Shop drawings
+
+`POST /jobs/:id/shop-drawings` queues a shop-drawings run on the same one-at-a-time queue as a takeoff. `/health`, bearer auth, cancel, and `GET /jobs/:id` are unchanged. The runner plots a PDF. It does not email it, post it, or notify anyone.
+
+Create the job with `POST /jobs` first. A shop-drawings-only job may send `files: []` with `options.shopDrawings: true` (no plan PDF). If the manifest lists PDFs, they must be uploaded before this call, the same rule as `POST /jobs/:id/start`. Page size then comes from the PDF (image px = PDF points × 2, the takeoff render scale) and the page is drawn dimmed under the rooms. A takeoff that already finished can be sent here again; its earlier outputs stay, and the shop-drawings files replace only their own names.
+
+A body that isn't the shape below is `400` with one sentence, and the job is not queued. A body that is valid but the sheets are NTS, unconfirmed, or unsized becomes a **failed job** (`reason` is the sentence). No PDF is written.
+
+### Input
+
+```json
+{
+  "annotations": { "schema": "opentakeoff.takeoff_canvas.v1", "sheets": [], "conditions": [], "shapes": [] },
+  "products": [
+    { "finishTag": "CPT-1", "rollWidthFt": 12, "nap": "ew", "material": "carpet", "product": "Broadloom" },
+    { "finishTag": "LVT-1", "tileWidthIn": 7, "tileHeightIn": 48, "pattern": "ashlar", "product": "LVT plank" }
+  ],
+  "overrides": { "rooms": { "<shape id or room label>": { "nap": "ns", "startEdge": 0 } } },
+  "bid": { "projectName": "", "bidNumber": "", "address": "", "date": "2026-10-25", "drawnBy": "", "checkedBy": "", "rev": "0" },
+  "approval": null,
+  "sheetFrames": { "<sheet id>": { "widthPx": 2000, "heightPx": 1000 } },
+  "base": { "tag": "B-1", "description": "rubber 4\"" },
+  "transitions": [ { "between": ["CPT-1", "LVT-1"], "type": "T-1 reducer" } ]
+}
+```
+
+`annotations` is required and is a reviewed `opentakeoff.takeoff_canvas.v1` document (sheets, shapes, conditions). Only `floor_area` shapes are drawn. A sheet entry may carry `width_px` and `height_px` when no PDF and no `sheetFrames` entry is available.
+
+`products` is optional. Per finish tag: `rollWidthFt`, `rollLengthFt`, `tileWidthIn`, `tileHeightIn`, `pattern`, `nap` (`ew` / `east-west` or `ns` / `north-south`), `material`, `category`, `product`, and the roll allowances `seamAllowanceIn`, `wallOverageIn`, `doorwayOverageIn`. Omitted nap means east-west. Omitted tile size or pattern is reported; it is not invented.
+
+`overrides.rooms` is optional, keyed by shape id or room label. `startEdge` is the ring edge whose midpoint is the tile start. `startNorm` is `[x, y]` in sheet-normalized coordinates and wins over the edge. `nap` and `base` override the finish.
+
+`bid` fills the title block. Blank project name and bid number fall back to the job manifest. Blank date is the UTC day the run starts.
+
+`approval` is optional. Omit it, or send `null`, and every sheet is DRAFT. `{ "name", "at" }` prints that name in the title block and in an APPROVED FOR INSTALL stamp, and drops the DRAFT watermark. The runner does not decide who may approve. Bids does.
+
+`base` and `transitions` are optional and are used by the seam, pattern, and transitions sheets.
+
+### Scale
+
+The run refuses if any sheet that has a floor room is marked NTS (`nts_sheets`, or a scale source that says NTS or unconfirmed), has `scale_confirmed: false`, or has no `units_per_px`. An absent `scale_confirmed` is the older reading: confirmed. The scale source and a check dimension (longest edge of the largest room, in feet and inches) are printed on each plan sheet. The plan is plotted to fit the sheet; the note says so.
+
+A room with `origin.confidence` below 0.75, or `origin.low_confidence: true`, is flagged on the sheet and as a `low_confidence_rooms` finding. Missing roll width, tile size, pattern, nap, or base type is a `shop_drawing_note` finding. The run still draws.
+
+### Output
+
+Sheets are 11×17 in (ANSI B), landscape. Numbers: `SD-000` cover and index, `SD-101`… finish plans (one per source sheet). Seam/roll plans are `SD-201`…, tile/LVT pattern plans `SD-301`…, transitions and base `SD-401`…. This addendum's first revision draws the cover and the finish plans. Later series use the same numbers when those sheets are produced.
+
+Every sheet has a FLOOR360 title block: logo, Brandon Text, project, bid number, sheet number `SD-xxx`, sheet x of y, revision, date, drawn, checked, approved. Unapproved sheets carry a DRAFT watermark. Approved sheets name the approver.
+
+| Output | Meaning |
+|---|---|
+| `<set> - shop drawings DRAFT.pdf` | No approval was sent. `<set>` is the same SharePoint-safe name as the takeoff. |
+| `<set> - shop drawings.pdf` | An approval stamp was sent. Still only a file on this job. |
+| `<set> - shop drawings.json` | `{ schema: "floor360.shop_drawings.v1", status: "draft" \| "approved", approval, pdf, sheets, warnings, errors, scales, lowConfidenceRooms }`. |
+
+`GET /jobs/:id` is the status. `reason` is the refusal. `findings` lists low-confidence rooms and missing product data. `counts.sheets` is the page count. A file that was not written is absent from `outputs`.
+
+Save the PDF under the job folder `Shop Drawings/` (Bids' layout, not the runner's). Nothing here is field-usable until a person stamps it, and this route never sends it.

@@ -17,6 +17,8 @@ export const LIMITS = Object.freeze({
   maxChunkBytes: 64 * MB,
   maxFiles: 60,
   maxManifestBytes: 2 * MB,
+  /** Reviewed annotations plus product data. Larger than a takeoff manifest. */
+  maxShopDrawingsBytes: 32 * MB,
 });
 
 export interface RunnerConfig {
