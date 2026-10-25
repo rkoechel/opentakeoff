@@ -25,7 +25,7 @@ test("GET /health needs no token and says nothing else, even when disabled", asy
 test("RUNNER_ENABLED unset: every job route answers 503 runner disabled, token or not", async () => {
   const h = await startRunner({ execute: neverRuns, enabled: false });
   try {
-    for (const [method, p] of [["POST", "/jobs"], ["GET", "/jobs/x"], ["PUT", "/jobs/x/files/y"], ["POST", "/jobs/x/start"], ["GET", "/jobs/x/outputs/a.json"], ["POST", "/jobs/x/cancel"]]) {
+    for (const [method, p] of [["POST", "/jobs"], ["GET", "/jobs/x"], ["PUT", "/jobs/x/files/y"], ["POST", "/jobs/x/start"], ["POST", "/jobs/x/shop-drawings"], ["GET", "/jobs/x/outputs/a.json"], ["POST", "/jobs/x/cancel"]]) {
       const r = await api(`${h.url}${p}`, method, method === "POST" ? {} : undefined);
       assert.equal(r.status, 503, `${method} ${p}`);
       assert.deepEqual(r.json, { error: "runner disabled" });

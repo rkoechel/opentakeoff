@@ -248,6 +248,35 @@ export class JobStore {
     });
   }
 
+  /** Queue shop drawings on this job. Same one-at-a-time queue as a takeoff.
+   *  A job already queued for shop drawings is returned as-is. A finished job
+   *  runs again and replaces the shop-drawings outputs. */
+  async startShopDrawings(id: string, request: unknown): Promise<Job> {
+    return this.withLock(id, async () => {
+      const job = this.get(id);
+      if (this.running?.id === id || job.status === "starting" || job.status === "running" || job.status === "no_memory") {
+        throw new HttpError(409, "This job is already running.");
+      }
+      if (job.status === "cancelled") throw new HttpError(409, "This job is cancelled.");
+      if (job.status === "failed" && !job.startedAt) throw new HttpError(409, job.reason ?? "This job was refused.");
+      if (job.status === "queued" && job.startRequestedAt && job.work === "shop-drawings") return job;
+      if (job.status === "queued" && job.startRequestedAt) throw new HttpError(409, "This job is already queued for a takeoff.");
+      const missing = job.files.filter((f) => !f.complete).map((f) => f.name);
+      if (missing.length) throw new HttpError(409, `Upload every file before shop drawings. Missing: ${missing.join(", ")}.`, { missing });
+      job.work = "shop-drawings";
+      job.shopDrawings = request;
+      job.status = "queued";
+      delete job.reason;
+      delete job.finishedAt;
+      job.startRequestedAt = this.iso();
+      job.progress = { step: "Waiting for its turn", page: 0, pages: 0 };
+      await this.save(job);
+      if (!this.queue.includes(id)) this.queue.push(id);
+      this.pump();
+      return job;
+    });
+  }
+
   async cancel(id: string): Promise<Job> {
     return this.withLock(id, async () => {
       const job = this.get(id);
@@ -333,6 +362,8 @@ export class JobStore {
       outputsDir: this.dir(id, "outputs"),
       workDir: this.dir(id, "work"),
       signal: abort.signal,
+      work: job.work ?? "takeoff",
+      shopDrawings: job.shopDrawings,
       setStatus: (s) => this.setStatus(job, s),
       progress: (step, page = 0, pages = 0) => {
         job.progress = { step, page, pages };
@@ -352,7 +383,11 @@ export class JobStore {
       if (why instanceof Cancelled) { final = "cancelled"; reason = "Cancelled while it ran."; }
       else if (why instanceof TimedOut) { final = "failed"; reason = TIMEOUT_REASON(Math.round(this.d.jobTimeoutMs / 60_000)); }
       else if (why instanceof JobFailure) { final = "failed"; reason = why.reason; }
-      else { final = "failed"; reason = `The takeoff engine stopped: ${(why as Error)?.message ?? String(why)}`; }
+      else {
+        final = "failed";
+        const lead = job.work === "shop-drawings" ? "Shop drawings stopped" : "The takeoff engine stopped";
+        reason = `${lead}: ${(why as Error)?.message ?? String(why)}`;
+      }
     } finally {
       clearInterval(watchdog);
     }
@@ -367,7 +402,12 @@ export class JobStore {
       if (result) {
         job.counts = result.counts;
         job.findings = result.findings as Finding[];
-        job.outputs = outputs;
+        if (job.work === "shop-drawings") {
+          const names = new Set(outputs.map((o) => o.name));
+          job.outputs = [...job.outputs.filter((o) => !names.has(o.name)), ...outputs];
+        } else {
+          job.outputs = outputs;
+        }
         job.progress = { step: "Done", page: job.progress.pages, pages: job.progress.pages };
       }
       job.finishedAt = this.iso();

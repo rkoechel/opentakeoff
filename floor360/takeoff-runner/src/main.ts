@@ -5,6 +5,7 @@ import { loadConfig } from "./config.ts";
 import { startMcpEngine } from "./engine.ts";
 import { JobStore } from "./jobs.ts";
 import { runTakeoff } from "./pipeline.ts";
+import { runShopDrawings } from "./shopdrawings/run.ts";
 import { createRunnerHandler } from "./server.ts";
 import { createVision } from "./vision.ts";
 import pkg from "../package.json" with { type: "json" };
@@ -20,7 +21,7 @@ const store = new JobStore({
   jobTimeoutMs: config.jobTimeoutMs,
   retentionMs: config.retentionMs,
   log,
-  execute: (ctx) => runTakeoff(ctx, {
+  execute: (ctx) => ctx.work === "shop-drawings" ? runShopDrawings(ctx) : runTakeoff(ctx, {
     startEngine: (signal) => startMcpEngine({ command: config.mcpCommand, args: config.mcpArgs, signal, log }),
     vision,
     runnerVersion,

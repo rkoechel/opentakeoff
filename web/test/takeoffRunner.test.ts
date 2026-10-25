@@ -50,9 +50,22 @@ test("cloudflared is remotely managed: the install adds a dashboard hostname and
   assert.match(readme, /CF-Access-Client-Id: \$ID/);
 });
 
+function runnerSources(): string[] {
+  const out: string[] = [];
+  const walk = (rel: string) => {
+    for (const ent of readdirSync(dir + rel, { withFileTypes: true })) {
+      const p = `${rel}/${ent.name}`;
+      if (ent.isDirectory()) walk(p);
+      else if (ent.name.endsWith(".ts")) out.push(p);
+    }
+  };
+  walk("src");
+  return out;
+}
+
 test("the runner never shells out or runs docker; the engine is the only child", () => {
-  for (const f of readdirSync(dir + "src")) {
-    const src = read(`src/${f}`);
+  for (const f of runnerSources()) {
+    const src = read(f);
     assert.doesNotMatch(src, /node:child_process|from "child_process"|execSync|spawnSync/, `${f} must not spawn processes itself`);
     assert.doesNotMatch(src, /["'`]docker["'`]|docker (start|stop|run|rm|kill)/, `${f} must not run docker`);
   }

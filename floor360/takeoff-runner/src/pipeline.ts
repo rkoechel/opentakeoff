@@ -26,6 +26,10 @@ export interface RunContext {
   signal: AbortSignal;
   setStatus(s: "starting" | "running" | "no_memory"): void;
   progress(step: string, page?: number, pages?: number): void;
+  /** takeoff unless POST /jobs/:id/shop-drawings queued this entry. */
+  work?: "takeoff" | "shop-drawings";
+  /** The shop-drawings body, already parsed by the route before the queue runs. */
+  shopDrawings?: unknown;
 }
 
 export interface RunResult {

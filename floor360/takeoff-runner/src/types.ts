@@ -64,7 +64,8 @@ export type FindingKind =
   | "scales_unconfirmed"
   | "run_summary"
   | "vision_unavailable"
-  | "step_failed";
+  | "step_failed"
+  | "shop_drawing_note";
 
 export type Point = [number, number];
 
@@ -117,6 +118,10 @@ export interface Job {
   findings: Finding[];
   counts: Counts;
   outputs: OutputEntry[];
+  /** Absent on a takeoff. Set when POST /jobs/:id/shop-drawings queues the job. */
+  work?: "takeoff" | "shop-drawings";
+  /** Validated shop-drawings body. Not included in GET /jobs/:id. */
+  shopDrawings?: unknown;
   createdAt: string;
   startRequestedAt?: string;
   startedAt?: string;
@@ -190,7 +195,11 @@ export function parseManifest(body: unknown, defaultDpi: number): JobManifest {
   if (!ID.test(bidId)) throw new ManifestError("bidId may use letters, digits, '.', '_', ':' and '-' only.");
   const bidNumber = str(b.bidNumber, "bidNumber", 40);
   const projectName = str(b.projectName, "projectName", 200);
-  if (!Array.isArray(b.files) || b.files.length === 0) throw new ManifestError("files must list at least one PDF.");
+  const optionsIn = (b.options && typeof b.options === "object" && !Array.isArray(b.options) ? b.options : {}) as Record<string, unknown>;
+  if (optionsIn.shopDrawings != null && typeof optionsIn.shopDrawings !== "boolean") throw new ManifestError("options.shopDrawings must be true or false.");
+  const shopDrawings = optionsIn.shopDrawings === true;
+  if (!Array.isArray(b.files)) throw new ManifestError("files must list at least one PDF.");
+  if (b.files.length === 0 && !shopDrawings) throw new ManifestError("files must list at least one PDF.");
   if (b.files.length > LIMITS.maxFiles) throw new ManifestError(`At most ${LIMITS.maxFiles} files per job.`);
   const seenIds = new Set<string>();
   const seenNames = new Set<string>();
@@ -212,7 +221,7 @@ export function parseManifest(body: unknown, defaultDpi: number): JobManifest {
   const rowsIn = b.scheduleRows ?? [];
   if (!Array.isArray(rowsIn) || rowsIn.length > 500) throw new ManifestError("scheduleRows must be a list of at most 500 rows.");
   const scheduleRows = rowsIn.map(parseRow);
-  const o = (b.options && typeof b.options === "object" && !Array.isArray(b.options) ? b.options : {}) as Record<string, unknown>;
+  const o = optionsIn;
   if (o.includeElevations != null && typeof o.includeElevations !== "boolean") throw new ManifestError("options.includeElevations must be true or false.");
   let dpi = defaultDpi;
   if (o.dpi != null) {

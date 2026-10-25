@@ -42,6 +42,7 @@ All routes except `/health` need `Authorization: Bearer $RUNNER_TOKEN`.
 | `POST /jobs` | Manifest: `{runId, bidId, bidNumber, projectName, files:[{fileId, name, size, sha256, role}], scheduleRows?, options?:{includeElevations, dpi}}`. `role` is `plans`, `schedule`, `elevations` or `addendum`. 201 with the job. Over the size limits, the job is created already `failed` with the reason. |
 | `PUT /jobs/:id/files/:fileId` | One chunk, `Content-Range: bytes start-end/total`, ≤ 64 MB. 202 while chunks are missing; 200 when the file is whole and its sha256 matches; 422 on a mismatch (the bytes are dropped; send the file again). |
 | `POST /jobs/:id/start` | Queues the job. 409 until every file is uploaded. |
+| `POST /jobs/:id/shop-drawings` | Queues shop drawings on the same one-at-a-time queue. Body is the reviewed annotations, product data and title-block fields ([contract](CONTRACT.md#shop-drawings)). Returns the PDF `<set> - shop drawings DRAFT.pdf`. Does not send it. |
 | `GET /jobs/:id` | Status `queued`, `starting`, `running`, `no_memory`, `done`, `failed` or `cancelled`; `progress.text` ("Finding rooms: page 3 of 12"); `findings`; `counts` (`sheets`, `rooms`, `conditions`, `rfisDrafted`); `outputs` (name, size, sha256). |
 | `GET /jobs/:id/outputs/:name` | One output file (URL-encode the name). `X-Content-Sha256` carries its hash. |
 | `POST /jobs/:id/cancel` | Cancels a queued or running job. |
