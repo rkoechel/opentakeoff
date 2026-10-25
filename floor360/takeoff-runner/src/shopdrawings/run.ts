@@ -7,10 +7,12 @@ import type { RunContext, RunResult } from "../pipeline.ts";
 import { setName, type Finding } from "../types.ts";
 import { JobFailure } from "../vision.ts";
 import { parseSheetKey } from "../../../../web/src/lib/sheetKey.ts";
+import { sheetRolls, sheetTransitions } from "./layout.ts";
 import { buildShopModel, ShopDrawingsRefusal, type Frame } from "./model.ts";
 import { pageSizeToPx } from "./page.ts";
 import { renderShopDrawings, type Underlay } from "./pdf.ts";
 import { parseShopDrawingsRequest, ShopDrawingsError } from "./request.ts";
+import { round2 } from "./text.ts";
 
 export function shopDrawingsPdfName(projectName: string, bidNumber: string, approved: boolean): string {
   const set = setName(projectName, bidNumber);
@@ -104,6 +106,13 @@ export async function runShopDrawings(ctx: RunContext): Promise<RunResult> {
     errors: [] as string[],
     scales: model.sheets.map((s) => ({ sheet: s.id, source: s.scaleSource, note: s.scaleNote })),
     lowConfidenceRooms: model.sheets.flatMap((s) => s.rooms.filter((r) => r.lowConfidence).map((r) => ({ sheet: s.id, room: r.label, tag: r.finishTag }))),
+    rolls: model.sheets.flatMap((s) => sheetRolls(s).map((r) => ({
+      sheet: s.id, room: r.label, tag: r.tag, nap: r.nap, seamLf: r.seamLf,
+      cuts: r.cuts.map((c) => ({ num: c.num, lenFt: round2(c.lenFt), widthFt: round2(c.widthFt) })),
+    }))),
+    transitions: model.sheets.flatMap((s) => sheetTransitions(model, s).map((t) => ({
+      sheet: s.id, id: t.id, kind: t.kind, between: t.between, type: t.type, lengthLf: t.lengthLf,
+    }))),
   };
   await writeFile(path.join(ctx.outputsDir, statusName), JSON.stringify(status, null, 2));
   const findings: Finding[] = [];

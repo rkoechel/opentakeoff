@@ -21,6 +21,11 @@ export function pointInPoly(x: number, y: number, poly: Pt[]): boolean {
   return inside;
 }
 
+/** Pieces of the segment A→B that lie inside `poly`. */
+export function clipSegment(a: Pt, b: Pt, poly: Pt[]): [Pt, Pt][] {
+  return clipSeg(a.x, a.y, b.x, b.y, poly);
+}
+
 function clipSeg(ax: number, ay: number, bx: number, by: number, poly: Pt[]): [Pt, Pt][] {
   const ts = [0, 1];
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

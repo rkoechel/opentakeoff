@@ -22,7 +22,7 @@ be measured automatically. Follow its source links before changing behavior.
 | Microsoft 365 annotation sync | Unproven across machines; the live validation remains open in [#315](https://github.com/Kentucky-ai/opentakeoff/issues/315) | [Roadmap](../ROADMAP.md) |
 | Learned floor-model bridge | Not on `main`; no model-generated geometry integration is advertised | [Roadmap](../ROADMAP.md) |
 | Independent geometry benchmark | Reference-assisted and synthetic checks are not independently reviewed ground truth | [Geometry evidence](../GEOMETRY_WORKFLOW.md#reusable-evidence-from-a-project-test) |
-| Shop drawings | Runner PDF only, 11×17, DRAFT until a stamp is passed in. No DXF. Not a browser export, and the runner does not send the file. | [Runner contract](../../floor360/takeoff-runner/CONTRACT.md#shop-drawings) |
+| Shop drawings | Runner PDF only, 11×17: cover, finish, seam/roll, tile pattern, transitions and base. DRAFT until a stamp is passed in. No DXF. Not a browser export, and the runner does not send the file. | [Runner contract](../../floor360/takeoff-runner/CONTRACT.md#shop-drawings) |
 
 Next protocol work connects the tested contracts to focused MCP workflows and
 measures tool-selection/completion results. Broader adapter profiles remain

@@ -33,19 +33,19 @@ async function request(extra: Record<string, unknown> = {}) {
   });
 }
 
-test("a draft set is ANSI B, numbered SD-000 and SD-101, and marked DRAFT", async () => {
+test("a draft set is ANSI B, numbered SD-000, SD-101 and SD-401, and marked DRAFT", async () => {
   const model = buildShopModel(await request(), {}, new Date("2026-10-25T00:00:00Z"));
   assert.match(coverNotes(model).join("\n"), /DRAFT until a named FLOOR360 estimator/);
   assert.match(coverNotes(model).join("\n"), /does not send drawings/);
   assert.match(coverNotes(model).join("\n"), /TBD \u2013 verify/);
   const { pdf, specs } = await renderShopDrawings(model);
-  assert.deepEqual(specs.map((s) => s.number), ["SD-000", "SD-101"]);
+  assert.deepEqual(specs.map((s) => s.number), ["SD-000", "SD-101", "SD-401"]);
   const doc = await PDFDocument.load(pdf);
-  assert.equal(doc.getPageCount(), 2);
+  assert.equal(doc.getPageCount(), 3);
   assert.equal(doc.getPage(0).getWidth(), PAGE_W);
   assert.equal(doc.getPage(0).getHeight(), PAGE_H);
   assert.equal(doc.getPage(1).getWidth(), PAGE_W);
-  assert.match(doc.getSubject() ?? "", /SD-000 SD-101/);
+  assert.match(doc.getSubject() ?? "", /SD-000 SD-101 SD-401/);
   assert.match((doc.getKeywords() ?? "").toUpperCase(), /DRAFT/);
   assert.match(embeddedFontNames(doc).join(" "), /BrandonText/);
   assert.equal(doc.getAuthor(), "FLOOR360");
@@ -62,7 +62,32 @@ test("an approval stamp removes the DRAFT keyword and names the approver", async
   assert.doesNotMatch(keys, /DRAFT/);
 });
 
-test("the reviewed sample plan renders a cover and one finish plan", async () => {
+const fixtureProducts = {
+  products: [
+    { finishTag: "CPT-1", rollWidthFt: 12, nap: "ew", material: "carpet", product: "Broadloom" },
+    { finishTag: "LVT-1", tileWidthIn: 7, tileHeightIn: 48, pattern: "ashlar", product: "LVT plank" },
+    { finishTag: "VCT-1", tileWidthIn: 12, tileHeightIn: 12, pattern: "stacked", product: "VCT" },
+  ],
+  base: { tag: "RB-1", description: "rubber 4\"" },
+  transitions: [{ between: ["CPT-1", "LVT-1"], type: "reducer" }],
+};
+
+test("product data adds the seam and pattern sheets", async () => {
+  const model = buildShopModel(await request(fixtureProducts), {}, new Date("2026-10-25T00:00:00Z"));
+  const { pdf, specs } = await renderShopDrawings(model);
+  assert.deepEqual(specs.map((s) => s.number), ["SD-000", "SD-101", "SD-201", "SD-301", "SD-401"]);
+  const doc = await PDFDocument.load(pdf);
+  assert.equal(doc.getPageCount(), 5);
+  assert.match(doc.getSubject() ?? "", /SD-201 SD-301 SD-401/);
+  assert.match((doc.getKeywords() ?? "").toUpperCase(), /DRAFT/);
+  if (process.env.SHOP_DRAWINGS_ARTIFACT) {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    await mkdir(process.env.SHOP_DRAWINGS_ARTIFACT, { recursive: true });
+    await writeFile(`${process.env.SHOP_DRAWINGS_ARTIFACT}/shop-drawings-synthetic.pdf`, pdf);
+  }
+});
+
+test("the reviewed sample plan renders a cover, a finish plan and transitions", async () => {
   const annotations = JSON.parse(await readFile(realPath, "utf8")) as Record<string, unknown>;
   const bytes = new Uint8Array(await readFile(samplePdf));
   const src = await PDFDocument.load(bytes);
@@ -76,9 +101,9 @@ test("the reviewed sample plan renders a cover and one finish plan", async () =>
   const { pdf, specs } = await renderShopDrawings(model, {
     underlays: { "sample-finish-plan.pdf": { pdf: bytes, pageIndex: 0 } },
   });
-  assert.deepEqual(specs.map((s) => `${s.number} ${s.series}`), ["SD-000 cover", "SD-101 finish"]);
+  assert.deepEqual(specs.map((s) => `${s.number} ${s.series}`), ["SD-000 cover", "SD-101 finish", "SD-401 transitions"]);
   const doc = await PDFDocument.load(pdf);
-  assert.equal(doc.getPageCount(), 2);
+  assert.equal(doc.getPageCount(), 3);
   assert.ok(pdf.byteLength > 50_000, "the source plan is embedded, so the file is larger than a blank sheet");
   if (process.env.SHOP_DRAWINGS_ARTIFACT) {
     const { writeFile, mkdir } = await import("node:fs/promises");
