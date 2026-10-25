@@ -15,6 +15,8 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
+- **opentakeoff-mcp 0.9.102: dependency security refresh.** Upgrade the MCP SDK and Zod, adapt record schemas for Zod 4, and refresh affected MCP, Vite and protocol dependency locks. The MCP tool set and takeoff payloads are unchanged. Upstream #566 reserved this as MCP 0.9.100; this fork already had 0.9.100 and 0.9.101, so the same change is 0.9.102. [Validation evidence](docs/review/dependency-security-2026-10-24/README.md).
+
 - **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000, finish plans SD-101…, seam/roll plans SD-201…, tile/LVT pattern plans SD-301…, and transitions and base SD-401…. Every sheet has a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS, unconfirmed, and detected-only scales are refused with `scale not confirmed` and no PDF. A seam or pattern sheet is omitted when the roll width or tile size was not supplied. The runner does not send the PDF.
 
 - **opentakeoff-mcp 0.9.101.** The packaged wiki status page names the shop-drawing sheets: cover, finish, seam/roll, tile pattern, transitions and base. Same version fields as 0.9.100.
@@ -22,7 +24,6 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 - **opentakeoff-mcp 0.9.100.** The packaged wiki status page records that a detected-only shop-drawing scale is refused. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
 
 - **Node.js 24.22.1 (CVE-2026-111497).** Docker images, `.nvmrc`, package `engines`, and CI `setup-node` pin Node 24.22.1 (`>=24.22.1 <25`). This is the October 20, 2026 security release for the Brotli decoder RCE. opentakeoff-mcp is 0.9.99 so that engines floor ships with the package.
-
 - **Sheet page counts stay removed during startup.** Removing or revising a PDF while saved page counts are still loading no longer restores its old count. Other files retain their counts.
 
 - **Sheets panel (Premium layout) is now a folder tree.** Multi-page PDFs appear as folders of their pages, each one-page PDF as a row; a row shows the sheet number from the title block's sheet-number box once that page's text has been read (opened, thumbnailed or searched), and the label its tab shows until then. Numbers are saved with local projects and reopen with them; Drive projects read them again each session. Search matches numbers, labels and file names. In the tree, arrow keys move, Right and Left open and close folders, and Enter opens a sheet. When a revised PDF is dropped, its tabs, pager and gallery labels no longer show the old revision's sheet numbers and display "file · page" until the new pages are read.
