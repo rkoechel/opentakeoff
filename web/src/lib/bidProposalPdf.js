@@ -1,16 +1,14 @@
 // Bid proposal → PDF (letter, pdf-lib, lazy-loaded like the marked set).
 // Lays out what lib/bidProposal.js decided — letterhead, prepared-for, scope,
-// base bid, inclusions / exclusions / terms, acceptance — and stamps the
-// OpenTakeoff watermark on every page (lib/pdfWatermark.js). Reader-first: the
-// price sits on page one, right under the scope.
+// base bid, inclusions / exclusions / terms, acceptance. Reader-first: the
+// price sits on page one, right under the scope. No page watermark.
 
 import { winAnsiSafe } from "./markedset.js";
-import { stampWatermark } from "./pdfWatermark.js";
 
 const PAGE = [612, 792];
 const M = 54;                       // margin
 const RIGHT = PAGE[0] - M;
-const BOTTOM = M + 24;              // above the watermark footer
+const BOTTOM = M;                   // page numbers, when drawn, sit at y=18
 const money = (v) => `$${(Number(v) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const qty = (v) => (Number(v) || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 
@@ -46,7 +44,7 @@ const dataUrlBytes = (url) => {
 
 /** @param {ReturnType<typeof import("./bidProposal.js").buildBidProposal>} model */
 export async function buildBidProposalPdf(model) {
-  const { PDFDocument, StandardFonts, rgb, degrees } = await import("pdf-lib");
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
   const doc = await PDFDocument.create();
   doc.setTitle(winAnsiSafe(`Proposal${model.project ? ` — ${model.project}` : ""}`));
   doc.setCreator("OpenTakeoff");
@@ -175,11 +173,10 @@ export async function buildBidProposalPdf(model) {
   sigRow("Name and title");
   sigRow("Date");
 
-  // ── every page: page n of N + the OpenTakeoff watermark ──────────────────
+  // ── every page: page n of N when the proposal runs long ───────────────────
   const pages = doc.getPages();
   pages.forEach((pg, i) => {
     if (pages.length > 1) pg.drawText(`Page ${i + 1} of ${pages.length}`, { x: M, y: 18, size: 7.5, font, color: muted });
-    stampWatermark(pg, { font, rgb, degrees });
   });
   return { bytes: await doc.save(), pages: pages.length };
 }

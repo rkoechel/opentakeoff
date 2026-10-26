@@ -16,8 +16,9 @@ import { activeProfile } from "./identity.js";
 
 export const OT_NAME = "OpenTakeoff";
 export const OT_CREDIT = "Measured with OpenTakeoff";
-// The line every estimate and bid proposal carries, in every branding mode —
-// clear-label puts the firm's name on the document, never removes this.
+// Workbook footer on every estimate tab (estimateExport.js), and the mark
+// safewrite uses to recognize our own .xlsx. Proposals, marked sets and
+// printed reports do not stamp it.
 export const OT_WATERMARK = "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com";
 
 /**

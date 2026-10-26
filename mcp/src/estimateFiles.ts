@@ -1,7 +1,8 @@
 // export_estimate / export_proposal — the canvas's own builders writing to disk:
 // the Estimate panel's Excel (web/src/lib/estimateExport.js + xlsx.js) and the
 // Proposal dialog's PDF (web/src/lib/bidProposal.js + bidProposalPdf.js), fed
-// by the session's priced estimate. Same numbers, same OpenTakeoff watermark.
+// by the session's priced estimate. Same numbers as the canvas. The workbook
+// closes with the prepared-with line; proposal PDFs do not stamp a page watermark.
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { UserError } from "./format.ts";

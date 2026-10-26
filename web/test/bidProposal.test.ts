@@ -63,7 +63,14 @@ test("project record: sanitized, copied from Company setup defaults", () => {
   assert.equal(bidProposalFileName(""), "proposal.pdf");
 });
 
-test("PDF: letterhead, scope, base bid, terms, acceptance, and the watermark on every page", async () => {
+function assertNoWatermark(texts: string[], label: string) {
+  texts.forEach((t, i) => {
+    assert.equal(t.includes(hex(OT_WATERMARK)), false, `${label} page ${i + 1} has OT_WATERMARK`);
+    assert.equal(t.includes(hex("Prepared with OpenTakeoff")), false, `${label} page ${i + 1} prepared-with line`);
+  });
+}
+
+test("PDF: letterhead, scope, base bid, terms, acceptance, and no watermark", async () => {
   const m = buildBidProposal({
     est, conditions: conds, today, projectName: "Clinic", proposal: { itemized: true, inclusions: "Material and labor", exclusions: "Floor prep", terms: "Net 30" },
     company: { name: "Sample Flooring Co", address: "100 Example Ave\nAnytown, ST", phone: "555-0100", license: "LIC-000" }, clientInfo: { client_name: "Example GC", reference: "B-7" },
@@ -71,21 +78,23 @@ test("PDF: letterhead, scope, base bid, terms, acceptance, and the watermark on 
   const { bytes, pages } = await buildBidProposalPdf(m);
   assert.equal(pages, 1);
   const [p1] = await pageTexts(bytes);
-  for (const s of ["Sample Flooring Co", "PROPOSAL", "Example GC", "Clinic", "CPT-1", "LVT-1", "BASE BID", `$${est.total.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Floor prep", "Net 30", "License LIC-000", OT_NAME, OT_WATERMARK]) {
+  for (const s of ["Sample Flooring Co", "PROPOSAL", "Example GC", "Clinic", "CPT-1", "LVT-1", "BASE BID", `$${est.total.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, "Floor prep", "Net 30", "License LIC-000"]) {
     assert.ok(p1.includes(hex(s)), `page 1 shows ${s}`);
   }
+  assert.equal(p1.includes(hex(OT_NAME)), false, "no diagonal OpenTakeoff");
+  assert.equal(p1.includes(hex(OT_WATERMARK)), false, "no OT_WATERMARK footer");
   assert.ok(p1.includes(hex("100 Example Ave")) && p1.includes(hex("Anytown, ST")) && !p1.includes(hex("Ave?Anytown")), "address keeps its line break");
 });
 
-test("PDF: a long scope flows onto more pages, each watermarked and numbered", async () => {
+test("PDF: a long scope flows onto more pages, each numbered and without a watermark", async () => {
   const many = Array.from({ length: 70 }, (_, i) => ({ id: `c${i}`, finish_tag: `F-${i}`, pricing: { material: 1, labor: 1 } }));
   const e = priceEstimate({ rows: conditionTotals(many, many.map((c) => area(c.id, 10))), conditions: many, settings: null });
   const { bytes, pages } = await buildBidProposalPdf(buildBidProposal({ est: e, conditions: many, today, proposal: { terms: "x ".repeat(3000) } }));
   assert.ok(pages >= 3, `pages: ${pages}`);
   const texts = await pageTexts(bytes);
+  assertNoWatermark(texts, "proposal");
   texts.forEach((t, i) => {
-    assert.ok(t.includes(hex(OT_WATERMARK)), `page ${i + 1} footer`);
-    assert.ok(t.includes(hex(OT_NAME)), `page ${i + 1} diagonal`);
+    assert.equal(t.includes(hex(OT_NAME)), false, `page ${i + 1} diagonal`);
     assert.ok(t.includes(hex(`Page ${i + 1} of ${pages}`)), `page ${i + 1} number`);
   });
 });
@@ -106,19 +115,33 @@ test("wrapText: wraps at the width and hard-splits an overlong word", async () =
   assert.deepEqual(wrapText("100 Example Ave\nAnytown, ST", font, 10, 400), ["100 Example Ave", "Anytown, ST"]);
 });
 
-test("marked set: every page carries the watermark, in default and clear-label mode", async () => {
+test("marked set: no OpenTakeoff watermark, including a shop-drawing sheet, in default and clear-label mode", async () => {
   const source = await PDFDocument.create(); source.addPage([300, 200]);
   const sourceBytes = await source.save();
   const conditions = [{ id: "c", finish_tag: "CPT-1", color: "#2563eb", multiplier: 1 }];
-  const sh = [{ id: "s1", sheet_id: "sample.pdf", condition_id: "c", measure_role: "count", computed: { count: 1 }, verts_norm: [[0.3, 0.3]] }];
+  const sh = [
+    { id: "sd", sheet_id: "shop.pdf", condition_id: "c", measure_role: "count", computed: { count: 1 }, verts_norm: [[0.4, 0.4]] },
+    { id: "s1", sheet_id: "sample.pdf", condition_id: "c", measure_role: "count", computed: { count: 1 }, verts_norm: [[0.3, 0.3]] },
+  ];
+  // SD-101 is not the last page, so the clear-label credit ("Measured with OpenTakeoff") lands on A-101.
+  const sheets = [
+    { key: "shop.pdf", file: "shop.pdf", page: 1, label: "SD-101" },
+    { key: "sample.pdf", file: "sample.pdf", page: 1, label: "A-101" },
+  ];
   for (const company of [null, { name: "Sample Co" }]) {
     const { bytes } = await buildMarkedSetPdf(<any>{
-      projectName: "Field test", dark: false, sheets: [{ key: "sample.pdf", file: "sample.pdf", page: 1, label: "A-101" }], shapes: sh, markups: [], conditions,
+      projectName: "Field test", dark: false, sheets, shapes: sh, markups: [], conditions,
       company, clientInfo: null, credit: company ? "Measured with OpenTakeoff" : null, coverTitle: company ? "Marked Set" : "OpenTakeoff · Marked Set",
       loadPdfData: async () => sourceBytes, getPage: async () => ({ rotate: 0, getViewport: ({ scale }: { scale: number }) => ({ width: 300 * scale, height: 200 * scale, transform: [scale, 0, 0, -scale, 0, 200 * scale] }) }),
     });
     const texts = await pageTexts(bytes);
-    assert.ok(texts.length >= 2);
-    texts.forEach((t, i) => assert.ok(t.includes(hex(OT_WATERMARK)) && t.includes(hex(OT_NAME)), `${company ? "clear-label" : "default"} page ${i + 1}`));
+    const mode = company ? "clear-label" : "default";
+    assert.ok(texts.length >= 3, `${mode} pages: ${texts.length}`);
+    assertNoWatermark(texts, mode);
+    // The cover's by-sheet line also names SD-101. The sheet page is the one stamped "SD-101 · marked set".
+    const shop = texts.find((t) => t.includes(hex("SD-101 · marked set")));
+    assert.ok(shop, `${mode} includes the shop-drawing sheet page`);
+    assert.equal(shop.includes(hex(OT_NAME)), false, `${mode} shop-drawing page has no OpenTakeoff`);
+    assert.equal(shop.includes(hex(OT_WATERMARK)), false, `${mode} shop-drawing page has no OT_WATERMARK`);
   }
 });

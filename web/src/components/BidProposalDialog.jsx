@@ -11,7 +11,6 @@ import { bidProposalFromDefaults, buildBidProposal, bidProposalFileName } from "
 import { loadEstimatingDefaults, TEXT_LIMIT } from "../lib/companySetup.js";
 import { loadProfiles, activeProfile } from "../lib/identity.js";
 import { downloadText } from "../lib/totals.js";
-import { OT_WATERMARK } from "../lib/branding.js";
 
 const TEXTS = [
   ["inclusions", "Inclusions", "One per line"],
@@ -127,8 +126,7 @@ export default function BidProposalDialog({ est, conditions, projectName, client
           style={{ padding: "4px 10px", fontSize: 12 }}>Reset text to Company setup</button>
 
         {msg && <p role="status" style={{ margin: "10px 0 0", fontSize: 12.5, color: msg.startsWith("Couldn't") ? "var(--c-danger)" : "var(--ink-muted)" }}>{msg}</p>}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 14 }}>
-          <span style={{ color: "var(--ink-muted)", fontSize: 11 }}>Every page carries: {OT_WATERMARK}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, marginTop: 14 }}>
           <button className="btn-primary" onClick={download} disabled={busy || !est.lines.length}>{busy ? "Building…" : "Download PDF"}</button>
         </div>
       </div>

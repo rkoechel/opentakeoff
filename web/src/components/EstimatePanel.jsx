@@ -15,7 +15,6 @@ import { estimateWorkbook, estimateFileName } from "../lib/estimateExport.js";
 import { buildXlsx } from "../lib/xlsx.js";
 import { loadEstimatingDefaults } from "../lib/companySetup.js";
 import { loadProfiles, activeProfile } from "../lib/identity.js";
-import { OT_WATERMARK } from "../lib/branding.js";
 import { bidProposalFromDefaults } from "../lib/bidProposal.js";
 import BidProposalDialog from "./BidProposalDialog.jsx";
 
@@ -241,7 +240,7 @@ export default function EstimatePanel({ projectName, clientInfo = {}, conditions
           </div>
         )}
         <p style={{ margin: "24px 0 0", color: "var(--ink-muted)", fontSize: 11 }}>
-          Material is priced on the order quantity (waste applied), labor on the measured quantity. Prices stay with this project. {OT_WATERMARK}
+          Material is priced on the order quantity (waste applied), labor on the measured quantity. Prices stay with this project.
         </p>
       </div>
       {proposalOpen && onBidProposal && (

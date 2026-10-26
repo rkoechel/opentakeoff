@@ -3,9 +3,9 @@
 // A real takeoff on the bundled sample (plan scale, one CPT-1 and one LVT-1 Area trace), placeholder
 // company setup and prices, then the bid proposal: the dialog copies the proposal text from Company
 // setup, a job-only exclusion stays with the project, the downloaded PDF carries the letterhead,
-// client, base bid (= lib/estimate.js on the saved project) and the OpenTakeoff watermark on every
-// page; the marked set from the Report carries the watermark on every page too; the printed report
-// strip carries the line. Pages render to PNG with pdftoppm (poppler) when it is installed.
+// client, base bid (= lib/estimate.js on the saved project). Proposal pages, marked-set
+// pages and the printed report strip must not carry OT_WATERMARK or a diagonal OpenTakeoff.
+// Pages render to PNG with pdftoppm (poppler) when it is installed.
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -114,15 +114,15 @@ const p1 = ptexts[0];
 for (const [label, s] of [['company', 'Sample Flooring Co'], ['license', 'License LIC-000'], ['client', 'Example General Contractors'], ['reference', 'Ref. Bid 26-001'], ['base bid = engine', money(e.total)], ['job-only exclusion', 'After-hours work'], ['terms', 'Net 30. Price holds for the dates shown.'], ['scope note', 'Quantities from the sample finish plan AF101.']]) {
   check(`proposal PDF shows the ${label}`, ptexts.some((t) => t.includes(hex(s))), s);
 }
-check('proposal: watermark and footer on every page', ptexts.every((t) => t.includes(hex(OT_NAME)) && t.includes(hex(OT_WATERMARK))), ptexts.length);
+check('proposal: no OpenTakeoff watermark or OT_WATERMARK', ptexts.length > 0 && ptexts.every((t) => !t.includes(hex(OT_NAME)) && !t.includes(hex(OT_WATERMARK))), ptexts.length);
 const rendered = render(proposalPdf, 1, ptexts.length, 'proposal-page');
 
-// Marked set from the Report: watermark on every page.
+// Marked set from the Report: no OpenTakeoff watermark on any page.
 await dlg.getByRole('button', { name: 'Close' }).click();
 await est.getByRole('button', { name: 'Close estimate' }).click();
 await page.getByRole('button', { name: /^Report$/ }).first().click();
 await page.waitForTimeout(800);
-check('printed report strip carries the line', (await page.locator('.report-flow > thead').first().textContent()).includes(OT_WATERMARK));
+check('printed report strip has no OT_WATERMARK', !(await page.locator('.report-flow > thead').first().textContent()).includes(OT_WATERMARK));
 await page.getByTitle('Print the report, or generate the marked-set PDF').click();
 const mdl = page.waitForEvent('download', { timeout: 120000 });
 await page.getByRole('button', { name: /Download marked set/ }).click();
@@ -130,7 +130,7 @@ const mfile = await mdl;
 const markedPdf = join(out, '.marked-set.pdf');
 await mfile.saveAs(markedPdf);
 const mtexts = await pageTexts(readFileSync(markedPdf));
-check('marked set: watermark and footer on every page', mtexts.length >= 2 && mtexts.every((t) => t.includes(hex(OT_NAME)) && t.includes(hex(OT_WATERMARK))), mtexts.length);
+check('marked set: no OT_WATERMARK on any page', mtexts.length >= 2 && mtexts.every((t) => !t.includes(hex(OT_WATERMARK)) && !t.includes(hex('Prepared with OpenTakeoff'))), mtexts.length);
 if (rendered) render(markedPdf, 1, 2, 'marked-set-page');
 check('pages rendered to PNG (pdftoppm)', rendered && existsSync(join(out, 'proposal-page-1.png')));
 check('no page errors', errors.length === 0, errors);

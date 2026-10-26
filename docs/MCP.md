@@ -422,8 +422,7 @@ The canvas's **Estimate** panel and **Proposal** dialog have agent verbs over th
 2. `set_estimate_settings {tax_pct, overhead_pct, profit_pct, profit_mode, proposal, client}`
    for the project's markups, proposal text and client.
 3. `estimate_summary` to read the result. `complete: false` and `unpriced` name every hole.
-4. `export_estimate` (Excel) and `export_proposal {company}` (PDF, OpenTakeoff watermark on
-   every page) to write the files beside the plan.
+4. `export_estimate` (Excel) and `export_proposal {company}` (PDF) to write the files beside the plan.
 
 Nothing here invents a price. Prices, markups, proposal text and client ride `export_takeoff`
 into the app and back through `import_takeoff`, where a joined condition with no prices takes

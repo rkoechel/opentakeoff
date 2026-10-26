@@ -782,8 +782,6 @@ Prices are saved with the project. Condition templates never carry them, so ever
 - The first time you open it, the inclusions, exclusions, terms and validity are copied from Company setup. Edits here change **this job only**. **Reset text to Company setup** copies them again.
 - If the estimate isn't fully priced, the dialog says which lines and still lets you download.
 
-Every page of the proposal, the marked set and the printed report carries **Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com**. The proposal and the marked set also carry a light diagonal *OpenTakeoff* watermark. Branding as your trade name puts your company on the document; it doesn't remove these.
-
 ### The numbers, honestly
 
 - **Measured versus w/Waste.** Waste lives only in the w/Waste column: *SF w/Waste = measured × (1 + waste %)*. The measured quantity is never inflated, so your takeoff and your buy list stay honest about which is which. Waste applies to SF and LF, never EA.

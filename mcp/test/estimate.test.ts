@@ -155,7 +155,7 @@ test("export_estimate writes the workbook beside the plan; our own file may be r
   await assert.rejects(() => exportEstimateFile(s, { path: foreign }), /overwrite/i);
 });
 
-test("export_proposal writes the watermarked PDF; it never refuses an incomplete estimate and says so", async () => {
+test("export_proposal writes the PDF without an OpenTakeoff watermark; it never refuses an incomplete estimate and says so", async () => {
   const s = await measured();
   s.setPricing("CPT-1", { material: 2, labor: 1, materials: [{ name: "Adhesive", price: 30 }] });
   s.setEstimateSettings({ proposal: { itemized: true, exclusions: "Floor prep" }, client: { name: "Example GC" } });
@@ -173,7 +173,9 @@ test("export_proposal writes the watermarked PDF; it never refuses an incomplete
     const st: any = pdf.context.lookup(ref), f = st.dict.lookup(PDFName.of("Filter"));
     text += Buffer.from(String(f) === "/FlateDecode" ? inflateSync(st.contents) : st.contents).toString("latin1");
   }
-  for (const t of ["Sample Flooring Co", "Example GC", "Floor prep", OT_NAME, OT_WATERMARK]) assert.ok(text.includes(hex(t)), t);
+  for (const t of ["Sample Flooring Co", "Example GC", "Floor prep"]) assert.ok(text.includes(hex(t)), t);
+  assert.equal(text.includes(hex(OT_NAME)), false, "no diagonal OpenTakeoff");
+  assert.equal(text.includes(hex(OT_WATERMARK)), false, "no OT_WATERMARK");
   const blank = await exportProposalFile(s, { path: path.join(dir, "b.pdf") });
   assert.match(blank.note ?? "", /No company name/);
 });
