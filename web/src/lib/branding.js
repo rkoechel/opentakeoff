@@ -16,6 +16,10 @@ import { activeProfile } from "./identity.js";
 
 export const OT_NAME = "OpenTakeoff";
 export const OT_CREDIT = "Measured with OpenTakeoff";
+// Workbook footer on every estimate tab (estimateExport.js), and the mark
+// safewrite uses to recognize our own .xlsx. Proposals, marked sets and
+// printed reports do not stamp it.
+export const OT_WATERMARK = "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com";
 
 /**
  * @param {{mode?: string, profileId?: string|null,
