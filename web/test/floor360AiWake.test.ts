@@ -46,7 +46,8 @@ function world({ upstreamDown = true, wake = { status: 202, body: { state: "star
 
 async function withProxy(env: Record<string, string>, fetchImpl: typeof fetch, fn: (base: string) => Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), "ai-wake-"));
-  const handler = createAiProxyHandler({ env, fetchImpl, log: {} as Console, sleep: () => new Promise((r) => setTimeout(r, 2)) });
+  // sleep has no default, so the inferred JS options type omits it.
+  const handler = createAiProxyHandler({ env, fetchImpl, log: {} as Console, sleep: () => new Promise((r) => setTimeout(r, 2)) } as Parameters<typeof createAiProxyHandler>[0]);
   const server = createStaticServer(dir, { routes: { [AI_PATH]: handler } });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const { port } = server.address() as { port: number };
@@ -134,7 +135,8 @@ test("the wake manager gives up after the timeout and can wake again", async () 
   let now = 0;
   const w = world({ runningAfter: 1e9 });
   const cfg = aiProxyConfig({ ...ENV, AI_WAKE_TIMEOUT_MS: "100" });
-  const m = createWakeManager(cfg, { fetchImpl: w.fetchImpl, nowMs: () => now, sleep: async () => { now += 30; }, log: {} as Console });
+  // fetchImpl has no default, so the inferred JS options type omits it.
+  const m = createWakeManager(cfg, { fetchImpl: w.fetchImpl, nowMs: () => now, sleep: async () => { now += 30; }, log: {} as Console } as Parameters<typeof createWakeManager>[1]);
   assert.equal(await m.wake(), "starting");
   assert.equal(await m.wake(), "starting");
   assert.equal(w.wakes(), 1);
