@@ -25,7 +25,8 @@ branch → local checks → PR → CI checks → squash-merge
 
 - **CI** (`.github/workflows/ci.yml`) runs on pull requests and pushes to `main`.
   The web job checks types, lint, tests, benchmark reproducibility, and the build.
-  Other jobs check MCP on Linux and Windows, release facts and documentation,
+  Other jobs check MCP on Ubuntu on every change and on Windows on every push to
+  main (not on pull requests), release facts and documentation,
   protocol, capture, and the optional server. A green web job alone does not
   cover all required checks.
 - **Deploy** is Netlify's own git integration, watching `main`. It builds the

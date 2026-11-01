@@ -66,7 +66,8 @@ uploads, and no feature is gated on an operating system.
   always treated `⌘` and `Ctrl` as the same key. Press `?` in the canvas for the current list.
 - **The MCP server is tested on Windows.** `npx -y opentakeoff-mcp` runs on Windows, macOS and
   Linux, and CI runs the full MCP suite — typecheck, tests, build and the packaged smoke test — on
-  `windows-latest` as well as `ubuntu-latest` on every change.
+  `ubuntu-latest` on every change, and on `windows-latest` on every push to main
+  (not on pull requests).
 - **Optional extras.** The bundled [capture server](capture/) is stdlib Python 3 and runs anywhere
   Python does — on Windows invoke it with `python capture\capture_server.py selftest` (or the `py`
   launcher) rather than `python3`. Neither it nor the optional [`server/`](server/) AI sandbox is

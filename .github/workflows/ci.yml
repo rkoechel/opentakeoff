@@ -82,7 +82,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Windows only on push to main. Pull requests stay ubuntu-latest so the
+        # check name remains "mcp (ubuntu-latest)". The push trigger above is
+        # already limited to main, so that event still runs both.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -317,7 +320,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Same rule as mcp: Ubuntu on every pull request, Windows only when
+        # main is pushed. Check name stays "protocol (ubuntu-latest)".
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4

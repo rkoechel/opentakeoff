@@ -56,7 +56,8 @@ OpenTakeoff 是**纯客户端的浏览器应用**，所以这块画布在 Window
   `Shift`，Mac 上是 `⌘` / `⌥` / `⇧` —— 而处理逻辑一直把 `⌘` 和 `Ctrl` 当成同一个键。在画布里按
   `?` 就能看到当前的清单。
 - **MCP 服务器在 Windows 上有测试。** `npx -y opentakeoff-mcp` 在 Windows、macOS 和 Linux 上都能跑，
-  而且 CI 在每次改动时都会在 `windows-latest` 和 `ubuntu-latest` 上跑完整的 MCP 测试套件 ——
+  而且 CI 在 `ubuntu-latest` 上于每次改动、在 `windows-latest` 上于每次推送到 main（不在
+  pull request 上）跑完整的 MCP 测试套件 ——
   类型检查、测试、构建，以及打包后的冒烟测试。
 - **可选的附加组件。** 内置的[捕获服务器](capture/)是标准库 Python 3 写的，Python 能跑的地方它就能
   跑 —— 在 Windows 上用 `python capture\capture_server.py selftest`（或者 `py` 启动器）而不是
