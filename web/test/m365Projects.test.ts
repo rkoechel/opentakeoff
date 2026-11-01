@@ -29,7 +29,7 @@ test("lists job folders, newest first, without dot-folders or files", async () =
     { id: "C", name: "readme.pdf", mimeType: "application/pdf" },
     { id: "D", name: "24-118 Hospital", mimeType: FOLDER, modifiedTime: "2026-10-01T00:00:00Z" },
   ]);
-  assert.deepEqual((await listProjects(g as never, ROOT)).map((p) => p.name), ["24-118 Hospital", "Old job"]);
+  assert.deepEqual((await listProjects(g as never, ROOT)).map((p: { name: string }) => p.name), ["24-118 Hospital", "Old job"]);
 });
 
 test("new project: trimmed, refused on a clash or a bad name", async () => {

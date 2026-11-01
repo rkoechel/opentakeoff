@@ -43,15 +43,17 @@ function fakeAzure({ submit = [202], identity = true } = {}) {
 async function withServer(env: Record<string, string>, fetchImpl: unknown, fn: (base: string, usageFile: string) => Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), "ocr-read-"));
   const usageFile = join(dir, "data", "ocr-usage.json");
-  const handler = createOcrReadHandler({ env: { OCR_USAGE_FILE: usageFile, ...env }, fetchImpl: fetchImpl as typeof fetch, pollMs: 1, retryDelays: [1, 1], log: {} as Console });
+  // pollMs and retryDelays have no defaults, so the inferred JS options type omits them.
+  const handler = createOcrReadHandler({ env: { OCR_USAGE_FILE: usageFile, ...env }, fetchImpl: fetchImpl as typeof fetch, pollMs: 1, retryDelays: [1, 1], log: {} as Console } as Parameters<typeof createOcrReadHandler>[0]);
   const server = createStaticServer(dir, { routes: { [OCR_READ_PATH]: handler } });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const { port } = server.address() as { port: number };
   try { await fn(`http://127.0.0.1:${port}`, usageFile); } finally { server.close(); rmSync(dir, { recursive: true, force: true }); }
 }
 
+// Node Buffer is a valid fetch body; DOM BodyInit does not include Buffer<ArrayBufferLike>.
 const post = (base: string, user = "ryan@floor360.com", body: Buffer = PNG) =>
-  fetch(base + OCR_READ_PATH, { method: "POST", body, headers: user ? { "X-MS-CLIENT-PRINCIPAL-NAME": user } : {} });
+  fetch(base + OCR_READ_PATH, { method: "POST", body: body as BodyInit, headers: user ? { "X-MS-CLIENT-PRINCIPAL-NAME": user } : {} });
 
 const MI_ENV = { DI_ENDPOINT: ENDPOINT + "/", IDENTITY_ENDPOINT: "http://identity.local/msi/token", IDENTITY_HEADER: "hdr", DI_KEY: "secret-key" };
 
