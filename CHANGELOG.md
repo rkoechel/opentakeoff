@@ -15,6 +15,9 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
+- **A broken image in a ZIP no longer hides the remaining plans.** Each extracted file is processed independently, so unreadable PNG/JPEG entries are skipped by their own names while later PDFs and valid scans still open. Archive limits and downstream PDF validation are unchanged.
+- **opentakeoff-mcp 0.9.102: dependency security refresh.** Upgrade the MCP SDK and Zod, adapt record schemas for Zod 4, and refresh affected MCP, Vite and protocol dependency locks. The MCP tool set and takeoff payloads are unchanged. Upstream #566 reserved this as MCP 0.9.100; this fork already had 0.9.100 and 0.9.101, so the same change is 0.9.102. [Validation evidence](docs/review/dependency-security-2026-10-24/README.md).
+
 - **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000, finish plans SD-101…, seam/roll plans SD-201…, tile/LVT pattern plans SD-301…, and transitions and base SD-401…. Every sheet has a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS, unconfirmed, and detected-only scales are refused with `scale not confirmed` and no PDF. A seam or pattern sheet is omitted when the roll width or tile size was not supplied. The runner does not send the PDF.
 
 - **opentakeoff-mcp 0.9.101.** The packaged wiki status page names the shop-drawing sheets: cover, finish, seam/roll, tile pattern, transitions and base. Same version fields as 0.9.100.
