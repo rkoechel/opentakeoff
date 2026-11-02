@@ -15,7 +15,10 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
-- **opentakeoff-mcp 0.9.102.** `export_marked_pdf`'s description says the diagonal "OpenTakeoff" and the "Prepared with OpenTakeoff" footer are drawn only when `OT_WATERMARK` is `1` or `true`. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
+- **A broken image in a ZIP no longer hides the remaining plans.** Each extracted file is processed independently, so unreadable PNG/JPEG entries are skipped by their own names while later PDFs and valid scans still open. Archive limits and downstream PDF validation are unchanged.
+- **opentakeoff-mcp 0.9.102: dependency security refresh.** Upgrade the MCP SDK and Zod, adapt record schemas for Zod 4, and refresh affected MCP, Vite and protocol dependency locks. The MCP tool set and takeoff payloads are unchanged. Upstream #566 reserved this as MCP 0.9.100; this fork already had 0.9.100 and 0.9.101, so the same change is 0.9.102. [Validation evidence](docs/review/dependency-security-2026-10-24/README.md).
+
+- **opentakeoff-mcp 0.9.103.** `export_marked_pdf`'s description says the diagonal "OpenTakeoff" and the "Prepared with OpenTakeoff" footer are drawn only when `OT_WATERMARK` is `1` or `true`. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
 
 - **OpenTakeoff watermark, default off.** Marked-set PDFs (the app and `export_marked_pdf`) and the printed report can carry upstream's faint scan star, diagonal "OpenTakeoff", and the footer "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com". They do only when the web build is made with `VITE_OT_WATERMARK=1` or `true`, or the MCP server is started with `OT_WATERMARK=1` or `true`. Unset, those exports stay as they are today: no diagonal word and no footer. The estimate-workbook footer, when that writer is synced, goes through `xlsxWatermarkFooter()` and is empty while the flag is off. The plan-set home screen now reads "OpenTakeoff, an open project by Kentucky AI" and links that phrase to https://opentakeoff.kentucky-ai.com, beside the AGPL-3.0 label and the source link.
 
