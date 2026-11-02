@@ -16,8 +16,11 @@ export const STRIPPED_HOSTS = [
   "hf.co",
   "googleapis.com",
   "accounts.google.com",
-  "opentakeoff.kentucky-ai.com",
 ];
+// opentakeoff.kentucky-ai.com is not stripped. The plan-set home screen must
+// keep the AGPL section 7(b) attribution link to that host, and the optional
+// document footer uses the same host. It is a notice the program displays,
+// not a service this build calls.
 
 export const ALLOWED_MICROSOFT_HOSTS = [
   "login.microsoftonline.com",

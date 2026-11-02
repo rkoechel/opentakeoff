@@ -18,7 +18,14 @@ import { UserError } from "./format.ts";
 
 /** Stamped as the PDF Producer on every marked set (web/src/lib/markedset.js),
  * which is what makes a prior marked set recognizable as ours here. Also plain
- * provenance: a distributed deliverable should say what produced it. */
+ * provenance: a distributed deliverable should say what produced it.
+ *
+ * The optional "Prepared with OpenTakeoff" footer is not authorship. It is
+ * drawn only when OT_WATERMARK is "1" or "true" (default off), so a file that
+ * lacks the footer is still ours when the Producer matches, and a stranger's
+ * PDF is still not ours when it happens to contain the line. When an xlsx
+ * export lands, do not treat a missing footer as proof the workbook is not ours.
+ */
 export const PDF_PRODUCER = "OpenTakeoff";
 
 export type ExportKind = "json" | "pdf" | "dxf";

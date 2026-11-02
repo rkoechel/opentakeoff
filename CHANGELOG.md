@@ -15,6 +15,10 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
+- **opentakeoff-mcp 0.9.102.** `export_marked_pdf`'s description says the diagonal "OpenTakeoff" and the "Prepared with OpenTakeoff" footer are drawn only when `OT_WATERMARK` is `1` or `true`. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
+
+- **OpenTakeoff watermark, default off.** Marked-set PDFs (the app and `export_marked_pdf`) and the printed report can carry upstream's faint scan star, diagonal "OpenTakeoff", and the footer "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com". They do only when the web build is made with `VITE_OT_WATERMARK=1` or `true`, or the MCP server is started with `OT_WATERMARK=1` or `true`. Unset, those exports stay as they are today: no diagonal word and no footer. The estimate-workbook footer, when that writer is synced, goes through `xlsxWatermarkFooter()` and is empty while the flag is off. The plan-set home screen now reads "OpenTakeoff, an open project by Kentucky AI" and links that phrase to https://opentakeoff.kentucky-ai.com, beside the AGPL-3.0 label and the source link.
+
 - **Shop drawings (FLOOR360 runner).** `POST /jobs/:id/shop-drawings` plots an 11×17 PDF from a reviewed takeoff: cover SD-000, finish plans SD-101…, seam/roll plans SD-201…, tile/LVT pattern plans SD-301…, and transitions and base SD-401…. Every sheet has a FLOOR360 title block and a DRAFT watermark until an approval stamp is passed in. NTS, unconfirmed, and detected-only scales are refused with `scale not confirmed` and no PDF. A seam or pattern sheet is omitted when the roll width or tile size was not supplied. The runner does not send the PDF.
 
 - **opentakeoff-mcp 0.9.101.** The packaged wiki status page names the shop-drawing sheets: cover, finish, seam/roll, tile pattern, transitions and base. Same version fields as 0.9.100.

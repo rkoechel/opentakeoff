@@ -16,6 +16,50 @@ import { activeProfile } from "./identity.js";
 
 export const OT_NAME = "OpenTakeoff";
 export const OT_CREDIT = "Measured with OpenTakeoff";
+// The line every estimate and bid proposal carries when the watermark is on.
+// Clear-label puts the firm's name on the document; it does not draw this by
+// itself. The flag defaults off (see watermarkEnabled).
+export const OT_WATERMARK = "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com";
+
+/** "1" or "true" only. Anything else, including unset, is off. */
+function flagOn(value) {
+  return value === "1" || value === "true";
+}
+
+/**
+ * Document watermark. Off by default.
+ * Web: build-time `VITE_OT_WATERMARK` (vite.config.js inlines it; this fork's
+ * envPrefix does not expose VITE_* on its own).
+ * MCP and the node tests: `OT_WATERMARK`, or `VITE_OT_WATERMARK` in the process
+ * environment. The browser bundle has no `process`, so a shell variable cannot
+ * turn a built page on after the fact.
+ */
+export function watermarkEnabled() {
+  let vite;
+  try {
+    if (typeof import.meta !== "undefined" && import.meta.env != null) {
+      vite = import.meta.env.VITE_OT_WATERMARK;
+    }
+  } catch {
+    vite = undefined;
+  }
+  if (flagOn(vite)) return true;
+  // Node (MCP, the test runner). The browser bundle has no process global.
+  const proc = globalThis["process"];
+  if (proc == null || proc.env == null) return false;
+  return flagOn(proc.env.VITE_OT_WATERMARK) || flagOn(proc.env.OT_WATERMARK);
+}
+
+/**
+ * Closing rows for an estimate workbook tab. Empty when the flag is off, so
+ * the sheet contains no "Prepared with OpenTakeoff" footer.
+ * When `web/src/lib/estimateExport.js` is synced, use this instead of
+ * `const foot = [[], [OT_WATERMARK]]`.
+ * @returns {any[][]}
+ */
+export function xlsxWatermarkFooter() {
+  return watermarkEnabled() ? [[], [OT_WATERMARK]] : [];
+}
 
 /**
  * @param {{mode?: string, profileId?: string|null,

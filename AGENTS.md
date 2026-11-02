@@ -22,6 +22,19 @@ conventions. Key requirements:
   app behavior and wait for required checks before merging.
 - Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and
   builds only — do not add a schedule or cron workflow.
+- The OpenTakeoff document watermark is off unless the web build is made with
+  `VITE_OT_WATERMARK=1` or `true`, or the MCP server is started with
+  `OT_WATERMARK=1` or `true`. `stampWatermark` returns immediately when the flag
+  is off. A future sync of upstream #561/#571 must keep that early return in
+  `web/src/lib/pdfWatermark.js`, keep the printed-report line in
+  `ReportPanel.jsx` behind `watermarkEnabled()`, and replace a hardcoded
+  `[[], [OT_WATERMARK]]` in `web/src/lib/estimateExport.js` (not on this fork
+  yet) with `xlsxWatermarkFooter()`. `bidProposalPdf.js` can keep calling
+  `stampWatermark`; the flag lives inside the stamp. Do not bring scan-star app
+  chrome (`marks.jsx`, brand CSS) with `scanStar.js`. PDF authorship in
+  `mcp/src/safewrite.ts` is the Producer stamp, not the optional footer. Tool
+  descriptions must say the mark appears only when the flag is on. Do not take
+  the NOTICE edit from #561.
 - Every PR includes screenshots/video or measured expected-versus-observed
   stats, reproducible commands and linked evidence. Protect private project data.
 - Geometry edits must preserve existing machine originals. MCP cannot create

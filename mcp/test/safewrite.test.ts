@@ -94,6 +94,37 @@ test("a marked set we produced is recognized by its Producer and overwrites", as
   await assertWritable(p, "pdf");
 });
 
+test("a marked set without the watermark footer is still ours", async () => {
+  const d = await dir();
+  const p = path.join(d, "plan - marked set.pdf");
+  const doc = await PDFDocument.create();
+  doc.setProducer(PDF_PRODUCER);
+  const page = doc.addPage([612, 792]);
+  page.drawText("Legend cover — no Prepared-with line", { x: 48, y: 700, size: 12 });
+  await writeFile(p, await doc.save());
+  await assertWritable(p, "pdf");
+});
+
+test("the watermark footer does not decide authorship", async () => {
+  const d = await dir();
+  const footer = "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com";
+  const ours = path.join(d, "ours.pdf");
+  const oursDoc = await PDFDocument.create();
+  oursDoc.setProducer(PDF_PRODUCER);
+  oursDoc.addPage([612, 792]).drawText(footer, { x: 48, y: 40, size: 8 });
+  await writeFile(ours, await oursDoc.save());
+  await assertWritable(ours, "pdf");
+
+  const stranger = path.join(d, "stranger.pdf");
+  const strangerDoc = await PDFDocument.create();
+  strangerDoc.setProducer("Adobe Acrobat");
+  strangerDoc.addPage([612, 792]).drawText(footer, { x: 48, y: 40, size: 8 });
+  const bytes = await strangerDoc.save();
+  await writeFile(stranger, bytes);
+  await refuses(stranger, "pdf");
+  assert.deepEqual(new Uint8Array(await readFile(stranger)), new Uint8Array(bytes));
+});
+
 test("somebody else's PDF is refused even at a marked-set-shaped path", async () => {
   const d = await dir();
   const p = path.join(d, "plan - marked set.pdf");

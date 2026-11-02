@@ -235,11 +235,14 @@ Fifty-two tools, in the order an agent tends to reach for them:
   as config rows, importable by the app), `export_report` (the
   computed `opentakeoff.report.v1` Report document—waste-adjusted nets, the
   materials buy list as order quantities, per-sheet subtotals, scale
-  provenance; the contract for pricing consumers), `export_marked_pdf` (**the
+  provenance; the contract for pricing consumers),   `export_marked_pdf` (**the
   marked-up planset**—the plan sheets vector-copied with shapes, hatches,
   quantity chips, and annotations burned in, plus a legend cover; the
   deliverable a human reviews, with machine-traced work disclosed as pending
-  review on the document itself)
+  review on the document itself). A light diagonal "OpenTakeoff" and the footer
+  "Prepared with OpenTakeoff · opentakeoff.kentucky-ai.com" are drawn only when
+  the server is started with `OT_WATERMARK=1` or `OT_WATERMARK=true`. With the
+  flag unset, the PDF carries neither.
 
   All three write wherever you point them—`path` is not confined to a working
   directory, because the marked set belongs in the job folder. They will not
