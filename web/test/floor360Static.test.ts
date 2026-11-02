@@ -17,10 +17,12 @@ test("private host strip removes dependency URLs and leaves the source link", ()
     "https://github.com/rkoechel/opentakeoff/commit/abc",
   ].join("\n");
   const out = stripPrivateHosts(sample);
-  for (const host of ["cdn.jsdelivr.net", "huggingface.co", "hf.co", "googleapis.com", "accounts.google.com", "opentakeoff.kentucky-ai.com"]) {
+  for (const host of ["cdn.jsdelivr.net", "huggingface.co", "hf.co", "googleapis.com", "accounts.google.com"]) {
     assert.equal(out.includes(host), false, host);
   }
+  assert.match(out, /https:\/\/opentakeoff\.kentucky-ai\.com\//);
   assert.match(out, /github\.com\/rkoechel\/opentakeoff\/commit\/abc/);
+  assert.equal(STRIPPED_HOSTS.includes("opentakeoff.kentucky-ai.com"), false);
 });
 
 test("Microsoft 365 sync hosts are kept in the artifact and are the only hosts the CSP allows", () => {

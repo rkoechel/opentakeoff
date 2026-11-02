@@ -61,6 +61,14 @@ for (const key of PRIVATE_LOCKED_ENV_KEYS) {
 // or on by accident.
 define["import.meta.env.VITE_ONE_CLICK"] = JSON.stringify("1");
 
+// Document watermark. Default off. The client bundle does not see VITE_*
+// (envPrefix below), so this is the only way the flag reaches stampWatermark.
+// "1" or "true" in the build shell turns it on; anything else stays off.
+const watermarkFlag = process.env.VITE_OT_WATERMARK;
+define["import.meta.env.VITE_OT_WATERMARK"] = JSON.stringify(
+  watermarkFlag === "1" || watermarkFlag === "true" ? watermarkFlag : "",
+);
+
 // Microsoft 365 sync — the one sync path this build may turn on. Deployment
 // sets VITE_MSAL_CLIENT_ID / VITE_GRAPH_DRIVE_ID / VITE_GRAPH_FOLDER_ID
 // (and optionally VITE_MSAL_TENANT / VITE_GRAPH_SCOPES) in the BUILD shell.
