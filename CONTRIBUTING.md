@@ -141,6 +141,7 @@ engines—OpenTakeoff is a takeoff tool, not an ERP.
 
 ## Ground rules
 
+- Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and builds only — do not add a schedule or cron workflow.
 - Don't break the canvas feel: pan/zoom and One-Click are the heart of the tool.
 - Keep the geometry libs pure and typed; add a test when you touch them.
 - Never commit real plan PDFs or any private/customer data.
