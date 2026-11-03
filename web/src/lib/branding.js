@@ -93,8 +93,9 @@ export function resolveBranding(sel) {
     // subtle parent credit — shown only when clear-labelling (default mode is
     // already OpenTakeoff-branded throughout, so a separate credit is redundant)
     credit: clear ? OT_CREDIT : null,
-    // marked-set cover wordmark — carries the OpenTakeoff prefix in default mode
-    coverTitle: clear ? "Marked Set" : "OpenTakeoff · Marked Set",
+    // marked-set cover wordmark. The product prefix is the same switch as the
+    // page watermark (default off). A trade name always prints "Marked Set".
+    coverTitle: (clear || !watermarkEnabled()) ? "Marked Set" : "OpenTakeoff · Marked Set",
   };
 }
 
