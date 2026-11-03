@@ -25,11 +25,11 @@ conventions. Key requirements:
 - The OpenTakeoff document watermark is off unless the web build is made with
   `VITE_OT_WATERMARK=1` or `true`, or the MCP server is started with
   `OT_WATERMARK=1` or `true`. `stampWatermark` returns immediately when the flag
-  is off. A future sync of upstream #561/#571 must keep that early return in
+  is off. A sync of upstream #561/#571 must keep that early return in
   `web/src/lib/pdfWatermark.js`, keep the printed-report line in
-  `ReportPanel.jsx` behind `watermarkEnabled()`, and replace a hardcoded
-  `[[], [OT_WATERMARK]]` in `web/src/lib/estimateExport.js` (not on this fork
-  yet) with `xlsxWatermarkFooter()`. `bidProposalPdf.js` can keep calling
+  `ReportPanel.jsx` behind `watermarkEnabled()`, and keep
+  `web/src/lib/estimateExport.js` on `xlsxWatermarkFooter()` (empty while the
+  flag is off). `bidProposalPdf.js` can keep calling
   `stampWatermark`; the flag lives inside the stamp. Do not bring scan-star app
   chrome (`marks.jsx`, brand CSS) with `scanStar.js`. PDF authorship in
   `mcp/src/safewrite.ts` is the Producer stamp, not the optional footer. Tool

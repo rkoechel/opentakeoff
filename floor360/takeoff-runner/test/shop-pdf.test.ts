@@ -3,7 +3,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 import { PDFDict, PDFDocument, PDFName } from "pdf-lib";
+import { OT_NAME, OT_WATERMARK } from "../../../web/src/lib/branding.js";
 import { buildShopModel } from "../src/shopdrawings/model.ts";
 import { PAGE_H, PAGE_W } from "../src/shopdrawings/page.ts";
 import { coverNotes, renderShopDrawings } from "../src/shopdrawings/pdf.ts";
@@ -18,6 +20,26 @@ function embeddedFontNames(doc: PDFDocument): string[] {
     if (base) names.push(base.decodeText());
   }
   return names;
+}
+
+/** Inflated page content plus the info dict. Font binaries are not scanned. */
+async function pdfBlob(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes);
+  let s = [doc.getTitle(), doc.getAuthor(), doc.getSubject(), doc.getKeywords(), doc.getCreator(), doc.getProducer()].filter(Boolean).join("\n");
+  for (const page of doc.getPages()) {
+    const contents = (page as any).node.Contents();
+    if (!contents) continue;
+    const refs = typeof contents.asArray === "function" ? contents.asArray() : [contents];
+    for (const ref of refs) {
+      const stream: any = doc.context.lookup(ref);
+      if (!stream?.contents) continue;
+      const filter = stream.dict?.lookup?.(PDFName.of("Filter"));
+      const raw = stream.contents;
+      const data = String(filter).includes("FlateDecode") ? inflateSync(raw) : raw;
+      s += Buffer.from(data).toString("latin1");
+    }
+  }
+  return s;
 }
 
 const fixturePath = fileURLToPath(new URL("./fixtures/synthetic-annotations.json", import.meta.url));
@@ -48,6 +70,23 @@ test("a draft set is ANSI B, numbered SD-000, SD-101 and SD-401, and marked DRAF
   assert.match((doc.getKeywords() ?? "").toUpperCase(), /DRAFT/);
   assert.match(embeddedFontNames(doc).join(" "), /BrandonText/);
   assert.equal(doc.getAuthor(), "FLOOR360");
+});
+
+test("shop drawing pages carry no OpenTakeoff watermark", async () => {
+  const cases = [
+    await request(),
+    await request({ approval: { name: "Casey Estimator", at: "2026-10-25" } }),
+    await request(fixtureProducts),
+  ];
+  for (const req of cases) {
+    const model = buildShopModel(req, {}, new Date("2026-10-25T00:00:00Z"));
+    const { pdf, specs } = await renderShopDrawings(model);
+    assert.ok(specs.some((s) => s.number === "SD-101"), specs.map((s) => s.number).join(" "));
+    const blob = await pdfBlob(pdf);
+    for (const needle of [OT_WATERMARK, "Prepared with OpenTakeoff", "opentakeoff.kentucky-ai.com", OT_NAME]) {
+      assert.equal(blob.includes(needle), false, needle);
+    }
+  }
 });
 
 test("an approval stamp removes the DRAFT keyword and names the approver", async () => {
