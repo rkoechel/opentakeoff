@@ -3,6 +3,7 @@
 // IndexedDB meta KV (browser-only) — exercised in the app, deliberately NOT here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { resolveBranding, OT_NAME, OT_CREDIT } from "../src/lib/branding.js";
 import { totalsToCsv } from "../src/lib/totals.js";
 import { shapesToCsv } from "../src/lib/shapesExport.js";
@@ -13,13 +14,13 @@ const PROFILES = [
   { id: "b", name: "Fin Workspaces", address: "2 B St" },
 ];
 
-test("default mode → OpenTakeoff, no company, no credit, prefixed cover title", () => {
+test("default mode → OpenTakeoff, no company, no credit", () => {
   const b = resolveBranding({ mode: "default", profileId: "a", profiles: PROFILES });
   assert.equal(b.clear, false);
   assert.equal(b.company, null);
   assert.equal(b.brandName, OT_NAME);
   assert.equal(b.credit, null);
-  assert.equal(b.coverTitle, "OpenTakeoff · Marked Set");
+  assert.equal(b.coverTitle, "Marked Set");
 });
 
 test("clear-label with a valid profile → that trade name brands the doc", () => {
@@ -40,7 +41,7 @@ test("clear-label with no profiles falls back to default (nothing to brand as)",
   const b = resolveBranding({ mode: "clearlabel", profileId: "a", profiles: [] });
   assert.equal(b.clear, false);
   assert.equal(b.brandName, OT_NAME);
-  assert.equal(b.coverTitle, "OpenTakeoff · Marked Set");
+  assert.equal(b.coverTitle, "Marked Set");
 });
 
 test("clear-label with a stale profileId falls back to the first profile", () => {
@@ -54,6 +55,35 @@ test("clear-label profile without a name → brandName degrades to OpenTakeoff, 
   assert.equal(b.clear, true);
   assert.equal(b.brandName, OT_NAME);
   assert.equal(b.company?.logo, "data:x");
+});
+
+test("marked-set cover title follows the watermark flag", () => {
+  const keys = ["OT_WATERMARK", "VITE_OT_WATERMARK"] as const;
+  const prev = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const set = (values: Record<string, string | undefined>) => {
+    for (const k of keys) {
+      if (values[k] === undefined) delete process.env[k];
+      else process.env[k] = values[k];
+    }
+  };
+  try {
+    set({});
+    assert.equal(resolveBranding({}).coverTitle, "Marked Set");
+    assert.equal(resolveBranding({ mode: "default", profileId: "a", profiles: PROFILES }).coverTitle, "Marked Set");
+    assert.equal(resolveBranding({ mode: "clearlabel", profileId: "a", profiles: [] }).coverTitle, "Marked Set");
+    set({ OT_WATERMARK: "1" });
+    assert.equal(resolveBranding({}).coverTitle, "OpenTakeoff · Marked Set");
+    assert.equal(resolveBranding({ mode: "default", profiles: PROFILES }).coverTitle, "OpenTakeoff · Marked Set");
+    assert.equal(resolveBranding({ mode: "clearlabel", profileId: "b", profiles: PROFILES }).coverTitle, "Marked Set");
+  } finally {
+    set(prev);
+  }
+});
+
+test("the MCP marked-set cover uses the same watermark gate", () => {
+  const src = readFileSync(new URL("../../mcp/src/marked.ts", import.meta.url), "utf8");
+  const line = src.split("\n").find((l) => l.includes("coverTitle:"));
+  assert.match(line ?? "", /watermarkEnabled\(\) \? "OpenTakeoff · Marked Set" : "Marked Set"/);
 });
 
 test("garbage / missing mode → default", () => {

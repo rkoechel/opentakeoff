@@ -76,8 +76,9 @@ export function buildBidProposal({ est, conditions = [], company = {}, clientInf
   valid.setDate(valid.getDate() + p.valid_days);
   return {
     company: {
-      name: str(company.name), address: str(company.address), phone: str(company.phone),
-      email: str(company.email), license: str(company.license), logo: typeof company.logo === "string" ? company.logo : "",
+      // trim at the document edge: the edit buffer may still hold a trailing space
+      name: str(company.name).trim(), address: str(company.address).trim(), phone: str(company.phone).trim(),
+      email: str(company.email).trim(), license: str(company.license).trim(), logo: typeof company.logo === "string" ? company.logo : "",
     },
     client: { name: str(clientInfo.client_name), address: str(clientInfo.client_address), reference: str(clientInfo.reference) },
     project: str(projectName),

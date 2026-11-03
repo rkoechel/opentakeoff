@@ -15,6 +15,8 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
 
 ## Unreleased
 
+- **opentakeoff-mcp 0.9.105.** MCP exports use the same cover title as the web app: "Marked Set" unless the OT_WATERMARK flag is on and no trade name is set, and company identity fields are trimmed at the document edge. Not tagged or published yet.
+
 - **opentakeoff-mcp 0.9.104.** Estimate verbs over the canvas engine: `set_pricing`, `set_estimate_settings`, `estimate_summary`, `export_estimate` and `export_proposal`. Upstream published them as 0.9.99; this fork's 0.9.99 through 0.9.103 were already used. The Excel footer and the proposal watermark are drawn only when `OT_WATERMARK` is `1` or `true`. Version fields move together in `mcp/package.json`, `mcp/package-lock.json`, `mcp/server.json`, and `web/public/.well-known/mcp.json`.
 
 - **A broken image in a ZIP no longer hides the remaining plans.** Each extracted file is processed independently, so unreadable PNG/JPEG entries are skipped by their own names while later PDFs and valid scans still open. Archive limits and downstream PDF validation are unchanged.

@@ -19,9 +19,10 @@ const rate = (v) => (v === null || v === undefined ? "" : v);
  * @returns {Array<{name: string, rows: any[][]}>}
  */
 export function estimateWorkbook({ est, projectName = "", companyName = "", clientName = "", date = "" }) {
+  const firm = String(companyName || "").trim();
   const head = [
     ["Estimate", projectName || "Untitled project"],
-    ...(companyName ? [["Prepared by", companyName]] : []),
+    ...(firm ? [["Prepared by", firm]] : []),
     ...(clientName ? [["Prepared for", clientName]] : []),
     ...(date ? [["Date", date]] : []),
     [],

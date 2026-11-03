@@ -13,6 +13,7 @@
 import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { buildMarkedSetPdf as buildMarkedSetPdfJs } from "../../web/src/lib/markedset.js";
+import { watermarkEnabled } from "../../web/src/lib/branding.js";
 import { pointInPoly } from "../../web/src/lib/geometry.js";
 import { RENDER_SCALE } from "../../web/src/lib/sheets.ts";
 import { UserError } from "./format.ts";
@@ -154,7 +155,7 @@ export async function exportMarkedPdf(session: Session, opts: MarkedPdfOpts) {
     loadPdfData,
     credit,
     provenance: assignmentDisclosure(session.shapes, session.scheduleWithheld),
-    coverTitle: "OpenTakeoff · Marked Set",
+    coverTitle: watermarkEnabled() ? "OpenTakeoff · Marked Set" : "Marked Set",
   });
 
   await writeFile(outPath, bytes);

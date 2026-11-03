@@ -4,6 +4,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadCompany, saveCompany, LOGO_LIMIT, loadProfiles, saveProfiles, addProfile, setActiveProfile, updateActiveProfile, removeProfile, activeProfile } from "../src/lib/identity.js";
+import { resolveBranding, OT_NAME } from "../src/lib/branding.js";
+import { buildBidProposal } from "../src/lib/bidProposal.js";
+import { estimateWorkbook } from "../src/lib/estimateExport.js";
 
 function stubStore() {
   const store = new Map<string, string>();
@@ -84,12 +87,91 @@ test("reducers: add / set-active / update-active / remove", () => {
   assert.equal(setActiveProfile(state, "nope"), state);            // unknown id is a no-op
 });
 
-test("profile fields are trimmed and empties dropped, matching the legacy mirror", () => {
-  let { state } = addProfile({ profiles: [], activeId: null }, { name: "   ", address: "  Lynnwood, WA  " });
-  assert.equal(activeProfile(state).name, undefined);            // whitespace-only dropped, not "   "
-  assert.equal(activeProfile(state).address, "Lynnwood, WA");    // trimmed
-  state = updateActiveProfile(state, { name: "  345 Flooring  " });
-  assert.equal(activeProfile(state).name, "345 Flooring");
+test("typing keeps spaces and line breaks; save, load, and documents trim", () => {
+  const store = stubStore();
+  try {
+    let state: { profiles: Array<{ id: string, name?: string, address?: string }>, activeId: string | null } = { profiles: [], activeId: null };
+    let name = "";
+    for (const ch of "ZZ TEST Company") {
+      name += ch;
+      state = state.profiles.length
+        ? updateActiveProfile(state, { name })
+        : addProfile(state, { name }).state;
+      assert.equal(activeProfile(state).name, name);
+    }
+    let address = "";
+    for (const ch of "1 Test St\nTestville, KY") {
+      address += ch;
+      state = updateActiveProfile(state, { address });
+      assert.equal(activeProfile(state).address, address);
+    }
+    // a trailing newline is part of the edit buffer, not eaten on the way in
+    state = updateActiveProfile(state, { name: "  ZZ TEST Company  ", address: "1 Test St\nTestville, KY\n" });
+    assert.equal(activeProfile(state).name, "  ZZ TEST Company  ");
+    assert.equal(activeProfile(state).address, "1 Test St\nTestville, KY\n");
+
+    assert.equal(saveProfiles(state), true);
+    assert.deepEqual(loadCompany(), { name: "ZZ TEST Company", address: "1 Test St\nTestville, KY" });
+    const loaded = loadProfiles();
+    assert.equal(activeProfile(loaded).name, "ZZ TEST Company");
+    assert.equal(activeProfile(loaded).address, "1 Test St\nTestville, KY");
+
+    // blank-after-trim stays in the edit buffer and is dropped from the mirror
+    state = updateActiveProfile(loaded, { name: "   ", address: " \n " });
+    assert.equal(activeProfile(state).name, "   ");
+    assert.equal(activeProfile(state).address, " \n ");
+    assert.equal(saveProfiles(state), true);
+    const mirrored = loadCompany();
+    assert.equal(mirrored.name, undefined);
+    assert.equal(mirrored.address, undefined);
+    const again = loadProfiles();
+    assert.equal(activeProfile(again).name, undefined);
+    assert.equal(activeProfile(again).address, undefined);
+    assert.equal(store.has("opentakeoff_company"), false);
+  } finally {
+    delete (globalThis as any).localStorage;
+  }
+});
+
+test("documents trim company text and omit a blank-only name", () => {
+  const branded = resolveBranding({
+    mode: "clearlabel",
+    profileId: "a",
+    profiles: [{ id: "a", name: "  ZZ TEST Company  ", address: "1 Test St\nTestville, KY\n" }],
+  });
+  assert.equal(branded.company?.name, "ZZ TEST Company");
+  assert.equal(branded.company?.address, "1 Test St\nTestville, KY");
+  assert.equal(branded.brandName, "ZZ TEST Company");
+
+  const blank = resolveBranding({
+    mode: "clearlabel",
+    profileId: "z",
+    profiles: [{ id: "z", name: "   ", address: " \n " }],
+  });
+  assert.equal(blank.company?.name, undefined);
+  assert.equal(blank.company?.address, undefined);
+  assert.equal(blank.brandName, OT_NAME);
+
+  const est = { total: 0, lines: [], complete: true, unpriced: [] };
+  const proposal = buildBidProposal({
+    est, conditions: [],
+    company: { name: "  ZZ TEST Company  ", address: "1 Test St\nTestville, KY\n" },
+  });
+  assert.equal(proposal.company.name, "ZZ TEST Company");
+  assert.equal(proposal.company.address, "1 Test St\nTestville, KY");
+  const blankProposal = buildBidProposal({ est, conditions: [], company: { name: "   ", address: " \n " } });
+  assert.equal(blankProposal.company.name, "");
+  assert.equal(blankProposal.company.address, "");
+
+  const workbookEst = {
+    settings: { tax_pct: 0, overhead_pct: 0, profit_pct: 0, profit_mode: "markup" },
+    lines: [], material: 0, labor: 0, tax: 0, cost: 0, overhead: 0, profit: 0, total: 0,
+    complete: true, unpriced: [], warnings: [],
+  };
+  const sheets = estimateWorkbook({ est: workbookEst, companyName: "  ZZ TEST Company  " });
+  assert.deepEqual(sheets[0].rows[1], ["Prepared by", "ZZ TEST Company"]);
+  const noFirm = estimateWorkbook({ est: workbookEst, companyName: "   " });
+  assert.equal(noFirm[0].rows.some((row: string[]) => row[0] === "Prepared by"), false);
 });
 
 test("saveProfiles round-trips and mirrors the active profile to loadCompany", () => {
@@ -117,6 +199,8 @@ test("saveCompany drops empty fields; nothing left removes the key", () => {
     removeItem: (k: string) => void store.delete(k),
   };
   try {
+    assert.equal(saveCompany({ name: "  ZZ TEST Company  ", address: "1 Test St\nTestville, KY\n" }), true);
+    assert.deepEqual(loadCompany(), { name: "ZZ TEST Company", address: "1 Test St\nTestville, KY" });
     assert.equal(saveCompany({ name: "Acme Floors", address: "  ", logo: "" }), true);
     assert.deepEqual(loadCompany(), { name: "Acme Floors" });  // blank address + empty logo dropped
     assert.equal(saveCompany({ name: "", address: "" }), true);

@@ -308,8 +308,8 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
     if (dark) pg.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(...DARK_BG) });
     // the star is the canvas vertex mark — same 4-point / 0.38-inner geometry
     pg.drawSvgPath(starPath(0, 0, 11), { x: 52, y: 738, color: cobalt });
-    // cover wordmark: "OpenTakeoff · Marked Set" in default mode, "Marked Set"
-    // when a trade name brands the doc (the branding resolver decides)
+    // cover wordmark: "Marked Set", or "OpenTakeoff · Marked Set" only when the
+    // watermark flag is on and no trade name brands the doc (the resolver decides)
     const coverTitleSafe = winAnsiSafe(coverTitle);
     draw(coverTitleSafe, { x: 70, y: 731, size: 17, font: bold, color: ink });
     // the identity column's clamp wall: the title's right edge plus breathing
@@ -335,8 +335,9 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
         while (s && 560 - fnt.widthOfTextAtSize(s, size) < wordmarkRight) s = s.slice(0, -2).trimEnd() + "…";
         return { text: s, x: 560 - fnt.widthOfTextAtSize(s, size) };
       };
-      if (company?.name) {
-        const { text, x } = rightAligned(String(company.name), 10, bold);
+      const companyName = String(company?.name || "").trim();
+      if (companyName) {
+        const { text, x } = rightAligned(companyName, 10, bold);
         draw(text, { x, y: idY, size: 10, font: bold, color: ink });
         idY -= 12;
       }

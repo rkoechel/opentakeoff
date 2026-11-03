@@ -64,6 +64,13 @@ const err = { margin: "6px 0 0", fontSize: 11.5, color: "var(--c-danger)" };
  *  contact adds phone / email / license — the bid-proposal letterhead fields. */
 export function CompanyIdentityFields({ company, contact = false }) {
   const { profs, active, logoErr, saveFailed, editActive, switchProfile, addTradeName, deleteActive, onLogoFile, removeLogo } = company;
+  // keystrokes keep the raw text (inner spaces, trailing spaces, newlines).
+  // blur is the commit: trim, and drop a blank-after-trim field.
+  const live = (key) => ({
+    value: active[key] || "",
+    onChange: (e) => editActive({ [key]: e.target.value }),
+    onBlur: (e) => editActive({ [key]: e.target.value.trim() }),
+  });
   return (
     <>
       {/* trade-name picker: choose which identity prints on the report + marked-set */}
@@ -82,29 +89,29 @@ export function CompanyIdentityFields({ company, contact = false }) {
       </div>
       <label style={row}>
         <span className="field-label">Name</span>
-        <input name="company-name" autoComplete="organization" value={active.name || ""} onChange={(e) => editActive({ name: e.target.value })}
+        <input name="company-name" autoComplete="organization" {...live("name")}
           placeholder="Your trade name" className="field-input" style={{ marginTop: 4 }} />
       </label>
       <label style={row}>
         <span className="field-label">Address</span>
-        <textarea name="company-address" autoComplete="street-address" value={active.address || ""} onChange={(e) => editActive({ address: e.target.value })}
+        <textarea name="company-address" autoComplete="street-address" {...live("address")}
           rows={2} placeholder={"Street\nCity, ST"} className="field-input" style={{ marginTop: 4, resize: "vertical" }} />
       </label>
       {contact && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
           <label style={{ ...row, flex: "1 1 140px" }}>
             <span className="field-label">Phone</span>
-            <input name="company-phone" type="tel" autoComplete="tel" value={active.phone || ""} onChange={(e) => editActive({ phone: e.target.value })}
+            <input name="company-phone" type="tel" autoComplete="tel" {...live("phone")}
               className="field-input" style={{ marginTop: 4 }} />
           </label>
           <label style={{ ...row, flex: "1 1 180px" }}>
             <span className="field-label">Email</span>
-            <input name="company-email" type="email" autoComplete="email" value={active.email || ""} onChange={(e) => editActive({ email: e.target.value })}
+            <input name="company-email" type="email" autoComplete="email" {...live("email")}
               className="field-input" style={{ marginTop: 4 }} />
           </label>
           <label style={{ ...row, flex: "1 1 140px" }}>
             <span className="field-label">License no.</span>
-            <input name="company-license" autoComplete="off" value={active.license || ""} onChange={(e) => editActive({ license: e.target.value })}
+            <input name="company-license" autoComplete="off" {...live("license")}
               className="field-input" style={{ marginTop: 4 }} />
           </label>
         </div>
