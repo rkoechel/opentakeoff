@@ -154,12 +154,12 @@ test("documents trim company text and omit a blank-only name", () => {
 
   const est = { total: 0, lines: [], complete: true, unpriced: [] };
   const proposal = buildBidProposal({
-    est,
+    est, conditions: [],
     company: { name: "  ZZ TEST Company  ", address: "1 Test St\nTestville, KY\n" },
   });
   assert.equal(proposal.company.name, "ZZ TEST Company");
   assert.equal(proposal.company.address, "1 Test St\nTestville, KY");
-  const blankProposal = buildBidProposal({ est, company: { name: "   ", address: " \n " } });
+  const blankProposal = buildBidProposal({ est, conditions: [], company: { name: "   ", address: " \n " } });
   assert.equal(blankProposal.company.name, "");
   assert.equal(blankProposal.company.address, "");
 

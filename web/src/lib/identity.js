@@ -18,6 +18,7 @@ export function loadCompany() {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) || "{}");
     if (!(parsed && typeof parsed === "object" && !Array.isArray(parsed))) return {};
+    /** @type {Record<string, string>} */
     const out = {};
     for (const [k, v] of Object.entries(parsed)) {
       if (typeof v !== "string") continue;
