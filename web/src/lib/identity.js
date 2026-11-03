@@ -18,7 +18,13 @@ export function loadCompany() {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY) || "{}");
     if (!(parsed && typeof parsed === "object" && !Array.isArray(parsed))) return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([, v]) => typeof v === "string"));
+    const out = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v !== "string") continue;
+      const t = v.trim();
+      if (t) out[k] = t;
+    }
+    return out;
   } catch {
     return {}; // private mode / SSR / corrupt JSON
   }
@@ -30,8 +36,13 @@ export function saveCompany(c) {
   try {
     const out = {};
     for (const k of ["name", "address", "logo"]) {
-      const v = c?.[k];
-      if (v && String(v).trim()) out[k] = v;
+      const raw = c?.[k];
+      if (raw == null || raw === false) continue;
+      const trimmed = String(raw).trim();
+      if (!trimmed) continue;
+      // strings are stored trimmed; a non-string that survived the blank check
+      // keeps its original value (the mirror has always been string-valued)
+      out[k] = typeof raw === "string" ? trimmed : raw;
     }
     if (Object.keys(out).length) localStorage.setItem(KEY, JSON.stringify(out));
     else localStorage.removeItem(KEY);
@@ -53,15 +64,23 @@ export function saveCompany(c) {
 // letterhead; the legacy mirror below still carries only name, address and logo.
 const PKEY = "opentakeoff_company_profiles";
 
-// keep only the known string fields (drops empties, non-strings, and any
-// injected keys) — the same gate loadCompany applies, plus a required id
+// keep only the known string fields (drops non-strings and any injected keys)
+// — the same gate loadCompany applies, plus a required id.
+// trim (load / save / the mirrored company): drop a blank-after-trim value so
+// the profile can't hold a blank that saveCompany() would drop from the mirror.
+// The edit reducers pass trim:false so a keystroke can keep a trailing space
+// or a newline; those are trimmed when the profile is saved or loaded.
 export const PROFILE_FIELDS = ["id", "name", "address", "logo", "phone", "email", "license"];
-function cleanProfile(p) {
+function cleanProfile(p, { trim = true } = {}) {
   const out = {};
   for (const k of PROFILE_FIELDS) {
-    // trim + drop empty-after-trim, so the profile can't hold a blank-looking
-    // value that saveCompany() would drop from the mirrored legacy company
-    const v = typeof p?.[k] === "string" ? p[k].trim() : "";
+    const raw = p?.[k];
+    if (typeof raw !== "string") continue;
+    if (!trim) {
+      if (raw !== "") out[k] = raw;
+      continue;
+    }
+    const v = raw.trim();
     if (v) out[k] = v;
   }
   return out;
@@ -122,7 +141,7 @@ export function saveProfiles(state) {
 // ── pure reducers (state in → state out) ──────────────────────────────────────
 export function addProfile(state, fields = {}) {
   const id = newId();
-  const profiles = [...(state?.profiles || []), cleanProfile({ id, ...fields })];
+  const profiles = [...(state?.profiles || []), cleanProfile({ id, ...fields }, { trim: false })];
   return { state: { profiles, activeId: id }, id };
 }
 
@@ -134,7 +153,7 @@ export function setActiveProfile(state, id) {
 export function updateActiveProfile(state, fields) {
   const activeId = state?.activeId;
   const profiles = (state?.profiles || []).map((p) =>
-    p.id === activeId ? cleanProfile({ ...p, ...fields, id: p.id }) : p);
+    p.id === activeId ? cleanProfile({ ...p, ...fields, id: p.id }, { trim: false }) : p);
   return { profiles, activeId };
 }
 

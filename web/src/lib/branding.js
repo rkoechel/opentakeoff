@@ -77,14 +77,19 @@ export function resolveBranding(sel) {
     ? activeProfile({ profiles, activeId: sel?.profileId })
     : null;
   const clear = Boolean(profile);
+  // documents trim. A profile still being typed can hold a trailing space;
+  // the masthead, cover, and export title must not.
+  const name = clear && typeof profile.name === "string" ? profile.name.trim() : "";
+  const address = clear && typeof profile.address === "string" ? profile.address.trim() : "";
   return {
     clear,
     // full identity for the masthead firm block + cover identity column; null in
-    // default mode so every `company?.x` guard degrades to the OpenTakeoff path
-    company: clear ? { name: profile.name, address: profile.address, logo: profile.logo } : null,
+    // default mode so every `company?.x` guard degrades to the OpenTakeoff path.
+    // a blank-after-trim name or address is omitted, same as the saved company.
+    company: clear ? { name: name || undefined, address: address || undefined, logo: profile.logo } : null,
     // firm text / "Prepared by" cell / export title tag — the trade name when
     // clear-labelling (a logo-only profile has no name → keep OpenTakeoff)
-    brandName: (clear && profile.name) ? profile.name : OT_NAME,
+    brandName: (clear && name) ? name : OT_NAME,
     // subtle parent credit — shown only when clear-labelling (default mode is
     // already OpenTakeoff-branded throughout, so a separate credit is redundant)
     credit: clear ? OT_CREDIT : null,

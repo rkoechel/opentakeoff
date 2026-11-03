@@ -335,8 +335,9 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
         while (s && 560 - fnt.widthOfTextAtSize(s, size) < wordmarkRight) s = s.slice(0, -2).trimEnd() + "…";
         return { text: s, x: 560 - fnt.widthOfTextAtSize(s, size) };
       };
-      if (company?.name) {
-        const { text, x } = rightAligned(String(company.name), 10, bold);
+      const companyName = String(company?.name || "").trim();
+      if (companyName) {
+        const { text, x } = rightAligned(companyName, 10, bold);
         draw(text, { x, y: idY, size: 10, font: bold, color: ink });
         idY -= 12;
       }
