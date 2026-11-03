@@ -68,7 +68,8 @@ check("estimate_summary total equals the hand math", sum.complete === true && su
 const xlsx = join(work, "job - estimate.xlsx");
 const e = await a.call("export_estimate", { path: xlsx, project_name: "Sample job", company_name: "Sample Flooring Co" });
 const s1 = strFromU8(unzipSync(new Uint8Array(readFileSync(xlsx)))["xl/worksheets/sheet1.xml"]);
-check("export_estimate: Estimate + Materials tabs, the base bid cell, the watermark", JSON.stringify(e.tabs) === '["Estimate","Materials"]' && s1.includes(`<v>${expected}</v>`) && s1.includes("Prepared with OpenTakeoff"), e.tabs);
+const wantMark = process.env.OT_WATERMARK === "1" || process.env.OT_WATERMARK === "true";
+check(wantMark ? "export_estimate: Estimate + Materials tabs, the base bid cell, the watermark" : "export_estimate: Estimate + Materials tabs, the base bid cell, no watermark unless OT_WATERMARK is on", JSON.stringify(e.tabs) === '["Estimate","Materials"]' && s1.includes(`<v>${expected}</v>`) && (wantMark ? s1.includes("Prepared with OpenTakeoff") : !s1.includes("Prepared with OpenTakeoff")), e.tabs);
 const pdf = join(work, "proposal.pdf");
 const pr = await a.call("export_proposal", { path: pdf, project_name: "Sample job", company: { name: "Sample Flooring Co", address: "100 Example Ave\nAnytown, ST 00000", phone: "555-0100", license: "LIC-000" } });
 check("export_proposal: one page, itemized, the engine's base bid, complete", pr.pages === 1 && pr.itemized === true && pr.base_bid === expected && pr.complete === true, pr);

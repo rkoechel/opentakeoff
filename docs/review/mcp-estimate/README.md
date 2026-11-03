@@ -1,4 +1,6 @@
-# MCP 0.9.99: estimate verbs
+# MCP estimate verbs
+
+Upstream published these five tools as 0.9.99. This fork ships them as 0.9.104. The Excel footer and the proposal watermark are drawn only when `OT_WATERMARK` is `1` or `true`.
 
 Five tools give an agent the canvas's Estimate panel and Proposal dialog over the same engine (`web/src/lib/estimate.js`): `set_pricing`, `set_estimate_settings`, `estimate_summary`, `export_estimate`, `export_proposal`. Prices, markups, company and client in this run are placeholders.
 
@@ -24,7 +26,7 @@ The script drives the **built** server (`mcp/dist/server.js`) over stdio with th
 - An unpriced supply row is named.
 - An unknown row is refused with the condition's real rows.
 - The summary total equals the hand math.
-- The workbook has the base-bid cell and the watermark.
+- The workbook has the base-bid cell. With `OT_WATERMARK` unset it has no Prepared-with line.
 - The proposal is one itemized page carrying the engine's base bid.
 - `undo_last` reverses a settings write in one step.
 - `export_takeoff` carries the prices and project records.
