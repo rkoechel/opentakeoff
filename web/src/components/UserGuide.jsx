@@ -20,7 +20,7 @@ import { inOtherModal, otherModalOpen } from "../lib/modalKeys";
 import { Z, S } from "../lib/ui.js";
 import { keyLabel, keyText, isApplePlatform } from "../lib/keys.ts";
 
-const GUIDE_URL = "https://github.com/Kentucky-ai/opentakeoff/blob/main/docs/USER_GUIDE.md";
+const GUIDE_URL = "https://github.com/rkoechel/opentakeoff/blob/main/docs/USER_GUIDE.md";
 
 function Kbd({ children }) {
   return (

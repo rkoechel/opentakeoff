@@ -1203,6 +1203,8 @@ export default function PlanNavigator({
                 )}
                 <div style={{ marginTop: 30, fontFamily: "var(--f-mono)", fontSize: 10.5, letterSpacing: "0.1em", color: "var(--text-faint)" }}>
                   AGPL-3.0 · <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ color: "var(--ink-muted)" }}>{sourceLabel()}</a>
+                  {" · "}<a href="/privacy/" target="_blank" rel="noreferrer" style={{ color: "var(--ink-muted)" }}>Privacy</a>
+                  {" · "}<a href="/terms/" target="_blank" rel="noreferrer" style={{ color: "var(--ink-muted)" }}>Terms</a>
                 </div>
               </div>
             ) : enumerated ? (

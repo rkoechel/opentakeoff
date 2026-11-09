@@ -29,7 +29,10 @@ const TEXT_EXT = new Set([".html", ".txt", ".json", ".css", ".js", ".jsx", ".ts"
 
 const LEAKS: { name: string; re: RegExp }[] = [
   { name: "OpenTakeoff", re: /OpenTakeoff/ },
-  { name: "header wordmark open/takeoff", re: /open<span>takeoff/i },
+  { name: "header wordmark open/takeoff", re: /open\s*<span\b[^>]*>\s*takeoff/i },
+  { name: "upstream GitHub", re: /github\.com\/Kentucky-ai\//i },
+  { name: "spaced OPEN TAKEOFF", re: /O\s+P\s+E\s+N\s+T\s+A\s+K\s+E\s+O\s+F\s+F/ },
+  { name: "opentakeoff download name", re: /opentakeoff-(?:profile|stamps)/ },
   { name: "OPEN TAKEOFF", re: /OPEN TAKEOFF/ },
   { name: "Kentucky AI", re: /Kentucky AI/ },
   { name: "Michael Edlin", re: /Michael Edlin/ },
@@ -206,6 +209,10 @@ test("the detector would have caught the leaks this change removed", () => {
     { rel: "public/privacy/index.html", text: "mailto:michael@kentucky-ai.com" },
     { rel: "src/lib/markedset.js", text: "pg.drawSvgPath(starPath(0, 0, 11), { x: 52, y: 738, color: cobalt });" },
     { rel: "src/components/WorkspaceChrome.jsx", text: '<strong className="calm-brand">open<span>takeoff</span></strong>' },
+    { rel: "src/main.jsx", text: 'open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span>' },
+    { rel: "index.html", text: 'href="https://github.com/Kentucky-ai/opentakeoff/blob/main/docs/USER_GUIDE.md"' },
+    { rel: "public/robots.txt", text: "O  P  E  N  T  A  K  E  O  F  F" },
+    { rel: "src/pages/TakeoffCanvas.jsx", text: 'downloadText("opentakeoff-profile.otprofile", "{}")' },
     { rel: "public/terms/index.html", text: "OPEN TAKEOFF / LEGAL" },
     { rel: "src/lib/markedset.js", text: 'doc.setProducer("OpenTakeoff");' },
     { rel: "public/llms.txt", text: "# OpenTakeoff\n" },

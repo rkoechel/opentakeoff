@@ -66,6 +66,7 @@ import { shapeFill as glyphFill, renderShapeGlyph } from "../components/shapeGly
 import { renderMarkupGlyph } from "../components/markupGlyphs.jsx";
 import { paintOrderedMarkups, markupsForSheet } from "../lib/markupPaint.ts";
 import { Icon } from "../brand/icons.jsx";
+import { Wordmark } from "../brand/marks.jsx";
 import { RENDER_SCALE, MAX_GROUP, STANDARD_SCALES, parseSheetKey, compareSheetKeys, extractSheetNumber, detectScale, detectScaleSourced, extractRegionText, extractTextMarks, extractDimTexts } from "../lib/sheets";
 import { sheetScaleState, shouldAutoApply, scaleSummary, measureScaleWarning, sanitizeNtsSheets, batchDetectScales } from "../lib/scaleReview";
 import { rankScheduleCandidates, suggestSchedule } from "../lib/schedulePick";
@@ -143,7 +144,7 @@ import { sanitizeHiddenSheets, isHidden, toggleHidden, visibleFindings, hiddenFi
 import { sanitizeConditionColumns, sanitizeConditionAttrs, renameColumnValue, columnLabel } from "../lib/conditionColumns.js";
 import { sanitizeShapeLabels, sanitizeShapeLabelsOnShapes, renameShapeLabel, shapeLabelValue } from "../lib/shapeLabels.js";
 import { nextHidden, revealed } from "../lib/conditionVisibility.js";
-import { buildMarkedSetPdf, downloadBytes, splitLoadedSheets, skippedPdfsNote } from "../lib/markedset.js";
+import { buildMarkedSetPdf, downloadBytes, markedSetCoverName, splitLoadedSheets, skippedPdfsNote } from "../lib/markedset.js";
 import { repeatPlan } from "../lib/repeatTool.js";
 import { createDragCache, sheetContentSignature, dragFilename, downloadUrlEntry } from "../lib/dragOut.js";
 import { counterRows } from "../lib/liveCounter.js";
@@ -1133,6 +1134,7 @@ export default function TakeoffCanvas() {
   const sweepRef = useRef(null);
   useEffect(() => { sweepRef.current = sweep; }, [sweep]);
   const [projectName, setProjectName] = useState("");   // optional label for the report header
+  const [cloudFolderName, setCloudFolderName] = useState("");   // SharePoint/Drive folder name, used when project_name is blank
   const [clientInfo, setClientInfo] = useState({});      // per-project client/job fields for branded output; additive payload field
   const [estimateSettings, setEstimateSettings] = useState(null);   // the project's markups (lib/estimate.js); null until its estimate first opens, then copied from Company setup
   const [bidProposal, setBidProposal] = useState(null);   // the project's proposal text/layout (lib/bidProposal.js); null until its proposal first opens
@@ -2443,6 +2445,19 @@ export default function TakeoffCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A signed-in job's name is the folder on the projects list. The takeoff
+  // document's project_name is a separate optional label and is often blank,
+  // which is why a marked-set cover used to read "Untitled project".
+  useEffect(() => {
+    const read = store.folderName;
+    if (typeof read !== "function") return;
+    let live = true;
+    read().then((name) => {
+      if (live && typeof name === "string" && name.trim()) setCloudFolderName(name.trim());
+    }).catch(() => { /* the cover falls back to the typed name, then Untitled */ });
+    return () => { live = false; };
+  }, [cloudMode]);
+
   // Stamp library — independent of hydrate (it seeds no project state), so it
   // loads on its own. A truly empty library gets the flooring defaults, then
   // persists them once so the seeded set is exportable and survives reloads
@@ -3654,13 +3669,13 @@ export default function TakeoffCanvas() {
   const exportProfileFile = async () => {
     try {
       const p = await buildProfile();
-      downloadText("opentakeoff-profile.otprofile", JSON.stringify(p, null, 2), "application/json");
-      setCommitMsg(`Exported opentakeoff-profile.otprofile — ${profileSummary(p)}. Import it on another machine to carry your setup over.`);
+      downloadText("floor360-profile.otprofile", JSON.stringify(p, null, 2), "application/json");
+      setCommitMsg(`Exported floor360-profile.otprofile — ${profileSummary(p)}. Import it on another machine to carry your setup over.`);
     } catch (e) { setCommitMsg(`Couldn't export profile: ${e?.message || e}`); }
   };
   const backupProfileFile = async () => {
     const backup = await buildProfile();
-    downloadText("opentakeoff-profile-backup.otprofile", JSON.stringify(backup, null, 2), "application/json");
+    downloadText("floor360-profile-backup.otprofile", JSON.stringify(backup, null, 2), "application/json");
   };
   const importProfileFile = async (file) => {
     if (!file) return;
@@ -3669,7 +3684,7 @@ export default function TakeoffCanvas() {
       await backupProfileFile();
       const n = await applyProfile(p);
       await refreshLibraries();
-      setCommitMsg(`Applied profile${p.name ? ` "${p.name}"` : ""} — ${n.templates} condition template${n.templates === 1 ? "" : "s"}, ${n.materials} material${n.materials === 1 ? "" : "s"}, ${n.stamps} stamp${n.stamps === 1 ? "" : "s"}, ${n.reportTemplates} report template${n.reportTemplates === 1 ? "" : "s"}${n.company ? ", company setup" : ""}. Your previous setup downloaded as opentakeoff-profile-backup.otprofile.`);
+      setCommitMsg(`Applied profile${p.name ? ` "${p.name}"` : ""} — ${n.templates} condition template${n.templates === 1 ? "" : "s"}, ${n.materials} material${n.materials === 1 ? "" : "s"}, ${n.stamps} stamp${n.stamps === 1 ? "" : "s"}, ${n.reportTemplates} report template${n.reportTemplates === 1 ? "" : "s"}${n.company ? ", company setup" : ""}. Your previous setup downloaded as floor360-profile-backup.otprofile.`);
     } catch (e) {
       setCommitMsg(String(e?.message || "").startsWith("Couldn't") ? e.message : `Couldn't apply profile: ${e?.message || e}`);
     }
@@ -3679,7 +3694,7 @@ export default function TakeoffCanvas() {
       await backupProfileFile();
       await resetProfileDefaults();
       await refreshLibraries();
-      setCommitMsg("Profile reset to FLOOR360 Takeoff defaults — your previous setup downloaded as opentakeoff-profile-backup.otprofile (Import profile restores it). Project takeoffs are untouched.");
+      setCommitMsg("Profile reset to FLOOR360 Takeoff defaults — your previous setup downloaded as floor360-profile-backup.otprofile (Import profile restores it). Project takeoffs are untouched.");
     } catch (e) { setCommitMsg(`Couldn't reset profile: ${e?.message || e}`); }
   };
 
@@ -6600,7 +6615,7 @@ export default function TakeoffCanvas() {
       const brand = resolveBranding({ ...(await loadBrandingSelection(projectIdFromUrl())), profiles: loadProfiles().profiles });
       const pages = leasedPages();
       const { bytes, filename } = await buildMarkedSetPdf({
-        projectName, clientInfo, company: brand.company, credit: brand.credit, coverTitle: brand.coverTitle,
+        projectName: markedSetCoverName(projectName, cloudFolderName), clientInfo, company: brand.company, credit: brand.credit, coverTitle: brand.coverTitle,
         dark: darkMode, units, sheets: sheetMeta, shapes, markups: exportMarkups, approvals, rfis, conditions,
         getPage: pages.getPage,
         loadPdfData: (file) => store.loadPdfData(file),
@@ -6635,7 +6650,7 @@ export default function TakeoffCanvas() {
       const brand = resolveBranding({ ...(await loadBrandingSelection(projectIdFromUrl())), profiles: loadProfiles().profiles });
       const pages = leasedPages();
       const { bytes } = await buildMarkedSetPdf({
-        projectName, clientInfo, company: brand.company, credit: brand.credit, coverTitle: brand.coverTitle,
+        projectName: markedSetCoverName(projectName, cloudFolderName), clientInfo, company: brand.company, credit: brand.credit, coverTitle: brand.coverTitle,
         dark: darkMode, units, sheets: [{ key: k, ...parseSheetKey(k), label: tabLabel(k) }],
         shapes: shapes.filter((s) => s.sheet_id === k), markups: sheetMarkups,
         approvals: approvals.filter((a) => a.sheet_id === k), rfis: rfis.filter((r) => linked.has(r.id)), conditions,
@@ -6879,7 +6894,7 @@ export default function TakeoffCanvas() {
   // idempotent. The store sanitizes on save, so a malformed file can't wedge us.
   function exportStamps() {
     const data = JSON.stringify({ schema: "opentakeoff.stamp_library.v1", ...stampLibRef.current }, null, 2);
-    downloadBytes("opentakeoff-stamps.json", new TextEncoder().encode(data), "application/json");
+    downloadBytes("floor360-stamps.json", new TextEncoder().encode(data), "application/json");
   }
   async function importStamps(file) {
     try {
@@ -9579,6 +9594,8 @@ export default function TakeoffCanvas() {
     { id: "company-setup", label: "Company setup — logo, markups, proposal terms", group: "Workspace", run: () => setCompanySetupOpen(true) },
     { id: "tour", label: "Guided first takeoff — learn it on the sample plan", group: "Help", run: startTour },
     { id: "guide", label: "How FLOOR360 Takeoff works — shortcuts and the five-minute path", group: "Help", shortcut: "?", run: () => setGuideOpen(true) },
+    { id: "privacy", label: "Privacy", group: "Help", run: () => window.open("/privacy/", "_blank", "noopener,noreferrer") },
+    { id: "terms", label: "Terms", group: "Help", run: () => window.open("/terms/", "_blank", "noopener,noreferrer") },
     { id: "connect-ai", label: "Connect your AI — Claude, Codex, Cursor", group: "Help", run: () => setConnectOpen(true) },
     { id: "work", label: "Open work and review", group: "Workspace", run: () => setAgentOpen(true) },
     { id: "layout", label: "Arrange and save your layout", group: "Workspace", run: () => setWorkspaceLayoutOpen(true) },
@@ -10697,6 +10714,8 @@ export default function TakeoffCanvas() {
         helpItems={[
           { id: "tour", label: "Guided first takeoff", onSelect: startTour },
           { id: "guide", label: "How FLOOR360 Takeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+          { id: "privacy", label: "Privacy", onSelect: () => window.open("/privacy/", "_blank", "noopener,noreferrer") },
+          { id: "terms", label: "Terms", onSelect: () => window.open("/terms/", "_blank", "noopener,noreferrer") },
           { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
           { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
         ]} />}
@@ -10759,7 +10778,7 @@ export default function TakeoffCanvas() {
             and nothing important is ever past the right edge. paddingTop 16
             keeps the cluster captions (top:-13) inside the scroll box. */}
         <div data-topbar-scroll style={{ display: "flex", gap: 7, alignItems: "center", flex: "1 1 0", minWidth: 0, padding: "16px 0 0", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "thin", overscrollBehaviorX: "contain" }}>
-        <strong style={{ fontFamily: "var(--f-display)", fontSize: 15, color: "var(--ink)", letterSpacing: "-0.02em" }}>open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span></strong>
+        <Wordmark size={15} />
         <button type="button" onClick={() => fileInputRef.current?.click()} title="Open plans — PDF, image, or a .zip plan set (or just drag them onto the canvas)"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: "1px solid var(--ink)", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
           <Icon name="plus" size={14} />Open</button>
@@ -10947,6 +10966,8 @@ export default function TakeoffCanvas() {
             ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
             { id: "workspace-preview", label: workspaceLayout ? "Classic layout" : "Premium layout — compact controls", onSelect: () => workspacePrefs.setEnabled(!workspaceLayout) },
             { id: "guide", label: "How FLOOR360 Takeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+            { id: "privacy", label: "Privacy", onSelect: () => window.open("/privacy/", "_blank", "noopener,noreferrer") },
+            { id: "terms", label: "Terms", onSelect: () => window.open("/terms/", "_blank", "noopener,noreferrer") },
             { id: "tour", label: "Guided first takeoff", onSelect: startTour },
             { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
           { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
@@ -12077,7 +12098,11 @@ export default function TakeoffCanvas() {
             </button>
           )}
         </span>
-        <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ marginLeft: "auto", color: "inherit", opacity: 0.75 }}>{sourceLabel()}</a>
+        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 12, opacity: 0.75 }}>
+          <a href="/privacy/" target="_blank" rel="noreferrer" style={{ color: "inherit" }}>Privacy</a>
+          <a href="/terms/" target="_blank" rel="noreferrer" style={{ color: "inherit" }}>Terms</a>
+          <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ color: "inherit" }}>{sourceLabel()}</a>
+        </span>
         <span style={{ display: "flex", gap: 12, opacity: 0.75 }} aria-live="polite">
           <span>{shapes.filter((s) => panelKeySet.has(s.sheet_id)).length} shapes</span>
           <span>{cloudMode ? "drive" : "local"}{saveState === "saving" ? " · saving…" : saveState === "saved" ? " · saved" : ""}</span>

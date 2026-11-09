@@ -29,6 +29,7 @@ test("graph client: find/create/put/get/list/delete round-trip with Drive-shaped
 
   assert.equal(await c.findChild("root", ".opentakeoff"), null);
   const folder: any = await c.createFolder("root", ".opentakeoff");
+  assert.equal((await c.getItem(folder.id)).name, ".opentakeoff");
   const found: any = await c.findChild("root", ".opentakeoff");
   assert.equal(found.id, folder.id);
   assert.equal(found.mimeType, FOLDER_MIME); // folder facet mapped to the Drive mime

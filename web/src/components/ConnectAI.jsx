@@ -12,9 +12,8 @@ import { Z } from "../lib/ui.js";
 import { inOtherModal, otherModalOpen } from "../lib/modalKeys";
 import { samplePlanUrl, SAMPLE_PLAN_NAME } from "../lib/samplePlan.js";
 
-const CONNECT_URL = "https://github.com/Kentucky-ai/opentakeoff/blob/main/docs/CONNECT.md";
-const AGENT_GUIDE_URL = "https://github.com/Kentucky-ai/opentakeoff/blob/main/docs/AGENT_GUIDE.md";
-const MCPB_URL = "https://github.com/Kentucky-ai/opentakeoff/releases/latest/download/opentakeoff-mcp.mcpb";
+const CONNECT_URL = "https://github.com/rkoechel/opentakeoff/blob/main/docs/CONNECT.md";
+const AGENT_GUIDE_URL = "https://github.com/rkoechel/opentakeoff/blob/main/docs/AGENT_GUIDE.md";
 const NODE_URL = "https://nodejs.org";
 
 const MCP_JSON = `{
@@ -50,12 +49,12 @@ const A = ({ href, children }) => <a href={href} target="_blank" rel="noreferrer
 
 const TABS = [
   {
-    id: "desktop", label: "Claude Desktop", needs: "Nothing else to install",
+    id: "desktop", label: "Claude Desktop", node: true,
     body: () => (
       <>
-        <P>1. Download <A href={MCPB_URL}>opentakeoff-mcp.mcpb</A> — the link always points at the newest release.</P>
-        <P>2. Double-click it. Claude Desktop opens an install prompt; confirm it.</P>
-        <P>The bundle carries its own dependencies, so there's no Node or npm to install. It leaves out the optional sheet renderer: every measuring and export tool works, but the agent can't draw sheet images.</P>
+        <P>Claude Desktop reads a local config. Open Settings → Developer → Edit Config and add:</P>
+        <Code label="Claude Desktop config" text={MCP_JSON} />
+        <P>Restart Claude Desktop. The server installs from npm (<code>opentakeoff-mcp</code>), so there is no separate download. It leaves out nothing the terminal install has: every measuring and export tool works, and sheet images need the optional renderer the npm package can load.</P>
       </>
     ),
   },

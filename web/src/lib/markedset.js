@@ -236,6 +236,14 @@ function invertPixels(cv) {
   ctx.restore();
 }
 
+/** Cover title: a typed project name, else the cloud folder name, else "".
+ *  "Untitled project" is only the draw-site fallback for a genuinely empty result. */
+export function markedSetCoverName(projectName, folderName = "") {
+  const typed = typeof projectName === "string" ? projectName.trim() : "";
+  if (typed) return typed;
+  return typeof folderName === "string" ? folderName.trim() : "";
+}
+
 export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, markups, approvals = [], rfis: rfisIn = [], conditions, getPage, loadPdfData, company, clientInfo, credit = null, provenance = null, coverTitle = "Marked Set", units = "imperial" }) {
   // a withdrawn RFI is a tombstone (rfi.js liveRfis): its number stays
   // reserved but it prints nowhere — the schedule keeps the gap. An agent-
@@ -348,7 +356,8 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
         idY -= 11;
       }
     }
-    draw(String(projectName || "Untitled project"), { x: 52, y: 700, size: 22, font: bold, color: ink });
+    const coverProject = markedSetCoverName(projectName);
+    draw(coverProject || "Untitled project", { x: 52, y: 700, size: 22, font: bold, color: ink });
     // client block (optional) sits under the project name; the meta line and
     // everything below shift down with it — no clientInfo, no shift: every y
     // matches the unbranded cover exactly.
@@ -976,7 +985,7 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
 
   const pages = doc.getPageCount();
   const bytes = await doc.save();
-  const base = (projectName || "").trim();
+  const base = markedSetCoverName(projectName);
   const filename = `${base ? base + " - " : ""}marked set${dark ? " (dark)" : ""}.pdf`;
   return { bytes, filename, pages };
 }

@@ -133,7 +133,7 @@ export async function exportMarkedPdf(session: Session, opts: MarkedPdfOpts) {
     ...(pendingRfis ? [`${pendingRfis} agent-raised RFI${pendingRfis === 1 ? "" : "s"} pending acceptance`] : []),
   ];
   const credit = creditParts.length
-    ? `${machine ? "Machine-traced" : "Agent-raised"} via OpenTakeoff MCP — ${creditParts.join(" · ")}`
+    ? `${machine ? "Machine-traced" : "Agent-raised"} via FLOOR360 Takeoff — ${creditParts.join(" · ")}`
     : null;
 
   const { bytes, pages } = await buildMarkedSetPdf({

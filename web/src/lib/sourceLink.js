@@ -15,6 +15,7 @@ export function sourceHref() {
 }
 
 export function sourceLabel() {
-  const sha = sourceCommit();
-  return sha ? `Source ${sha.slice(0, 7)}` : "Source";
+  // The href still points at this deployment's commit (or the repo root when
+  // the commit is unknown). The visible words name the AGPL disclosure.
+  return "Source code (AGPL)";
 }
