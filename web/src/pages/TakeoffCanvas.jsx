@@ -18,6 +18,7 @@ import ReferencePins, { PinButton } from "../components/ReferencePins.jsx";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { keyText } from "../lib/keys.ts";
 import { nextHatchId } from "../lib/takeoffConstants.ts";
+import { TRADE_SUITES, ALL_TRADES, tradeHiddenIds, tradeCounts, sanitizeViewTrade, suiteById, conditionTrade } from "../lib/tradeSuites.ts";
 import { buildTakeoffDocument, sheetEntry } from "../lib/takeoffDocument.js";
 import { flushSync } from "react-dom";
 import { Link, useNavigate } from "react-router";
@@ -29,8 +30,8 @@ import { Z } from "../lib/ui.js";
 import { getFocusMode, toggleFocusMode, onFocusModeChange } from "../lib/focusMode.js";
 import { seedStampLibrary, instantiateStamp, markupToStampElement } from "../lib/stamps.js";
 import { extractSvgPrimitives, svgToStamp } from "../lib/svgImport.js";
-import { transformPath, svgPlacedBox } from "../lib/svgpath.js";
-import { imagePlacedBox, captureRectToImageGeom, resizeImageFromCorner, aspectFromDims, pickEmbedFormat, sourceCaption, filterCaptures } from "../lib/markupImage";
+import { svgPlacedBox } from "../lib/svgpath.js";
+import { imagePlacedBox, captureRectToImageGeom, resizeImageFromCorner, aspectFromDims, pickEmbedFormat, filterCaptures } from "../lib/markupImage";
 import { rectMidpoint, pendingSourceOutcome, isTraceable, traceLabel } from "../lib/sourceTrace";
 import { relativeAge, absoluteUtc } from "../lib/reltime";
 import { ingestFiles } from "../lib/ingest.js";
@@ -42,10 +43,12 @@ import { buildProfile, parseProfile, applyProfile, resetProfileDefaults, isProfi
 import ToolMenu from "../components/ToolMenu.jsx";
 import PlanNavigator from "../components/PlanNavigator.jsx";
 import FirstTakeoffTour from "../components/FirstTakeoffTour.jsx";
+import ToolTray from "../components/ToolTray.jsx";
+import AssistantWindow from "../components/AssistantWindow.jsx";
 import ConnectAI from "../components/ConnectAI.jsx";
 import CompanySetup from "../components/CompanySetup.jsx";
 import EstimatePanel from "../components/EstimatePanel.jsx";
-import { sanitizeEstimateSettings } from "../lib/estimate.js";
+import { sanitizeEstimateSettings, priceEstimate } from "../lib/estimate.js";
 import { sanitizeBidProposal } from "../lib/bidProposal.js";
 import { loadEstimatingDefaults } from "../lib/companySetup.js";
 import { advanceTour, countFloorShapes, currentStep } from "../lib/firstTakeoff.js";
@@ -59,12 +62,21 @@ import OcrDownloadNotice from "../components/OcrDownloadNotice.jsx";
 import PageReadControl, { readControlPlacement, READ_CONTROL_LEFT } from "../components/PageReadControl.jsx";
 import TakeoffsPanel, { clampPanelW, CONDITION_DND_MIME, ConditionAppearanceEditor } from "../components/TakeoffsPanel.jsx";
 import { HATCHES, PALETTE, NO_FILL, HatchPattern, HatchSwatch } from "../components/hatches.jsx";
+import { shapeFill as glyphFill, renderShapeGlyph } from "../components/shapeGlyphs.jsx";
+import { renderMarkupGlyph } from "../components/markupGlyphs.jsx";
+import { paintOrderedMarkups, markupsForSheet } from "../lib/markupPaint.ts";
 import { Icon } from "../brand/icons.jsx";
 import { RENDER_SCALE, MAX_GROUP, STANDARD_SCALES, parseSheetKey, compareSheetKeys, extractSheetNumber, detectScale, detectScaleSourced, extractRegionText, extractTextMarks, extractDimTexts } from "../lib/sheets";
 import { sheetScaleState, shouldAutoApply, scaleSummary, measureScaleWarning, sanitizeNtsSheets, batchDetectScales } from "../lib/scaleReview";
 import { rankScheduleCandidates, suggestSchedule } from "../lib/schedulePick";
 import { buildSheetGraph } from "../lib/sheetgraph";
 import ScaleReviewPanel from "../components/ScaleReviewPanel.jsx";
+import { serializeSplitView, normalizeSplitView, wouldExceedSheetCap, canSplit } from "../lib/splitView";
+import { LOW_MEMORY_DEVICE } from "../lib/deviceClass"; // same switch tilePool.ts sizes its worker pool on (Task 8: also gates split creation/mounting)
+import SplitLayout from "../components/SplitLayout.jsx";
+import ReferencePane from "../components/ReferencePane.jsx";
+import DropZoneOverlay from "../components/DropZoneOverlay.jsx";
+import { dropZoneAt, zoneToOrientation, SHEET_TAB_DND_MIME } from "../lib/dropZones";
 import { joinAbuttingSpans } from "../lib/textjoin";
 import { buildSheetIndex, dropFileFromIndex } from "../lib/planIndex";
 import { labelsForFile, labelsOnFileChange, withPageLabel, withFoundLabels, withoutFile, withoutFileKeys, createLabelGens } from "../lib/sheetLabels";
@@ -84,7 +96,6 @@ import { measurePage } from "../lib/pictures";
 import { normalizeLoadedGroups } from "../lib/sheetGroups";
 import { isStitchKey, mintStitchId, sanitizeStitches, autoButt, stitchExtent, alignMembers, seamClips, mergePoints, mergeSegs, stitchAlive, stitchLayoutSig, pinnedFiles } from "../lib/stitches";
 import { isCanvasBusy } from "../lib/canvasBusy";
-import { LOW_MEMORY_DEVICE } from "../lib/deviceClass";
 import { rowToSeed } from "../lib/scheduleRows";   // the reader (scheduleRead, which loads the sheet graph) is import()ed on use
 import { routeScheduleRead, countTextRuns, heldKeyWouldPress, EMPTY_BOX_MESSAGE, OCR_BUSY_MESSAGE, OCR_STARTING_MESSAGE, OCR_WAITING_MESSAGE, ocrReadingMessage } from "../lib/scheduleRoute";
 import { readBoxOnDevice } from "../lib/scheduleOcrRead";
@@ -136,11 +147,11 @@ import { buildMarkedSetPdf, downloadBytes, splitLoadedSheets, skippedPdfsNote } 
 import { repeatPlan } from "../lib/repeatTool.js";
 import { createDragCache, sheetContentSignature, dragFilename, downloadUrlEntry } from "../lib/dragOut.js";
 import { counterRows } from "../lib/liveCounter.js";
-import { qtyLabels, resolveMarkup, FIELD_WARN_INK, FIELD_WARN_INK_DARK } from "../lib/noteFields.ts";
+import { qtyLabels, resolveMarkup } from "../lib/noteFields.ts";
 import LiveCounter from "../components/LiveCounter.jsx";
 import { loadProfiles } from "../lib/identity.js";
 import { resolveBranding, loadBrandingSelection } from "../lib/branding.js";
-import { starPath, cloudPath, thinStroke, strokePathD, chiselRibbon, buildSnapGrid, nearestSnap, ANGLE_TOL, angleSnap, closedMetrics, polyWithHolesMetrics, openLen, pointInPoly, hitShape, arrowheadPath, distToSeg, reflectVertsNorm, ringSelfIntersects, minAreaRect } from "../lib/geometry.js";
+import { starPath, cloudPath, thinStroke, strokePathD, chiselRibbon, buildSnapGrid, nearestSnap, ANGLE_TOL, angleSnap, closedMetrics, polyWithHolesMetrics, openLen, pointInPoly, hitShape, distToSeg, reflectVertsNorm, ringSelfIntersects, minAreaRect } from "../lib/geometry.js";
 // Drawing style (draft chrome look) — one resolved token object (DS in JSX,
 // dsRef.current in the imperative movers) replaces the hardcoded cobalt/star
 // literals across the in-progress trace, cursor, and selection chrome.
@@ -151,10 +162,11 @@ import { flattenArcRing, arcPathD, arcLength } from "../lib/arc.js";
 // Notes are ink on the sheet (lib/markupText): sized in page points, wrapped at
 // three inches, floored for legibility on screen — the Marked Set burns the
 // same layout, so the print looks like the canvas it was reviewed on.
-import { NOTE_PT, LABEL_PT, NOTE_FONT_FAMILY, inkPx, layoutNote, noteBox, lineBaseline, canvasMeasure } from "../lib/markupText.js";
-import { dashArrayFor, boostForDark, clampWeight, snapWeight, LINE_STYLES, LINE_STYLE_IDS, WEIGHT_STEPS } from "../lib/lineStyles.js";
+import { NOTE_PT, inkPx, layoutNote, noteBox, canvasMeasure } from "../lib/markupText.js";
+import { snapWeight, LINE_STYLES, LINE_STYLE_IDS, WEIGHT_STEPS } from "../lib/lineStyles.js";
 import { nextRfiNumber } from "../lib/rfi.js";
 import { libFields, matFieldOverridden, libPushPatch, libRevertPatch, libEntryPatch, matEditPatch } from "../lib/materials.js";
+import { assemblyRows } from "../lib/assemblies.js";
 import RfiPanel from "../components/RfiPanel.jsx";
 import StampPanel from "../components/StampPanel.jsx";
 import ImportSchedulePanel from "../components/ImportSchedulePanel.jsx";
@@ -171,12 +183,17 @@ import { computeRollTakeoff, seamLfByShape } from "../lib/rollTakeoff.js";
 // registry of deterministic tools (lib/agentTools); this file provides the
 // CAPABILITIES those tools close over and the review gate their proposals
 // pass through. AiSettings is the config surface for the ai.js seam.
-import AgentPanel from "../components/AgentPanel.jsx";
+import AgentChat from "../components/AgentChat.jsx";
+import "../styles/agentChat.css";
+import { useAgentChat } from "../lib/useAgentChat.js";
+import { historyMessages, notReadyMessage, withViewContext } from "../lib/agentChat.js";
 import WorkspacePanel from "../components/WorkspacePanel.jsx";
 import PremiumInterest from "../components/PremiumInterest.jsx";
 import { shouldAutoPromptPremium, readPremiumPrompt } from "../lib/premiumInterest.js";
 import "../styles/premiumWorkspace.css";
-import { WorkspaceChrome, WorkspaceNavigator, WorkspaceCommandMenu } from "../components/WorkspaceChrome.jsx";
+import { WorkspaceNavigator, WorkspaceCommandMenu } from "../components/WorkspaceChrome.jsx";
+import { PremiumRail, PremiumTopBar, CanvasSideTabs } from "../components/PremiumChrome.jsx";
+import ConditionsDock from "../components/ConditionsDock.jsx";
 import { useWorkspaceLayout, WorkspaceLayoutDialog, DockHandle, DockTargets } from "../components/WorkspaceLayout.jsx";
 import AiSettings from "../components/AiSettings.jsx";
 import { agentToolDefs, executeAgentTool, agentScaleGate } from "../lib/agentTools.js";
@@ -331,6 +348,38 @@ const TOOL_VERB = {
 // The materials/column editors (MaterialsEditor, ColumnSelects, AddValueInput)
 // live in components/TakeoffsPanel.jsx — the panel is their only surface now.
 
+// Pure crop math for the detail view (Task 6, #86-family): the visible
+// region of surface `d` (in ITS OWN image px), intersected with any seam
+// clip, expanded by DETAIL_MARGIN, given the surface's own transform `t`
+// ({x,y,scale}) and its container's bounding rect `r` ({width,height}).
+// Shared by the primary's multi-panel detail sync (syncTilePanelsRef below,
+// one `d` per drawPanels entry, all under the SAME shared `t`/`r`) and the
+// reference pane's own single-surface detail sync (paintReferenceDetail
+// below, its OWN `t`/`r` — ReferencePane.jsx owns an independent transform
+// and viewport, never the primary's) — this is the one place either caller
+// could get the margin/clip math subtly wrong, so it exists exactly once.
+// Returns null when `d` is fully off-screen; the caller hides its canvas.
+function detailCropFor(t, r, d) {
+  const vx0 = d.clip ? Math.max(d.x, d.clip.x) : d.x;
+  const vy0 = d.clip ? Math.max(d.y, d.clip.y) : d.y;
+  const vx1 = d.clip ? Math.min(d.x + d.w, d.clip.x + d.clip.w) : d.x + d.w;
+  const vy1 = d.clip ? Math.min(d.y + d.h, d.clip.y + d.clip.h) : d.y + d.h;
+  let x0 = Math.max((-t.x) / t.scale, vx0) - d.x;
+  let y0 = Math.max((-t.y) / t.scale, vy0) - d.y;
+  let x1 = Math.min((r.width - t.x) / t.scale, vx1) - d.x;
+  let y1 = Math.min((r.height - t.y) / t.scale, vy1) - d.y;
+  if (x1 <= x0 || y1 <= y0) return null; // source off-screen
+  const mw = (x1 - x0) * DETAIL_MARGIN, mh = (y1 - y0) * DETAIL_MARGIN;
+  x0 = Math.max(0, x0 - mw); y0 = Math.max(0, y0 - mh);
+  x1 = Math.min(d.w, x1 + mw); y1 = Math.min(d.h, y1 + mh);
+  // Position bases are relative to the canvas's offset parent: the stage for
+  // a plain panel, the clipping wrapper for a stitch member (d.clip unset
+  // for the reference pane, so xBase/yBase collapse to d.x/d.y there).
+  const xBase = d.clip ? d.x - d.clip.x : d.x;
+  const yBase = d.clip ? d.y - d.clip.y : d.y;
+  return { x0, y0, x1, y1, xBase, yBase };
+}
+
 export default function TakeoffCanvas() {
   // Client-only: a single local workspace in this browser (no project id, no backend).
   const [sheets, setSheets] = useState([]);
@@ -417,6 +466,23 @@ export default function TakeoffCanvas() {
   const [leftTab, setLeftTab] = useState(null);
   const [showMarkups, setShowMarkups] = useState(true);       // markup SVG layer visibility (orthogonal to the export checkbox)
   const [hiddenConds, setHiddenConds] = useState(() => new Set()); // condition ids whose takeoffs are hidden on the canvas (#440) — VIEW STATE: never persisted, never touches totals/report/exports
+  // the status bar's Trade view (lib/tradeSuites.ts): shows one trade's conditions and shapes, and books new
+  // conditions to it. Per-user VIEW STATE in localStorage — never a quantity, never in the project file.
+  const [viewTrade, setViewTrade] = useState(() => { try { return sanitizeViewTrade(localStorage.getItem("opentakeoff_view_trade")); } catch { return ALL_TRADES; } });
+  useEffect(() => { try { localStorage.setItem("opentakeoff_view_trade", viewTrade); } catch { /* private mode */ } }, [viewTrade]);
+  // switching trades moves the active condition to that trade's first one, when it has any
+  const pickViewTrade = (raw) => {
+    const v = sanitizeViewTrade(raw);
+    setViewTrade(v);
+    if (v === ALL_TRADES) return;
+    const cs = agentStateRef.current.conditions.length ? agentStateRef.current.conditions : conditions;
+    const cur = cs.find((c) => c.id === activeCond);
+    if (cur && conditionTrade(cur) === v) return;
+    const first = cs.find((c) => conditionTrade(c) === v);
+    if (first) activateCondition(first.id, { reassign: false });
+  };
+  const viewTradeRef = useRef(viewTrade);   // mintCondition reads the live value (the agent can mint mid-run on a stale closure)
+  viewTradeRef.current = viewTrade;
   const [editor, setEditor] = useState(null);                 // inline on-canvas text editor { left, top, value, multiline, commit } (retires window.prompt; screen-space overlay, NOT an SVG child)
   const [panelEditId, setPanelEditId] = useState(null);       // markup id whose text is being edited inline in the markup panel (off-screen fallback for the ✎ button)
   const [captureQuery, setCaptureQuery] = useState("");       // always-on name filter over the GLOBAL Captures list (transient, mirrors condQuery)
@@ -450,6 +516,85 @@ export default function TakeoffCanvas() {
   const [tool, setTool] = useState("select");
   const [panelImgs, setPanelImgs] = useState({}); // { sheetKey: {w,h} } rendered bitmap dims per panel
   const [tf, setTf] = useState({ x: 0, y: 0, scale: 1 }); // render mirror of tfRef
+  const [splitView, setSplitView] = useState(null); // null = single canvas; else { orientation, ratio, refKey }
+  // Task 8: manual "Restore split" override — lets a user explicitly re-mount
+  // an already-open split's reference pane on a device canSplit (below) would
+  // otherwise suppress it on (narrow viewport / low-memory). Reset the moment
+  // the split itself collapses so a stale override never carries into the
+  // NEXT split. Keyed on presence/absence only (not the splitView object
+  // itself, whose identity churns every ratio-drag tick and would re-run this
+  // pointlessly on every one of those).
+  const [splitOverride, setSplitOverride] = useState(false);
+  useEffect(() => {
+    if (!splitView) setSplitOverride(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally narrowed to presence/absence (see comment above), not splitView's own churny identity
+  }, [!!splitView]);
+  // Live drop-zone under a dragged sheet tab (Task 4) — null hides the overlay.
+  const [dragZone, setDragZone] = useState(null);
+  // ── reference pane resolution (Task 3) — independent of panelImgs/groupKeys ──
+  // panelImgs is fully REPLACED on every group render (see setPanelImgs in the
+  // group effect below), so a referenced sheet outside the primary group needs
+  // its own dims + open/paint lifecycle, never borrowed from that map.
+  const [refPanelImg, setRefPanelImg] = useState(null);   // {w,h} for splitView.refKey once resolved; null while unresolved/loading
+  const [refInvalid, setRefInvalid] = useState(null);      // the refKey string that's currently known unresolvable, or null
+  const [refEpoch, setRefEpoch] = useState(0);              // bumped every time this refKey's compositor entry is (re)opened — repaint signal independent of panelImg's identity
+  // Dangling refKey (a stale key from a removed sheet, a bad debug-hook call,
+  // an out-of-range page): never frame the wrong sheet — suppress refKey down
+  // to null the moment it's known bad, same as "no split reference" at all.
+  const rawRefKey = splitView?.refKey || null;
+  const effectiveRefKey = rawRefKey && refInvalid === rawRefKey ? null : rawRefKey;
+  // The reference pane's tab bar (Task 7): the set of sheets dropped there.
+  // normalizeSplitView backfills refSet on every LOAD, but a split minted
+  // directly by setSplitView in this file isn't required to set it — same
+  // [refKey] fallback the codec uses, kept here so every read site (the bar
+  // itself, the handlers below) can trust this array rather than
+  // re-deriving the fallback each time.
+  const refSet = splitView?.refSet?.length ? splitView.refSet : (rawRefKey ? [rawRefKey] : []);
+  // Click a reference-bar chip: re-frame it. A no-op if it's already framed
+  // (still a harmless setSplitView call — the resolve effect's `sameKey`
+  // check absorbs it without touching refDimsRef/refDetailCancelRef).
+  const selectRefTab = (key) => setSplitView((s) => s && { ...s, refKey: key });
+  // ✕ on a chip: drop it from the set. Reframes to the sheet at the same
+  // INDEX the removed chip held (clamped to the new length) when the removed
+  // chip was the one currently framed — same "land where you were, not
+  // always the first" idiom as closeTab's own reframe above, so removing
+  // chip 2-of-3 lands on the new chip 2, not always back to chip 1.
+  // Removing the LAST chip empties the set — Task 8's empty-pane guard:
+  // rather than refuse (Task 7's behavior), auto-collapse the whole split.
+  // ReferencePane's tab bar shows the ✕ even on a solo chip for exactly this
+  // — "remove my only reference sheet" IS "close this split," not a dead end.
+  const removeRefTab = (key) => setSplitView((s) => {
+    if (!s) return s;
+    const set = s.refSet?.length ? s.refSet : [s.refKey];
+    const i = set.indexOf(key);
+    const next = set.filter((k) => k !== key);
+    if (!next.length) return null;
+    const refKey = s.refKey === key ? next[Math.min(Math.max(i, 0), next.length - 1)] : s.refKey;
+    return { ...s, refSet: next, refKey };
+  });
+  // Drop a sheet tab onto the reference pane's own surface (Task 7): joins
+  // the reference set (if not already a member) and frames it — the
+  // reference-pane analog of the primary pane's edge-drop-to-split gesture,
+  // except every drop here is a "center" drop (see ReferencePane.jsx's
+  // comment on why it skips dropZoneAt's edge/center hit-test entirely).
+  // Task 8: refuses (toast, no state change) rather than silently dropping
+  // the sheet when adding a NEW member would push the total over
+  // SPLIT_MAX_TOTAL_SHEETS — checked here, outside the updater, because the
+  // refusal has a side effect (the toast) and a setState updater can run
+  // more than once (StrictMode, batched retries). refuseIfOverCap/
+  // primaryCount are declared below (near groupKeys/stitchById, which the
+  // count needs); referencing them here is safe — this closure only runs
+  // later, as a drop handler, well after that declaration has executed.
+  const dropOntoReference = (droppedKey) => {
+    if (!splitView) return;
+    if (!refSet.includes(droppedKey) && refuseIfOverCap(refSet.length + 1)) return;
+    setSplitView((s) => {
+      if (!s) return s;
+      const set = s.refSet?.length ? s.refSet : [s.refKey];
+      const next = set.includes(droppedKey) ? set : [...set, droppedKey];
+      return { ...s, refSet: next, refKey: droppedKey };
+    });
+  };
 
   const [scales, setScales] = useState({});
   const [scaleSources, setScaleSources] = useState({}); // scale provenance for the report — typically "calibrated" | "standard" | "detected", but any string a newer build wrote is kept verbatim; sheets that predate the flag export "unknown"
@@ -480,6 +625,16 @@ export default function TakeoffCanvas() {
   const pendingScheduleReadRef = useRef(null);                // { key, region } — read once that sheet is open
   const [hydratedTick, setHydratedTick] = useState(0);
   const isNarrow = useIsNarrow();
+  // Task 8: viewport/memory disable. `deviceCanSplit` gates split CREATION
+  // (the drag-to-split gesture and the "Reference ▸ Split…" menu items) —
+  // unconditionally, no override. `splitMounted` additionally gates whether
+  // an ALREADY-open splitView actually mounts its ReferencePane: it honors
+  // `splitOverride` (the "Restore split" menu item) so a user who explicitly
+  // asks for the pane anyway isn't second-guessed, while the persisted
+  // splitView itself is never discarded either way (see the SplitLayout
+  // render site below — `reference` goes null, `splitView` state does not).
+  const deviceCanSplit = canSplit({ narrow: isNarrow, lowMemory: LOW_MEMORY_DEVICE });
+  const splitMounted = deviceCanSplit || splitOverride;
   const [darkMode, setDarkMode] = useState(() => { try { return localStorage.getItem("opentakeoff_dark") === "1"; } catch { return false; } });
   useEffect(() => { try { localStorage.setItem("opentakeoff_dark", darkMode ? "1" : "0"); } catch { /* private mode */ } }, [darkMode]);
   // App chrome theme (light/dark tokens) — independent of the canvas ☾ invert
@@ -511,6 +666,17 @@ export default function TakeoffCanvas() {
   }, [panelPrefs]);
   const panelW = clampPanelW(Number(panelPrefs.w) || PANEL_DEFAULTS.w);
   const takeoffsOpen = !panelPrefs.collapsed;
+  // Premium layout: the Conditions dock on the right (list + settings card). Open
+  // by default, remembered in this browser; the classic table stays one ⋯ away.
+  const [condDockOpen, setCondDockOpenRaw] = useState(() => { try { return localStorage.getItem("opentakeoff_conditions_dock") !== "0"; } catch { return true; } });
+  const setCondDockOpen = useCallback((v) => setCondDockOpenRaw((cur) => {
+    const next = typeof v === "function" ? v(cur) : v;
+    try { localStorage.setItem("opentakeoff_conditions_dock", next ? "1" : "0"); } catch { /* session only */ }
+    return next;
+  }), []);
+  // the classic Takeoffs table (library, materials, columns) in the Premium layout:
+  // session-only, so a table left open in the classic layout never covers the dock
+  const [fullTableOpen, setFullTableOpen] = useState(false);
   const toggleTakeoffs = () => setPanelPrefs((p) => ({ ...p, collapsed: !p.collapsed }));
   // Panel resize lives INSIDE TakeoffsPanel (mid-drag width goes straight to
   // its DOM node; the pref commits ONCE on release via setPanelPrefs). Each
@@ -616,6 +782,9 @@ export default function TakeoffCanvas() {
   const [tour, setTour] = useState(null);
   const [tourSampleBusy, setTourSampleBusy] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);   // Connect your AI (components/ConnectAI.jsx)
+  // the Assistant window (components/AssistantWindow.jsx): the person's own AI app, talking here
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const openAssistant = useCallback(() => setAssistantOpen(true), []);
   const [companySetupOpen, setCompanySetupOpen] = useState(false);   // Company setup (components/CompanySetup.jsx)
   const [companyRev, setCompanyRev] = useState(0);   // bumped on every Company setup save so an open report's masthead re-reads
   const [proposal, setProposal] = useState(null);  // One-Click selection under review: { key, regions: [{kind:'pos'|'neg', seed, poly, area_sf, perim_lf}] } — panel-LOCAL px
@@ -659,6 +828,19 @@ export default function TakeoffCanvas() {
   const premiumPrompted = useRef(false); // unprompted dialog: never twice in one app opening, even with storage blocked
   const workspaceLayout = workspacePrefs.enabled;
   const workspaceArrangement = workspacePrefs.layout;
+  // the tool dock floating at the canvas foot (Premium's position; default since 2026-11)
+  const dockBottom = workspaceLayout && workspaceArrangement.tools === "bottom";
+  // the dock's ⋯ tray — every tool that isn't on the dock itself, laid out at once (Premium's layout)
+  const [trayOpen, setTrayOpen] = useState(false);
+  const dockWrapRef = useRef(null);
+  useEffect(() => {
+    if (!trayOpen) return undefined;
+    const onDown = (e) => { if (dockWrapRef.current && !dockWrapRef.current.contains(e.target)) setTrayOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") setTrayOpen(false); };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown, true); document.removeEventListener("keydown", onKey); };
+  }, [trayOpen]);
   const [workspaceNavigationOpen, setWorkspaceNavigationOpen] = useState(false);
   const [workspaceControlsOpen, setWorkspaceControlsOpen] = useState(false);
   const [workspaceDetailsOpen, setWorkspaceDetailsOpen] = useState(false);
@@ -673,7 +855,7 @@ export default function TakeoffCanvas() {
   const [rollEdit, setRollEdit] = useState(false);        // cut-edit mode — cuts take pointer events (slide / resize / double-click reset)
   const [rollPanelOpen, setRollPanelOpen] = useState(false); // docked Roll panel (diagram + reorder)
   const rollDragRef = useRef(null);                       // live cut-drag gesture; commit is ONE rollcut command on release
-  const [agentLog, setAgentLog] = useState([]);           // streaming run status [{kind, text}]
+  const agentChat = useAgentChat(projectIdFromUrl());    // the Agent tab's conversation, persisted per project (lib/useAgentChat)
   const [agentRunning, setAgentRunning] = useState(false);
   const [showAiSettings, setShowAiSettings] = useState(false); // BYO-key config modal (ai.js seam)
   const agentAbortRef = useRef(null);                     // live AbortController while a run is in flight
@@ -960,6 +1142,12 @@ export default function TakeoffCanvas() {
   const profileInputRef = useRef(null);                 // hidden <input type=file> for "Import profile…" (#299)
   const imageInputRef = useRef(null);                   // hidden <input type=file> for the Markups-dock "Upload image…" button
 
+  // The gesture/pointer viewport div. SplitLayout is ALWAYS mounted at this
+  // subtree's slot (see SplitLayout.jsx's header comment), so this node's
+  // identity is stable for the component's whole lifetime — no split
+  // enter/exit, flip, or ratio drag ever remounts it, and effects that
+  // addEventListener() on it once at setup (wheel, below) don't need to
+  // re-subscribe on a node-identity change that no longer happens.
   const containerRef = useRef(null);
   const stageRef = useRef(null);
   const panelCanvasRefs = useRef(new Map()); // sheetKey → <canvas> (base layer — small backing store, coarse pyramid placeholder)
@@ -979,6 +1167,7 @@ export default function TakeoffCanvas() {
   // recreates it.
   const compositorRef = useRef(null);
   const getCompositor = () => (compositorRef.current ??= createTileCompositor());
+  const refDimsRef = useRef(null); // { key: refKey, w, h } for the CURRENTLY resolved reference sheet, or null — read by paintReferenceBase
   const detailCanvasRefs = useRef(new Map()); // sheetKey → <canvas> (one detail/viewport layer PER PANEL now, not one shared global — every group-mode panel gets independent sharpness)
   const detailKeysRef = useRef(new Map());    // sheetKey → last requested crop key (per-panel render-key dedup, generalizing the old single detailKeyRef)
   const detailCancelsRef = useRef(new Map()); // sheetKey → disposer for the in-flight paintDetail call
@@ -1074,6 +1263,7 @@ export default function TakeoffCanvas() {
   const aimSeqRef = useRef(0);         // bumps with every lastPtrRef write — the deixis freshness clock (no second tracker, just a tick on the existing one)
   const voiceAimMarkRef = useRef(0);   // aim is LIVE for deixis only while aimSeq > this; re-marked at utterance begin (Command box focus / every run) and on canvas-leave + tab-hide, so a parked-off-canvas or refocus ghost seed can never place a trace
   const pendingClickRef = useRef(null); // deferred draw click {p,cx,cy} — drag >5px converts to a pan
+  const rectDragRef = useRef(false);    // Rectangle by drag (Premium tool feel): the press is corner 1, the release corner 2
   const hoverRef = useRef(null);        // hover tooltip div (DOM-direct like the crosshair)
   const insGhostRef = useRef(null);     // edge-insert ghost "+" badge (DOM-direct like the hover readout)
   const hoverIdRef = useRef("");        // shape id currently described by the tooltip
@@ -1275,6 +1465,15 @@ export default function TakeoffCanvas() {
 
   // page 1 keeps the bare file name (pre-paging takeoffs still load); pages 2+ → "name#page"
   const sheetKey = page > 1 ? `${active}#${page}` : active;
+  // Most-recently-viewed tab order (Task 7): the "Reference ▸ Split
+  // Vertical/Horizontal" menu items default their chosen sheet to the
+  // most-recently-used non-active open tab, and openTabs itself is
+  // insertion-ordered (append-on-open), not recency-ordered, so it can't
+  // answer that on its own. Front-loads sheetKey on every navigation,
+  // deduped; a closed tab simply falls out of the openTabs.includes() filter
+  // at read time rather than being pruned here.
+  const tabMruRef = useRef([]);
+  useEffect(() => { tabMruRef.current = [sheetKey, ...tabMruRef.current.filter((k) => k !== sheetKey)]; }, [sheetKey]);
   // toggle a sheet in/out of the side-by-side group; first toggle from single
   // mode seeds the group with the sheet currently on screen
   const toggleInGroup = (key) => setSheetGroup((g) => {
@@ -1375,6 +1574,24 @@ export default function TakeoffCanvas() {
     const next = openTabs.filter((k) => k !== key);
     setOpenTabs(next);
     if (sheetGroup.includes(key)) { const f = sheetGroup.filter((k) => k !== key); setSheetGroup(f.length >= 2 || (f.length === 1 && isStitchKey(f[0])) ? f : []); }
+    // Stale-chip pruning (Task 8, carried from Task 7's flagged gap): a
+    // closed tab's sheetKey must not linger in a split's reference set — the
+    // reference pane only ever REFERENCES open tabs, never owns them
+    // (SplitLayout.jsx's header comment). Drop it; if it was the framed
+    // sheet, reframe to another member that's still an open tab, or
+    // auto-collapse (setSplitView(null)) if none remain — the
+    // dangling-single-chip dead end this task exists to close (a stale chip
+    // stuck showing "Drop a sheet here" with no way to remove it short of
+    // collapsing the whole split).
+    if (splitView && (splitView.refKey === key || splitView.refSet?.includes(key))) {
+      setSplitView((s) => {
+        if (!s) return s;
+        const set = (s.refSet?.length ? s.refSet : [s.refKey]).filter((k) => k !== key);
+        if (!set.length) return null;
+        const refKey = s.refKey === key ? set.find((k) => next.includes(k)) : s.refKey;
+        return refKey ? { ...s, refSet: set, refKey } : null;
+      });
+    }
     if (!next.length) { setView("gallery"); return; }
     if (!sheetGroup.length && key === sheetKey) { const nb = next[Math.min(Math.max(i, 0), next.length - 1)]; if (nb) goToSheet(nb); }
   }
@@ -1433,6 +1650,23 @@ export default function TakeoffCanvas() {
     pinsRef.current = { files: pinFiles, stitchById };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- pinSig is pinFiles' identity; stitchById rides along
   }, [pinSig, stitchById, docCache]);
+  // Task 8: the primary group's actual live-sheet cost — a stitch panel
+  // occupies one groupKeys slot but draws (and tile-composites) every one of
+  // its members (see the draw-time expansion into `drawPanels` below), so a
+  // stitch counts as its member count here, not 1. This is the "primaryCount"
+  // half of wouldExceedSheetCap(primaryCount, refCount); refSet.length above
+  // is the other half.
+  const primaryCount = groupKeys.reduce((n, k) => n + (isStitchKey(k) ? (stitchById[k]?.members?.length || 1) : 1), 0);
+  // Task 8: shared refusal for every split-creation / reference-add site.
+  // Side-effecting (the toast), so callers check it in an event handler
+  // BEFORE calling setSplitView, never inside a setState updater (which can
+  // run more than once). Returns true (and refuses) when adding nextRefCount
+  // reference sheets to the current primary would exceed the budget.
+  const refuseIfOverCap = (nextRefCount) => {
+    if (!wouldExceedSheetCap(primaryCount, nextRefCount)) return false;
+    setCommitMsg("Too many sheets open at once to split — close a sheet first");
+    return true;
+  };
   // docEpoch re-keys groupSig when a re-dropped file's BYTES changed under the
   // same name (store.addPdf → revised): the render effect keyed on groupSig is
   // the one path that resets every cache (compositor, pageObjs, snap grids) and
@@ -1495,14 +1729,45 @@ export default function TakeoffCanvas() {
   // what the renderer paints and what the pickers scan, so a hidden shape
   // can't be seen or clicked — while visibleShapes (totals, tally, transition
   // sources) still carries it. Hiding changes the view, never a number.
+  // the Trade view hides other trades the same way, on top of the eye toggles (which it never rewrites)
+  // the active condition always shows: what you are drawing under never goes invisible
+  const tradeHidden = useMemo(() => { const h = tradeHiddenIds(conditions, viewTrade); h.delete(activeCond); return h; }, [conditions, viewTrade, activeCond]);
+  const tradeCountMap = useMemo(() => tradeCounts(conditions), [conditions]);
+  const viewHidden = useMemo(() => (tradeHidden.size ? new Set([...hiddenConds, ...tradeHidden]) : hiddenConds), [hiddenConds, tradeHidden]);
   const stackedShapes = useMemo(() => {
-    const drawn = hiddenConds.size ? visibleShapes.filter((s) => !hiddenConds.has(s.condition_id)) : visibleShapes;
+    const drawn = viewHidden.size ? visibleShapes.filter((s) => !viewHidden.has(s.condition_id)) : visibleShapes;
     return [...drawn].sort((a, b) => tierOf(a) - tierOf(b));
-  }, [visibleShapes, hiddenConds]);
+  }, [visibleShapes, viewHidden]);
+  // Reference-pane shapes (split screen, Task 5): deliberately NOT filtered
+  // through `visibleShapes` — the reference pane can frame a sheet the
+  // primary's sheetGroup doesn't include at all (the tab-drop gesture from
+  // Task 4 hands it any sheet), and `stackedShapes` above would silently
+  // render nothing for that case. Same live `shapes` state and paint-order
+  // convention (tierOf) as the primary, just scoped to the referenced sheet
+  // instead of the primary's group — so a shape measured/edited in the
+  // primary still mirrors live into the reference pane. Hidden conditions
+  // drop out here too (#440 parity): a condition hidden on the primary never
+  // reappears in the mirror.
+  const refStackedShapes = useMemo(
+    () => (effectiveRefKey ? shapes.filter((s) => s.sheet_id === effectiveRefKey && !viewHidden.has(s.condition_id)).sort((a, b) => tierOf(a) - tierOf(b)) : []),
+    [shapes, effectiveRefKey, viewHidden]
+  );
   const visibleMarkups = useMemo(() => {
     const keys = new Set(sheetGroup.length ? sheetGroup : [sheetKey]);
     return markups.filter((m) => !m.reference_only && keys.has(m.sheet_id));
   }, [markups, sheetGroup, sheetKey]);
+  // Reference-pane markups (split screen, markup mirror): the same live
+  // `markups` state, scoped to the pane's effective refKey and paint-ordered by
+  // lib/markupPaint's shared tier rule (the primary's per-panel filter uses the
+  // same helper, so the two panes can't stack differently). Same
+  // reference-only exclusion as `visibleMarkups` — a pin for the reference rail
+  // is not ink on a sheet. A null effective refKey mirrors nothing.
+  // Gated on showMarkups for the same reason the primary layer is: the toggle's
+  // job is "hide the markup ink on the canvas", and the mirror is canvas ink.
+  const refMarkups = useMemo(
+    () => (showMarkups ? markupsForSheet(markups, effectiveRefKey) : []),
+    [markups, effectiveRefKey, showMarkups]
+  );
   // scale is PER PAGE (plan sets are never one uniform scale) — set it once per
   // sheet and it's remembered. In group mode the scale dropdown and hints target
   // the FOCUSED panel (the one last clicked); single mode focuses the lone panel.
@@ -2104,6 +2369,10 @@ export default function TakeoffCanvas() {
       (k) => loadedStitches.some((s) => s.id === k));
     setSheetGroup(grp);
     setLastGroup(lgFinal);
+    // additive `split_view` (read-only reference pane) — same else-clear rule
+    // as sheet_group/sheet_tabs: a payload without the key must not inherit
+    // the replaced project's split. normalizeSplitView(undefined) → null.
+    setSplitView(normalizeSplitView(a.split_view));
     // gallery-first: tabs restore directly; legacy pinned pages migrate once
     // (over in the sheets effect, where file names are known); nothing open → gallery
     const tabs = Array.isArray(a.sheet_tabs) ? a.sheet_tabs : [];
@@ -2287,6 +2556,23 @@ export default function TakeoffCanvas() {
       setOpenTabs((t) => (t.length ? t : tabs));
     }
     setOpenTabs((t) => { const f = t.filter(keyLive); return f.length === t.length ? t : f; });
+    // Task 8: a split's reference set is subject to the same liveness rule —
+    // a member pointing at a since-deleted FILE (whole-file removal via
+    // Manage, not a single closed tab — closeTab's own pruning above already
+    // handles that narrower, more common case) must be dropped, and if the
+    // framed refKey itself didn't survive, reframe to another live member or
+    // auto-collapse the whole split if none remain (the same dangling-chip
+    // dead end closeTab's pruning guards against, generalized to "the file
+    // is gone entirely" rather than "this one tab was closed").
+    setSplitView((s) => {
+      if (!s) return s;
+      const rawSet = s.refSet?.length ? s.refSet : [s.refKey];
+      const set = rawSet.filter(keyLive);
+      if (set.length === rawSet.length) return s;
+      if (!set.length) return null;
+      const refKey = keyLive(s.refKey) ? s.refKey : set[0];
+      return { ...s, refSet: set, refKey };
+    });
     // stitchById joins the deps: a stitch created/deleted this session must
     // re-run the same liveness pass its members' files do.
   }, [sheets, stitchById]);
@@ -2410,10 +2696,175 @@ export default function TakeoffCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- readableSig stands for readableShown
   }, [readableSig, readTick, ocrAvailability, lookupSheet]);
 
+  // ── reference pane: resolve refKey → dims, open + base-paint it (Task 3) ───
+  // Independent of the group render effect below: the referenced sheet may not
+  // be (and usually isn't) a member of the primary group. Runs the same
+  // doc→page→viewport resolution resolveSource does, but never clamps an
+  // out-of-range page — a dangling refKey must show the empty state, never a
+  // silently-substituted page (see effectiveRefKey above).
+  //
+  // Keyed on groupSig too: the group effect's resetAll() wipes EVERY
+  // compositor entry (base+detail, this pane's `ref::`-prefixed one included)
+  // on every primary sheet/group change, so this must re-open+repaint in step
+  // or a primary tab switch would silently blank an active reference pane.
+  // resetAll() runs synchronously in that effect's body; this effect's actual
+  // openSheet call only ever lands after an await, so it always lands after
+  // resetAll() regardless of hook declaration order.
+  useEffect(() => {
+    // Task 8: viewport/memory disable. A splitView the device can't (or
+    // isn't overridden to) mount costs nothing beyond the state itself —
+    // treat refKey as null exactly like "no split," so this never opens a
+    // compositor entry or paints tiles for a pane that isn't on screen.
+    // splitMounted flipping true (viewport widened, or the "Restore split"
+    // override) re-fires this effect (see the dep array below) and resolves
+    // for real at that point.
+    const refKey = splitMounted ? rawRefKey : null;
+    // Only clear the CURRENT dims/paint state when refKey itself changed —
+    // a groupSig-only resync (the primary's resetAll() case, same refKey)
+    // must reopen+repaint the compositor entry WITHOUT wiping refPanelImg,
+    // or ReferencePane's fit-to-view effect (keyed on panelImg's identity)
+    // would re-fit and silently undo the user's own pan/zoom on this pane
+    // every time they switch the primary's sheet.
+    const sameKey = refKey && refDimsRef.current?.key === refKey;
+    if (!sameKey) {
+      setRefPanelImg(null); refDimsRef.current = null;
+      // Collapse (splitView→null ⇒ refKey→null) OR a SWAP (tab-bar chip
+      // click reframes A→B, Task 7): either way the sheet this pane was
+      // just showing is no longer current, so cancel any in-flight
+      // reference-detail compositor work for it and clear its dedup key —
+      // the same shape as the resetAll() and visibilitychange clears below.
+      // Without this, a swap's brand-new refKey lands (rawRefKey/
+      // effectiveRefKey update immediately) well before this effect's own
+      // async doc/page resolution below completes, so ReferencePane's
+      // structural detail-repaint effect fires FIRST against the new key
+      // while `refDimsRef.current` is still null — paintReferenceDetail's
+      // own dims guard short-circuits that call before it ever reaches the
+      // cancel-then-replace logic, leaving the OLD sheet's in-flight
+      // request to complete (or fail) unattended instead of being
+      // superseded the moment the user moved on. The panelImg reset just
+      // above (setRefPanelImg(null)) already forces a fresh fit-to-view
+      // (and therefore a fresh renderKey) on the next reopen in the common
+      // case, but that path depends on ReferencePane's own effect ordering;
+      // this clear makes the parent's OWN bookkeeping correct independent
+      // of that, matches the other two sites exactly, and stops a
+      // genuinely in-flight compositor request from completing against a
+      // canvas this pane has since repurposed for a different sheet (or,
+      // on collapse, unmounted).
+      try { refDetailCancelRef.current?.cancel(); } catch { /* done */ }
+      refDetailCancelRef.current = null;
+      refDetailKeyRef.current = null;
+    }
+    if (!refKey) return;
+    if (isStitchKey(refKey)) { setRefInvalid(refKey); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { file, page: pn } = parseSheetKey(refKey);
+        const pdf = await docFor(file);
+        if (cancelled) return;
+        if (pn < 1 || pn > (pdf.numPages || 1)) throw new Error("page out of range");
+        const pageObj = await pdf.getPage(pn);
+        if (cancelled) return;
+        const viewport = pageObj.getViewport({ scale: RENDER_SCALE });
+        const w = Math.ceil(viewport.width), h = Math.ceil(viewport.height);
+        getCompositor().openSheet(`ref::${refKey}`, pn, store.loadPdfData(file), w, h);
+        refDimsRef.current = { key: refKey, w, h };
+        // preserve object identity when dims didn't actually change (the
+        // common groupSig-resync case) — see the sameKey comment above
+        setRefPanelImg((prev) => (prev && prev.w === w && prev.h === h ? prev : { w, h }));
+        setRefInvalid((prev) => (prev === refKey ? null : prev));
+        setRefEpoch((e) => e + 1);
+      } catch {
+        if (cancelled) return;
+        refDimsRef.current = null;
+        setRefPanelImg(null);
+        setRefInvalid(refKey);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- docFor/getCompositor are stable; groupSig is the resetAll()-invalidation signal, same idiom as the group effect below
+  }, [rawRefKey, groupSig, splitMounted]);
+
+  // Dangling-single-chip dead end (Task 8, carried from Task 7's flagged
+  // gap): the effect above marks `refInvalid` the instant a FRAMED refKey
+  // that IS a live open tab still fails to resolve — an out-of-range page
+  // (the file was replaced with fewer pages), a stitch key, or any other
+  // async-resolution failure that isn't "the tab got closed" (closeTab's own
+  // pruning above already handles that) or "the whole file is gone"
+  // (the keyLive reconciliation above already handles that). If another
+  // refSet member is still a live open tab, reframe to it and drop the
+  // dangling one; if none remain, there's nothing left this pane can show —
+  // auto-collapse rather than leaving the tab bar's sole chip stuck over a
+  // permanent "Drop a sheet here" empty state.
+  useEffect(() => {
+    if (!rawRefKey || refInvalid !== rawRefKey) return;
+    setSplitView((s) => {
+      if (!s || s.refKey !== rawRefKey) return s; // stale by the time this runs
+      const set = s.refSet?.length ? s.refSet : [s.refKey];
+      const survivor = set.find((k) => k !== rawRefKey && openTabs.includes(k));
+      if (!survivor) return null;
+      return { ...s, refKey: survivor, refSet: set.filter((k) => k !== rawRefKey) };
+    });
+  }, [refInvalid, rawRefKey, openTabs]);
+
+  // Deliberately depends on `darkMode` (unlike the rest of this file's
+  // tile-paint calls, which read darkModeRef to stay stable across renders):
+  // ReferencePane's paint effect below re-fires when THIS callback's identity
+  // changes (it's a `paintBase`/`paintDetail` prop dependency), and that is
+  // the reference pane's ONLY dark-mode repaint signal — it isn't a member of
+  // `drawPanels`, so the primary's dark-toggle effect below never reaches its
+  // canvas. Closing over the fresh `darkMode` value (not the ref, which the
+  // primary's effect updates in a possibly-later-running sibling effect) also
+  // sidesteps any cross-effect ordering question about which fires first.
+  const paintReferenceBase = useCallback((drawKey, canvasEl) => {
+    if (!canvasEl) return;
+    const d = refDimsRef.current;
+    if (!d || `ref::${d.key}` !== drawKey) return;
+    getCompositor().paintBase(canvasEl, drawKey, d.w, d.h, darkMode);
+  }, [darkMode]);
+
+  // Reference-pane analog of the primary's syncTilePanelsRef loop body (Task
+  // 6): composites the visible-region detail crop for the SINGLE `ref::`-
+  // prefixed surface, using detailCropFor (shared math, see its comment) and
+  // this pane's OWN transform/viewport rect instead of the primary's shared
+  // `tfRef`/container. Single-slot refs (one surface, not a Map) stand in for
+  // detailKeysRef/detailCancelsRef's per-drawKey entries. Stable modulo
+  // `darkMode` for the same reason paintReferenceBase is: it's the reference
+  // pane's only dark-mode repaint signal for this layer too.
+  //
+  // No DETAIL_ENGAGE gate, matching syncTilePanelsRef above (see its comment):
+  // tiles are the only raster path now, active at every zoom level. Without
+  // this the primary and reference could visibly diverge on the SAME sheet at
+  // the SAME zoom — the primary painting crisp tiles while this pane fell
+  // back to its CSS-stretched base raster in the ~0.9-1.15 scale*dpr band
+  // below the old threshold. The only reason left to hide the canvas is the
+  // crop itself reporting the source is off-screen.
+  const refDetailKeyRef = useRef(null);
+  const refDetailCancelRef = useRef(null);
+  const paintReferenceDetail = useCallback((drawKey, canvasEl, t, r) => {
+    if (!canvasEl) return;
+    const dims = refDimsRef.current;
+    if (!dims || `ref::${dims.key}` !== drawKey) return;
+    const dpr = window.devicePixelRatio || 1;
+    const d = { x: 0, y: 0, w: dims.w, h: dims.h, clip: null, drawKey };
+    const crop = detailCropFor(t, r, d);
+    if (!crop) { canvasEl.style.display = "none"; refDetailKeyRef.current = null; return; }
+    const { x0, y0, x1, y1, xBase, yBase } = crop;
+    const density = tileRequiredDensity(t.scale, dpr);
+    const renderKey = `${drawKey}|${x0.toFixed(1)},${y0.toFixed(1)}|${x1.toFixed(1)},${y1.toFixed(1)}|${density.toFixed(2)}|${darkMode ? 1 : 0}`;
+    if (renderKey === refDetailKeyRef.current) return;
+    refDetailKeyRef.current = renderKey;
+    try { refDetailCancelRef.current?.cancel(); } catch { /* done */ }
+    refDetailCancelRef.current = getCompositor().paintDetail(canvasEl, drawKey, xBase, x0, y0, x1, y1, density, darkMode, () => {}, yBase);
+  }, [darkMode]);
+
   // dark toggle: repaint the base layer of every already-loaded panel at the
   // new mode (the detail effect below also depends on darkMode, so it
   // repaints too). Tiles are cached PER MODE (tileCompositor.ts), so a
-  // toggle-back is instant once both variants have been seen once.
+  // toggle-back is instant once both variants have been seen once. The
+  // reference pane's own base/detail canvases are NOT drawPanels members —
+  // they repaint via paintReferenceBase/paintReferenceDetail's own `darkMode`
+  // dependency above, which is what re-fires ReferencePane's effects.
   useEffect(() => {
     darkModeRef.current = darkMode;
     if (status !== "ready") return;
@@ -2468,6 +2919,17 @@ export default function TakeoffCanvas() {
     detailCancelsRef.current.clear();
     detailKeysRef.current.clear();
     for (const [, cv] of detailCanvasRefs.current) cv.style.display = "none";
+    // Mirror for the reference pane's single-surface detail state (Task 6):
+    // resetAll() also invalidates its `ref::`-prefixed compositor entry (the
+    // reference-resolve effect below reopens it and bumps refEpoch), but
+    // WITHOUT this clear, paintReferenceDetail's render-key dedup could see
+    // the exact same computed renderKey after reopen — nothing about the
+    // reference's own transform/viewport changed, only the compositor was
+    // reset — and silently no-op, leaving a stale/blank detail canvas until
+    // the user's next gesture on that pane.
+    try { refDetailCancelRef.current?.cancel(); } catch { /* done */ }
+    refDetailCancelRef.current = null;
+    refDetailKeyRef.current = null;
     (async () => {
       // resolve one drawable source: doc → page → viewport at the FIXED logical
       // scale. Every file here is pinned (groupKeys), so docFor holds; a stale
@@ -2772,20 +3234,9 @@ export default function TakeoffCanvas() {
         const cv = detailCanvasRefs.current.get(d.drawKey);
         if (!cv || !d.w) continue;
         const hide = () => { cv.style.display = "none"; detailKeysRef.current.delete(d.drawKey); };
-        // visible region of THIS source, in ITS image px (stage space minus its
-        // stage origin), intersected with the seam-visible box when clipped
-        const vx0 = d.clip ? Math.max(d.x, d.clip.x) : d.x;
-        const vy0 = d.clip ? Math.max(d.y, d.clip.y) : d.y;
-        const vx1 = d.clip ? Math.min(d.x + d.w, d.clip.x + d.clip.w) : d.x + d.w;
-        const vy1 = d.clip ? Math.min(d.y + d.h, d.clip.y + d.clip.h) : d.y + d.h;
-        let x0 = Math.max((-t.x) / t.scale, vx0) - d.x;
-        let y0 = Math.max((-t.y) / t.scale, vy0) - d.y;
-        let x1 = Math.min((r.width - t.x) / t.scale, vx1) - d.x;
-        let y1 = Math.min((r.height - t.y) / t.scale, vy1) - d.y;
-        if (x1 <= x0 || y1 <= y0) { hide(); continue; }         // source off-screen
-        const mw = (x1 - x0) * DETAIL_MARGIN, mh = (y1 - y0) * DETAIL_MARGIN;
-        x0 = Math.max(0, x0 - mw); y0 = Math.max(0, y0 - mh);
-        x1 = Math.min(d.w, x1 + mw); y1 = Math.min(d.h, y1 + mh);
+        const crop = detailCropFor(t, r, d);
+        if (!crop) { hide(); continue; }                         // source off-screen
+        const { x0, y0, x1, y1, xBase, yBase } = crop;
         // one composite per distinct crop — the sync loop re-fires this several
         // times around a settle with identical inputs
         const renderKey = `${d.drawKey}|${x0.toFixed(1)},${y0.toFixed(1)}|${x1.toFixed(1)},${y1.toFixed(1)}|${density.toFixed(2)}|${darkModeRef.current ? 1 : 0}`;
@@ -2796,10 +3247,6 @@ export default function TakeoffCanvas() {
         // three atomically on reveal — setting them here first would show a
         // correctly-positioned canvas with the OLD crop's (wrongly scaled)
         // pixels for a frame, which is its own flavor of flicker.
-        // Position bases are relative to the canvas's offset parent: the stage
-        // for a plain panel, the clipping wrapper for a stitch member.
-        const xBase = d.clip ? d.x - d.clip.x : d.x;
-        const yBase = d.clip ? d.y - d.clip.y : d.y;
         const cancel = getCompositor().paintDetail(cv, d.drawKey, xBase, x0, y0, x1, y1, density, darkModeRef.current, () => {}, yBase);
         detailCancelsRef.current.set(d.drawKey, cancel);
       }
@@ -2809,11 +3256,10 @@ export default function TakeoffCanvas() {
   // panelW/takeoffsOpen: docking or resizing the Takeoffs panel changes the
   // container rect without a transform change. repaintTick: bumped by the
   // visibilitychange recovery below.
-  useEffect(() => { syncTilePanelsRef.current(); }, [tf, groupSig, status, panelW, takeoffsOpen, darkMode, repaintTick]);
+  useEffect(() => { syncTilePanelsRef.current(); }, [tf, groupSig, status, panelW, takeoffsOpen, darkMode, repaintTick, splitView]);
   // Chrome reflows need the same existing viewport refresh as a dock resize.
   // This does not change coordinates, scale, tile rendering, or stored geometry.
   useEffect(() => { scheduleSync(); }, [workspaceLayout, workspaceArrangement, workspaceNavigationOpen, workspaceControlsOpen, workspaceDetailsOpen, agentOpen, scheduleSync]);
-
 
   // Primary recovery for a stalled tile fetch: a hidden tab can suspend
   // in-flight work indefinitely with no error (Chrome throttles rAF-gated
@@ -2823,10 +3269,23 @@ export default function TakeoffCanvas() {
       if (document.visibilityState !== "visible") return;
       detailKeysRef.current.clear();
       setRepaintTick((n) => n + 1);
+      // Mirror for the reference pane (Task 6): repaintTick only drives
+      // syncTilePanelsRef, which walks `drawPanels` — the reference pane's
+      // single `ref::`-prefixed surface isn't a member, so a hidden-tab
+      // stall there has no OTHER retry path. Clear the dedup key (or a
+      // recomputed-identical renderKey would silently no-op, same failure
+      // shape as the resetAll case above) and bump refEpoch to actually
+      // re-fire ReferencePane's paint effects.
+      if (rawRefKey) {
+        try { refDetailCancelRef.current?.cancel(); } catch { /* done */ }
+        refDetailCancelRef.current = null;
+        refDetailKeyRef.current = null;
+        setRefEpoch((e) => e + 1);
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, []);
+  }, [rawRefKey]);
 
   // the doc cache holds whole PDFs in the worker — tear it down when the
   // project view unmounts or the project changes. The tile compositor (its
@@ -3030,6 +3489,9 @@ export default function TakeoffCanvas() {
     conditions, condition_columns: conditionColumns, shape_labels: shapeLabels, palette,
     shapes, markups, rfis, approvals, proposals, condition_edit_proposals: conditionEditProposals, rules,
     sheet_group: sheetGroup, last_group: lastGroup, sheet_tabs: openTabs, stitches,
+    // additive `split_view` (read-only reference pane): the writer omits it when
+    // null, so a project that never split persists byte-identical to before.
+    split_view: serializeSplitView(splitView),
     sheet_levels: sheetLevels, layer_overrides: layerOverrides, provenance_counters: provCounters,
     nts_sheets: ntsSheets, hidden_sheets: hiddenSheets, floor360AutoTakeoff: autoTakeoff,
   });
@@ -3300,7 +3762,7 @@ export default function TakeoffCanvas() {
     // state it serializes, so listing buildPayload (a new identity each render)
     // would fire a save on every render instead of only on a real change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, hiddenSheets, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, estimateSettings, bidProposal, units, ntsSheets, autoTakeoff]);
+  }, [shapes, conditions, conditionColumns, shapeLabels, palette, scales, scaleSources, scaleUnconfirmed, markups, approvals, rfis, proposals, conditionEditProposals, rules, provCounters, sheetGroup, sheetLevels, hiddenSheets, layerOverrides, lastGroup, openTabs, stitches, projectName, clientInfo, estimateSettings, bidProposal, units, splitView, ntsSheets, autoTakeoff]);
   useEffect(() => { saveStateRef.current = saveState; }, [saveState]);
 
   // Flush a pending debounced save on navigate-away (unmount), and warn before a
@@ -4685,7 +5147,12 @@ export default function TakeoffCanvas() {
     // a held draw-click that moves becomes a pan (point placement waits for up)
     if (pendingClickRef.current && !panRef.current) {
       const pc = pendingClickRef.current;
-      if (Math.hypot(e.clientX - pc.cx, e.clientY - pc.cy) > 5) {
+      if (Math.hypot(e.clientX - pc.cx, e.clientY - pc.cy) > 5 && (tool === "rect" || tool === "deduct-rect") && poly.length === 0) {
+        // a held Rectangle press that moves draws the box (corner 1 now, corner 2 on release)
+        pendingClickRef.current = null;
+        rectDragRef.current = true;
+        performClick(pc.p, e);
+      } else if (Math.hypot(e.clientX - pc.cx, e.clientY - pc.cy) > 5) {
         promoteStage();
         panRef.current = { sx: pc.cx, sy: pc.cy, ox: tfRef.current.x, oy: tfRef.current.y };
         pendingClickRef.current = null;
@@ -4824,6 +5291,13 @@ export default function TakeoffCanvas() {
         addMarkup({ type: "highlight", pts, color: hlStyle.color,
                     w: (hlStyle.size / tfRef.current.scale) / tp.img.w, tip: hlStyle.tip }, tp.key);
       }
+      return;
+    }
+    if (rectDragRef.current) {
+      rectDragRef.current = false;
+      const q = (snapOn && snapRef.current) ? snapRef.current : toImage(e.clientX, e.clientY);
+      if (tool === "rect" || tool === "deduct-rect") performClick(q, e);
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* gone */ }
       return;
     }
     if (pendingClickRef.current) {
@@ -6172,17 +6646,21 @@ export default function TakeoffCanvas() {
     });
   }
   function onSheetTabDragStart(k, e) {
+    // split gesture: the tab MIME rides on EVERY sheet-tab drag, ink or not —
+    // the canvas drop zones and the reference pane filter on it. The export
+    // types are added only when the marked-sheet cache is armed; a drag that
+    // starts before that build lands refuses the EXPORT (honest — never ship a
+    // stale sheet) while still working as a split drag, and arms the build so
+    // the next drag can export.
+    e.dataTransfer.setData(SHEET_TAB_DND_MIME, k);
+    e.dataTransfer.effectAllowed = "copy";
     const hit = sheetDragCacheRef.current.get(k, sheetContentSignature(k, shapes, markups, approvals));
     if (!hit) {
-      // not armed yet (or content changed since) — refuse THIS drag honestly
-      // rather than shipping a stale sheet, and start the build for the next
-      e.preventDefault();
       if (sheetHasInk(k)) { armSheetDrag(k); setCommitMsg("Preparing the marked sheet — drag again in a moment."); }
       return;
     }
     e.dataTransfer.setData("DownloadURL", downloadUrlEntry(hit.filename, hit.url));
     e.dataTransfer.setData("text/plain", hit.filename);
-    e.dataTransfer.effectAllowed = "copy";
   }
 
   // ── live counter (mock) — floating running totals, parked anywhere ──
@@ -6558,6 +7036,34 @@ export default function TakeoffCanvas() {
   // markup on the source sheet to resolve (only a synthetic {sheet_id, rect}),
   // so centerOnMarkup/flyToMarkup can't express this — this is why traceSource
   // doesn't reuse them.
+  // Symbol sweep review: bring the selected question into view. q.at is in the
+  // sheet's own pixels (the overlay draws it at q.at[0] + xOffset), and the
+  // sweep panel floats over the canvas's right side, so center within the part
+  // of the canvas left of the panel — otherwise the ring lands under the panel.
+  function centerOnSweepQuestion(sw, i) {
+    const q = sw?.questions?.[i];
+    const sp = q && panelByKey(sw.key);
+    const el = containerRef.current;
+    if (!q || !sp?.img?.w || !el) return false;
+    const r = el.getBoundingClientRect();
+    const panelLeft = window.innerWidth - FLOAT_GAP - SWEEP_PANEL_W;
+    const visibleW = Math.max(120, Math.min(r.right, panelLeft) - r.left);
+    const scale = tfRef.current.scale;
+    const sx = q.at[0] + sp.xOffset, sy = q.at[1];
+    setTfNow({ x: visibleW / 2 - sx * scale, y: r.height / 2 - sy * scale, scale });
+    return true;
+  }
+  // Follow the review cursor: ↵ / X advance it and → / ← step it, so whenever
+  // qIndex moves the view goes with it. Not on the sweep's first render — the
+  // person is still looking at the seed they just marqueed.
+  const sweepFocusRef = useRef(null);
+  useEffect(() => {
+    if (!sweep) { sweepFocusRef.current = null; return; }
+    const id = `${sweep.key}#${sweep.qIndex}`;
+    const prev = sweepFocusRef.current;
+    sweepFocusRef.current = id;
+    if (prev && prev !== id && prev.startsWith(`${sweep.key}#`)) centerOnSweepQuestion(sweep, sweep.qIndex);
+  }, [sweep?.key, sweep?.qIndex]); // eslint-disable-line react-hooks/exhaustive-deps
   function centerOnPanelPoint(sp, nx, ny) {
     if (!sp?.img?.w) return false;
     const el = containerRef.current;
@@ -6797,6 +7303,9 @@ export default function TakeoffCanvas() {
       multiplier: 1,        // ×N for identical repeated units (measure one, multiply)
       waste_pct: 0,         // flooring waste allowance (manual) — applied in the Report
       materials: [],        // supporting materials (adhesive, grout, …) with coverage rates
+      // booked to the trade the canvas is showing, so it stays visible; "All trades" books nothing
+      // (the tag prefix, else Finishes, decides — lib/tradeSuites.ts conditionTrade)
+      ...(viewTradeRef.current !== ALL_TRADES ? { trade: viewTradeRef.current } : {}),
     };
     agentStateRef.current = { ...agentStateRef.current, conditions: [...cs, c] };
     setConditions((prev) => [...prev, c]);
@@ -7515,39 +8024,31 @@ export default function TakeoffCanvas() {
   const rejectAllAgentProposals = () => setAgentProposals([]);
 
   // ── the run ────────────────────────────────────────────────────────────────
-  const trimJson = (v, n) => { let s; try { s = JSON.stringify(v); } catch { s = String(v); } return s && s.length > n ? `${s.slice(0, n)}…` : s || ""; };
-  function appendAgentLog(ev) {
-    const entry =
-      ev.type === "text" ? { kind: "text", text: ev.text }
-      : ev.type === "tool_start" ? { kind: "tool", text: `→ ${ev.name} ${trimJson(ev.args, 120)}` }
-      : ev.type === "tool_end" ? (ev.result?.error
-          ? { kind: "error", text: `✗ ${ev.name}: ${ev.result.error}` }
-          : { kind: "status", text: `✓ ${ev.name} ${trimJson({ ...ev.result, image_data_url: undefined, items: Array.isArray(ev.result?.items) ? `${ev.result.items.length} items` : undefined }, 160)}` })
-      : ev.type === "error" ? { kind: "error", text: `Error: ${ev.message}` }
-      : ev.type === "status" ? { kind: "status", text: ev.text }   // e.g. "Starting the takeoff AI…" while the DGX wakes
-      : ev.type === "aborted" ? { kind: "status", text: "Stopped." }
-      : ev.type === "max_iterations" ? { kind: "status", text: `Stopped at the ${ev.limit}-step cap — review what's staged.` }
-      : ev.type === "done" ? { kind: "status", text: "Done — review the dashed proposals." }
-      : null;
-    if (entry) setAgentLog((l) => [...l.slice(-199), entry]);
-  }
+  // One chat message = one agent-loop run. Earlier turns ride along as plain
+  // text context (lib/agentChat historyMessages, as many as the Conversation
+  // memory setting allows); the loop's events — streamed text deltas
+  // included — fold into the message's turn (steps, answer, staged count).
   async function runAgent(goal) {
     if (agentRunning) return;
     if (!isAiConfigured()) { setShowAiSettings(true); return; }
-    if (agentStateRef.current.status !== "ready") { setCommitMsg("Sheet still loading — try again in a moment."); return; }
+    const notReady = notReadyMessage(agentStateRef.current.status);
+    if (notReady) { agentChat.apply(agentChat.begin(goal), { type: "error", message: notReady }); return; }
     const ctl = new AbortController();
     agentAbortRef.current = ctl;
     setAgentRunning(true);
-    setAgentLog([{ kind: "status", text: `Goal: ${goal}` }]);
+    const cfg = aiConfig();
+    const history = historyMessages(agentChat.turnsRef.current, cfg.historyTurns);   // "Conversation memory" (AI settings)
+    const turnId = agentChat.begin(goal);
     const ctx = buildAgentCtx();
     try {
       await runAgentLoop({
-        cfg: aiConfig(), goal, tools: agentToolDefs(),
+        cfg, goal: withViewContext(goal, { sheetKey, sheetLabel: sheetKey ? tabLabel(sheetKey) : "" }), history, tools: agentToolDefs(),
         execute: (name, args) => executeAgentTool(ctx, name, args),
-        onEvent: appendAgentLog,
+        onEvent: (ev) => agentChat.apply(turnId, ev),
         signal: ctl.signal,
       });
     } finally {
+      agentChat.settle(turnId);
       setAgentRunning(false);
       agentAbortRef.current = null;
     }
@@ -8141,6 +8642,16 @@ export default function TakeoffCanvas() {
     // (minted with no origin_id, so nothing upstream ever touches it)
     return isFamilyParent(cs, activeCond) ? propagateRowAdd(next, activeCond, row, uid) : next;
   });
+  // a saved assembly (lib/assemblies.js) → new rows on the active condition, through the same
+  // family seam as one added row; items the condition already names are skipped
+  const applyAssembly = (assembly) => setConditions((cs) => {
+    const cur = cs.find((c) => c.id === activeCond);
+    const { rows } = assemblyRows(assembly, uid, cur?.materials);
+    if (!cur || !rows.length) return cs;
+    let next = cs.map((c) => (c.id === activeCond ? { ...c, materials: [...(c.materials || []), ...rows], updated_at: nowIso() } : c));
+    if (isFamilyParent(cs, activeCond)) for (const row of rows) next = propagateRowAdd(next, activeCond, row, uid);
+    return next;
+  });
   const updateMaterial = (mid, patch) => setConditions((cs) => {
     const cur = cs.find((c) => c.id === activeCond);
     // NAME edits re-classify a geometry-less line's kind
@@ -8243,21 +8754,17 @@ export default function TakeoffCanvas() {
   const activeColor = aCond?.color || "#c96442";
   // Pattern id encodes the appearance so a hatch/color change yields a NEW paint
   // server — otherwise browsers keep painting the cached old pattern (the "it
-  // reverted" bug). Shapes and <defs> use the same id.
-  const patId = (c) => `hx-${c.id}-${c.hatch || "solid"}-${String(c.color).slice(1)}-${String(c.fill || "n").slice(1)}${darkMode ? "-d" : ""}`;
-  // Fill for a committed shape. Hatch tiles are 10 stage-units — once the zoom
-  // puts a tile under ~4 screen px the pattern aliases into subpixel mush
-  // (worst over the inverted dark sheet), so overview zoom swaps to a solid
-  // tint and every condition still reads as a clear color block. Dark mode gets
-  // its legibility from brighter alphas here, NOT from a CSS filter on the
-  // overlay — filtering that whole layer re-rasterizes it on every sync.
-  const shapeFill = (cond) => {
-    if (!cond) return "none";
-    const solid = cond.fill && cond.fill !== NO_FILL ? cond.fill : null;
-    if (tf.scale < 0.35) return (solid || cond.color) + (darkMode ? "59" : "40");
-    if (cond.hatch && cond.hatch !== "solid") return `url(#${patId(cond)})`;
-    return solid ? solid + (darkMode ? "4d" : "33") : "none";
-  };
+  // reverted" bug). Shapes and <defs> use the same id. `prefix` namespaces a
+  // second <defs> block (the split-screen reference pane's read-only mirror,
+  // "ref-") so its pattern ids can never collide with the primary's — a
+  // collision would make url(#…) resolution document-order-dependent and
+  // corrupt one pane's fills. The default keeps every existing call site
+  // (this file's own <defs>/shapeFill) byte-identical.
+  const patId = (c, prefix = "") => `hx-${prefix}${c.id}-${c.hatch || "solid"}-${String(c.color).slice(1)}-${String(c.fill || "n").slice(1)}${darkMode ? "-d" : ""}`;
+  // Fill for a committed shape — delegates to the shared glyph module (also
+  // used read-only by the reference pane) so the two panes' fill rules can't
+  // drift apart.
+  const shapeFill = (cond) => glyphFill(cond, { scale: tf.scale, darkMode, patId });
   // The in-progress ring/rect fill, per the theme's draft.fillMode: "condition"
   // wears the active condition's own fill (drafting — today's look), "tint" a
   // wash of the theme accent, "none" a hollow draft. Defined here (not with the
@@ -8301,6 +8808,12 @@ export default function TakeoffCanvas() {
   // exist only in the Report/exports). Same conditionTotals rules, no filter.
   const projRows = useMemo(() => conditionTotals(conditions, shapes, seamCtx), [conditions, shapes, seamCtx]);
   const projRowById = useMemo(() => new Map(projRows.map((r) => [r.id, r])), [projRows]);
+  // the Premium top bar's running $ — the same engine as the Estimate panel, on
+  // the project's markups (or the Company setup defaults until the estimate opens)
+  const estTotal = useMemo(() => {
+    if (!workspaceLayout) return 0;
+    try { return priceEstimate({ rows: projRows, conditions, settings: estimateSettings || loadEstimatingDefaults() }).total; } catch { return 0; }
+  }, [workspaceLayout, projRows, conditions, estimateSettings]);
   // {{qty}} in a note (#474) — the linked condition's measured quantity,
   // whole project, in the display unit system. Resolved at draw time only.
   const noteQtyLabels = useMemo(() => qtyLabels(projRows, units), [projRows, units]);
@@ -8563,7 +9076,8 @@ export default function TakeoffCanvas() {
     return next;
   });
   const openConditionInPanel = (id) => {
-    setPanelPrefs((p) => (p.collapsed ? { ...p, collapsed: false } : p));   // reveal the docked panel; no-op if already open
+    if (workspaceLayout && !fullTableOpen) setCondDockOpen(true);   // Premium layout: the Conditions dock is the panel
+    else setPanelPrefs((p) => (p.collapsed ? { ...p, collapsed: false } : p));   // reveal the docked panel; no-op if already open
     activateCondition(id);   // highlight the row (reassigns a selected shape iff Select is armed, like every activation surface)
     // scroll the docked row into view AFTER the uncollapse paints — two rAFs so
     // the panel has mounted its list (the row carries data-cond-id)
@@ -8716,7 +9230,7 @@ export default function TakeoffCanvas() {
     onActivate: activateCondition, onLocate: locateCondition,
     onAddCondition: addCondition, onDeleteCondition: deleteCondition,
     onUpdateCond: updateCond, onSetCondParam: setCondParam, onAssignAttr: assignAttr,
-    onAddMaterial: addMaterial, onUpdateMaterial: updateMaterial, onRemoveMaterial: removeMaterial,
+    onAddMaterial: addMaterial, onUpdateMaterial: updateMaterial, onRemoveMaterial: removeMaterial, onApplyAssembly: applyAssembly,
     onDuplicateCondition: duplicateCondition, onSplitCondition: splitCondition,
     onDeriveTransitions: deriveTransitionsOnto,   // returns its result synchronously — the panel renders the withheld report from it
     onLocateTransition: locateSheetPoint,
@@ -8731,7 +9245,7 @@ export default function TakeoffCanvas() {
     onUpdateLibMaterial: updateLibMaterial, onPushLibUpdate: pushLibUpdate,
     onDeleteLibMaterial: deleteLibMaterial, onAddLibMaterial: addLibMaterial,
     matFieldOverridden,   // pure helper, not an event handler — the forwarder returns its result
-    onToggleCollapse: toggleTakeoffs, onTogglePin: togglePin, onToggleHidden: toggleCondHidden,
+    onToggleCollapse: () => (workspaceLayout ? setFullTableOpen((v) => !v) : toggleTakeoffs()), onTogglePin: togglePin, onToggleHidden: toggleCondHidden,
     // these three are ALREADY stable on their own (setState identity, and
     // holdPanelGesture is a useCallback with an empty dep array) — routed
     // through the registry anyway so the memo contract has exactly ONE
@@ -8803,7 +9317,9 @@ export default function TakeoffCanvas() {
       </button>
     );
   };
-  const railLabel = (text) => (
+  const railLabel = (text) => dockBottom
+    ? (text === "SEL" ? null : <span key={`sep-${text}`} aria-hidden="true" style={{ width: 1, height: 22, background: "var(--ink-faint)", margin: "0 var(--sp-1)", flexShrink: 0 }} />)
+    : (
     <span style={{ fontFamily: "var(--f-mono)", fontSize: "var(--fs-2xs)", letterSpacing: ".1em", color: "var(--ink-muted)", userSelect: "none", margin: "var(--sp-2) 0 2px" }}>{text}</span>
   );
 
@@ -8831,6 +9347,56 @@ export default function TakeoffCanvas() {
     ? { id: "ungroup", label: "Leave stitch — back to one sheet", title: "Back to a single sheet (the stitch's first member) — the stitch keeps its takeoffs and reopens from the gallery or its tab", onSelect: ungroup }
     : { id: "ungroup", label: "Ungroup — back to one sheet", title: "Back to one sheet — you land on the sheet you were last working; every sheet keeps its takeoffs and markups", onSelect: ungroup });
   if (!sheetGroup.length && lastGroup.length >= 2) sheetMenuItems.push({ id: "regroup", label: `Regroup (${lastGroup.length})`, title: `Side-by-side again with the same ${lastGroup.length} sheets — each keeps its own scale, takeoffs and markups`, onSelect: regroup });
+  // "Reference ▸ Split Vertical/Horizontal" (Task 7) — the discoverable,
+  // keyboard/menu-driven fallback for the drag-a-tab-to-split gesture (Task
+  // 4), for whoever doesn't discover or can't perform the drag. Only offered
+  // pre-split: dragging is ALSO edge-disabled once a split exists (see
+  // primaryViewport's onDragOver/onDrop above), and re-running this would
+  // silently discard the current reference SET, not add to it — the one way
+  // to add a second sheet to an existing reference is still the drop-onto-
+  // the-reference-pane gesture (ReferencePane.jsx's onDropSheet); this menu
+  // only ever MINTS a new split. The candidate sheet defaults to the
+  // most-recently-viewed OPEN tab that isn't already on screen in the
+  // primary (tabMruRef, front-loaded on every sheetKey change above),
+  // falling back to the first open tab that qualifies; excludes every
+  // member of `groupKeys` (not just the focused sheetKey) so a side-by-side
+  // group never offers to reference a sheet it's already showing.
+  // Task 8: also withheld on a device canSplit disables (no override here —
+  // that's for RESTORING an already-open split, not minting a new one on a
+  // device that can't usefully show it).
+  const referenceCandidate = splitView || !deviceCanSplit ? null : (
+    tabMruRef.current.find((k) => openTabs.includes(k) && !groupKeys.includes(k))
+    ?? openTabs.find((k) => !groupKeys.includes(k))
+    ?? null
+  );
+  if (referenceCandidate) {
+    sheetMenuItems.push({
+      id: "ref-split-v", label: "Reference ▸ Split Vertical",
+      title: `Open a read-only reference pane beside this one, framing ${tabLabel(referenceCandidate)}`,
+      onSelect: () => { if (refuseIfOverCap(1)) return; setSplitView({ orientation: "v", ratio: 0.5, refKey: referenceCandidate, refSet: [referenceCandidate] }); },
+    });
+    sheetMenuItems.push({
+      id: "ref-split-h", label: "Reference ▸ Split Horizontal",
+      title: `Open a read-only reference pane below this one, framing ${tabLabel(referenceCandidate)}`,
+      onSelect: () => { if (refuseIfOverCap(1)) return; setSplitView({ orientation: "h", ratio: 0.5, refKey: referenceCandidate, refSet: [referenceCandidate] }); },
+    });
+  }
+  // "Restore split" (Task 8): a splitView PERSISTS in state even when the
+  // device can't currently mount its reference pane (narrow viewport /
+  // low-memory — see splitMounted above); this is the escape hatch for a
+  // user who wants it anyway, e.g. a phone user who's fine with a cramped
+  // pane, or a false-positive low-memory read. Disappears the moment
+  // deviceCanSplit becomes true on its own (viewport widened) — nothing left
+  // to override at that point.
+  if (splitView && !deviceCanSplit && !splitOverride) {
+    sheetMenuItems.push({
+      id: "restore-split", label: "Restore split",
+      title: isNarrow
+        ? "This split is hidden because the window is too narrow to show two panes usefully — restoring it may feel cramped."
+        : "This split is hidden because this device may not have enough memory for two rendered sheets at once — restoring it may be slow.",
+      onSelect: () => setSplitOverride(true),
+    });
+  }
   if (sheetMenuItems.length) sheetMenuItems.push("divider");
   sheetMenuItems.push({ id: "gallery", icon: "sheets", label: "Open gallery…", shortcut: "G", onSelect: () => setView("gallery") });
   sheetMenuItems.push({
@@ -8996,7 +9562,7 @@ export default function TakeoffCanvas() {
   const workspaceSheets = (workspaceLayout ? sheets : []).flatMap((sheet) => Array.from({ length: knownPages[sheet.name] || (sheet.name === active ? pageCount : 1) }, (_, i) => {
     const key = i ? `${sheet.name}#${i + 1}` : sheet.name;
     return { key, label: tabLabel(key), file: sheet.name, count: workspaceShapeCounts.get(key) || 0, level: sheetLevels[key] || "" };
-  }));
+  })).filter((s) => showHiddenSheets || s.key === treeCurrent || !isHidden(hiddenSheets, s.key));
   const workspaceDockHandle = (dock, label) => workspaceLayout && <DockHandle dock={dock} label={label} locked={workspaceArrangement.locked} onDrag={setWorkspaceDragging} onMove={workspacePrefs.move} />;
   const workspaceActions = [
     ...MEASURE_TOOLS.filter((t) => t.id !== "oneclick" || oneClickEnabled()).concat(CUT_TOOLS).map((t) => ({ id: `tool-${t.id}`, label: t.label, shortcut: t.shortcut, group: "Measuring tools", run: () => { setView("canvas"); setTool(t.id); } })),
@@ -9055,886 +9621,58 @@ export default function TakeoffCanvas() {
     );
   }
 
-  return (
-    // .app-shell: the print stylesheet collapses this 100vh flex column while the report is open
-    <div
-      className={`app-shell${workspaceLayout ? " workspace-calm premium-workspace" : ""}`}
-      data-workspace-look={workspaceLayout ? workspaceArrangement.look : undefined}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer?.files); }}
-      style={{ position: "relative", display: "flex", flexDirection: "column", height: "100vh", "--workspace-glow-strength": workspaceArrangement.backlight / 100 }}>
-      {pinWindow}
-      {premiumUpsell && premiumOpen && <PremiumInterest onClose={() => setPremiumOpen(false)} onOpenChange={onMenuDepth} />}
-      {/* file inputs — always mounted (drag-drop and the ⋯ import path need
-          the refs even while focus mode hides the bar) */}
-      <input name="sheet-file" ref={fileInputRef} type="file" accept=".pdf,application/pdf,image/*,.zip,application/zip,application/x-zip-compressed,.otk" multiple style={{ display: "none" }}
-        onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
-      <input name="profile-import" ref={profileInputRef} type="file" accept=".otprofile,application/json" style={{ display: "none" }}
-        onChange={(e) => { importProfileFile(e.target.files?.[0]); e.target.value = ""; }} />
-      <input name="takeoff-import" ref={importInputRef} type="file" accept=".json,application/json" style={{ display: "none" }}
-        onChange={(e) => { importTakeoffFile(e.target.files?.[0]); e.target.value = ""; }} />
-      {/* THE top bar — one row (the two decks of issue #61 merged once the
-          tool rail absorbed the draw menus). Project verbs left, work verbs
-          center, Report + the ⋯ overflow (guide, appearance — chrome theme and
-          drawing style —, schedule import, cloud moves) right. Cluster captions stay — they're the drafting
-          language. The row never wraps; rarely-used controls live in ⋯ so
-          nothing shifts position mid-work. Focus mode (F) hides the whole
-          bar — the rail and status bar carry the essentials.
-          Un-wrapped is not the same as unreachable, though: this row is
-          ~1550px of fixed-width controls, so on a 1440-class laptop Report and
-          the Action menu render past the right edge. The document can
-          technically scroll to them, but the canvas claims wheel and trackpad
-          gestures for zoom/pan, so that scroll never arrives and the app reads
-          as "Export is unclickable". The row therefore SCROLLS itself; its
-          menus open position:fixed off the trigger rect (ToolMenu) so this
-          overflow cannot clip them. */}
-      {!focusMode && workspaceLayout && <WorkspaceChrome
-        title={projectName || active} onOpen={() => fileInputRef.current?.click()}
-        onNavigate={() => setWorkspaceNavigationOpen((v) => !v)} navigationOpen={workspaceNavigationOpen}
-        onTakeoffs={toggleTakeoffs} takeoffsOpen={takeoffsOpen} onWork={() => setAgentOpen((v) => !v)} workOpen={agentOpen} workButtonRef={workButtonRef}
-        pending={shapes.filter((shape) => shape.origin?.reviewed === false).length} running={agentRunning}
-        onPremium={premiumUpsell ? () => setPremiumOpen(true) : undefined} onReport={() => setShowReport(true)} onEstimate={openEstimate} onFocus={toggleFocusMode} onClassic={() => workspacePrefs.setEnabled(false)}
-        onControls={() => setWorkspaceControlsOpen((v) => !v)} controlsOpen={workspaceControlsOpen} onSearch={() => setWorkspaceSearchOpen(true)}
-        pinControl={pinButton}
-        panelTools={<div className="calm-panel-tools" role="group" aria-label="Quantity and review tools">
-          {panelBtn(() => setLeftTab((t) => (t === "markup" ? null : "markup")), "document", "Markup list — existing clouds, callouts, and notes", leftTab === "markup", markupCount)}
-          {panelBtn(() => setLeftTab((t) => (t === "stamp" ? null : "stamp")), "stamp", "Stamps — reusable annotations dropped click-to-place", leftTab === "stamp", stampLib.stamps.length)}
-          {panelBtn(() => setLeftTab((t) => (t === "rfi" ? null : "rfi")), "rfi", "RFI register — raise, track, and export Requests For Information", leftTab === "rfi", rfis.length)}
-          {rollByCond.size > 0 && panelBtn(() => setRollPanelOpen((o) => !o), "roll", "Roll goods — the cut diagram, cutting order, and figured order footage", rollPanelOpen, rollByCond.size)}
-          {layerEntries.length > 0 && panelBtn(() => setLayersOpen((o) => !o), "layers", "PDF layers — drawing layers", layersOpen, layerEntries.reduce((n, e) => n + e.layers.length, 0))}
-          {panelBtn(() => setShowRevisions(true), "revisions", "Revisions — save the takeoff at each bid revision, compare what moved", showRevisions)}
-        </div>}
-        layoutMenu={<button type="button" onClick={() => setWorkspaceLayoutOpen(true)} title="Arrange panels, lock positions, and save layouts"><Icon name="sliders" size={16} />Layout</button>}
-        helpMenu={<ToolMenu title="Learn OpenTakeoff, or connect an AI agent" face={<span>Help</span>} onOpenChange={onMenuDepth} items={[
-          { id: "tour", label: "Guided first takeoff", onSelect: startTour },
-          { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
-          { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
-        ]} />}
-        fileMenu={<><ToolMenu title="Files and workspace" face={<span>File</span>} onOpenChange={onMenuDepth} items={sheetMenuItems} /><PresenceChip bridge={store.syncBridge} /><AccountChip note={cloudMode ? "Synced to Google Drive" : "Local workspace"} onOpenChange={onMenuDepth} /></>}
-        conditionControl={<><label className="calm-condition-label" htmlFor="workspace-condition">Condition</label><select id="workspace-condition" value={activeCond || ""} onChange={(e) => activateCondition(e.target.value)} title={tool === "select" && selectedId ? "Reassign selected measurement" : "Condition for the next measurement"}>
-          {!conditions.length && <option value="">No conditions</option>}{conditions.map((c) => <option key={c.id} value={c.id}>{c.finish_tag}</option>)}</select>
-          <button type="button" onClick={addCondition} title="Add condition" aria-label="Add condition"><Icon name="plus" size={14} /></button>
-          <button type="button" onClick={() => setWorkspaceDetailsOpen((v) => !v)} aria-expanded={workspaceDetailsOpen} disabled={!aCond}>Properties</button></>}
-        history={<><button type="button" onClick={() => poly.length ? dropLastPoint() : undoShapeCommand()} title="Undo (⌘Z)" aria-label="Undo"><Icon name="undo" size={16} /></button><button type="button" onClick={redoShapeCommand} title="Redo (⇧⌘Z)" aria-label="Redo"><span style={{ display: "flex", transform: "scaleX(-1)" }}><Icon name="undo" size={16} /></span></button></>}
-        aids={<><button type="button" aria-pressed={tool === "zone"} onClick={() => setTool((t) => (t === "zone" ? "select" : "zone"))} title="Zone check — trace a region (an apartment, a wing) to read every condition's quantities inside it, materials included. Nothing is saved; the outline clears when you leave the tool."><Icon name="zone" size={15} />Zone</button><button type="button" aria-pressed={snapOn} onClick={() => setSnapOn((v) => !v)} title="Snap to plan lines/corners (beta)"><Icon name="snap" size={15} />Snap</button><button type="button" aria-pressed={angleOn} onClick={() => setAngleOn((v) => !v)} title="45°/90° angle guides"><Icon name="angle" size={15} />45°</button>{draftMenu}<span className="calm-separator" />{annotations.control}</>}
-        action={finishOk && <button type="button" onClick={finishShape}>Finish ({poly.length})</button>}
-        scaleMenu={<><button type="button" onClick={() => setUnits((u) => u === "metric" ? "imperial" : "metric")} title="Switch display units">{units === "metric" ? "m" : "ft"}</button><ToolMenu title={scaleTitle} onOpenChange={onScaleMenuDepth} face={<span data-tour="scale">{scaleFace}</span>} faceStyle={{ fontFamily: "var(--f-mono)", fontSize: 11.5, ...scaleFaceStyle }} menuStyle={{ minWidth: 250 }} items={scaleItems} /></>}
-      />}
-      {workspaceLayout && !workspaceArrangement.readout && selShape?.measure_role === "surface_area" && <div className="calm-property-editor"><label>Selected wall height <input aria-label="Selected wall height" type="number" min="0" step={heightStep(units)} value={shapeHDraft ?? dimInputStr(selShape.height_ft, units, "height")} onChange={(e) => { setShapeHDraft(e.target.value); setShapeHeight(e.target.value); }} onBlur={() => { if (shapeHDraft != null) setShapeHeight(shapeHDraft); setShapeHDraft(null); }} /></label><span>{heightUnit(units)} → {fa(selShape.computed?.area_sf || 0)}</span><button type="button" onClick={clearShapeHeight}>Use condition height</button></div>}
-      {!focusMode && workspaceLayout && workspaceDetailsOpen && aCond && <div className="calm-property-editor"><strong>{aCond.finish_tag}</strong><ConditionAppearanceEditor cond={aCond} onUpdateCond={updateCond} onSetCondParam={setCondParam} onAssignAttr={assignAttr} conditionColumns={conditionColumns} layout="row" units={units} /><button type="button" onClick={() => setWorkspaceDetailsOpen(false)}>Close properties</button></div>}
-      {workspaceLayout && <><WorkspaceCommandMenu open={workspaceSearchOpen} onClose={() => setWorkspaceSearchOpen(false)} actions={workspaceActions} onOpenChange={onMenuDepth} /><WorkspaceLayoutDialog open={workspaceLayoutOpen} onClose={() => setWorkspaceLayoutOpen(false)} prefs={workspacePrefs} onOpenChange={onMenuDepth} /></>}
-      {!focusMode && (!workspaceLayout || workspaceControlsOpen) && (
-      <div data-topbar style={{ display: "flex", gap: 7, alignItems: "center", padding: "0 14px 6px", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)", whiteSpace: "nowrap" }}>
-        {/* The working controls scroll as one region when the window is
-            narrower than the row (1440-class laptops); Report, ⋯, presence and
-            account sit OUTSIDE that region so they are on screen at every
-            width — the row's contract (#61: nothing wraps or shifts) holds,
-            and nothing important is ever past the right edge. paddingTop 16
-            keeps the cluster captions (top:-13) inside the scroll box. */}
-        <div data-topbar-scroll style={{ display: "flex", gap: 7, alignItems: "center", flex: "1 1 0", minWidth: 0, padding: "16px 0 0", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "thin", overscrollBehaviorX: "contain" }}>
-        <strong style={{ fontFamily: "var(--f-display)", fontSize: 15, color: "var(--ink)", letterSpacing: "-0.02em" }}>open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span></strong>
-        <button type="button" onClick={() => fileInputRef.current?.click()} title="Open plans — PDF, image, or a .zip plan set (or just drag them onto the canvas)"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: "1px solid var(--ink)", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-          <Icon name="plus" size={14} />Open</button>
-        <button type="button" onClick={() => setView("gallery")}
-          title={`Plan set — the visual gallery; open one or several sheets (G)${sheetGroup.length ? ` · ${sheetGroup.length} side-by-side now` : ""}`}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${sheetGroup.length ? "var(--cobalt)" : "var(--ink-faint)"}`, background: sheetGroup.length ? "var(--cobalt)" : "transparent", color: sheetGroup.length ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-          <Icon name="sheets" size={15} />Sheets
-        </button>
-        {pinButton}
-        {sheets.length > 0 && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={!!sheetGroup.length || page <= 1} title="Previous sheet"
-              style={{ padding: "5px 8px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", opacity: (!!sheetGroup.length || page <= 1) ? 0.4 : 1 }}><Icon name="chevronLeft" size={12} /></button>
-            <ToolMenu
-              title="Sheet — the sheets in this set, files, grouping, and the gallery"
-              onOpenChange={onMenuDepth}
-              face={<span style={{ display: "inline-block", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sheetChipLabel}</span>}
-              faceStyle={{ fontFamily: "var(--f-mono)", fontSize: 12, fontWeight: 400, padding: "6px 8px" }}
-              menuStyle={{ minWidth: 260, maxHeight: "min(480px, 60vh)", overflowY: "auto" }}
-              items={sheetMenuItems}
-            />
-            <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={!!sheetGroup.length || page >= pageCount} title="Next sheet"
-              style={{ padding: "5px 8px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", opacity: (!!sheetGroup.length || page >= pageCount) ? 0.4 : 1 }}><Icon name="chevronRight" size={12} /></button>
-          </span>
-        )}
-        {vRule}
-        {cluster("Edit", <>
-          <ToolMenu
-            title="Edit takeoffs"
-            onOpenChange={onMenuDepth}
-            face={<span>Edit</span>}
-            items={[
-              { id: "copy", icon: "copy", label: "Copy", shortcut: "⌘C", disabled: !selectedId, onSelect: copySelected },
-              { id: "paste", icon: "paste", label: "Paste", shortcut: "⌘V", disabled: !clipRef.current.length, onSelect: () => pasteClipboard() },
-              { id: "dup", icon: "duplicate", label: "Duplicate", shortcut: "⌘D", disabled: !selectedId, onSelect: duplicateSelected },
-              "divider",
-              { id: "flipH", label: "Flip Horizontal", disabled: !selectedId, onSelect: () => flipSelected("h") },
-              { id: "flipV", label: "Flip Vertical", disabled: !selectedId, onSelect: () => flipSelected("v") },
-              { id: "tidy", label: "Tidy shape", disabled: !selectedId, onSelect: tidySelected },
-              "divider",
-              { id: "finish", icon: "check", label: `Finish shape${poly.length ? ` (${poly.length} pts)` : ""}`, shortcut: "↵", disabled: !finishOk, onSelect: finishShape },
-              { id: "undopt", icon: "undo", label: "Undo last point", shortcut: "⌘Z", disabled: !poly.length, onSelect: dropLastPoint },
-              { id: "undoshape", icon: "undo", label: "Undo last shape", disabled: !visibleShapes.length, onSelect: undoLast },
-              { id: "redo", label: "Redo", shortcut: "⇧⌘Z", onSelect: redoShapeCommand },
-              "divider",
-              { id: "del", icon: "close", label: "Delete selected", shortcut: "⌫", disabled: !selectedId, tint: "var(--c-danger)", onSelect: deleteSelected },
-            ]}
-          />
-        </>)}
-        {vRule}
-        {cluster("Aids", <>
-          {panels.length === 1 && isStitchKey(panels[0].key) && (
-            <button onClick={() => setTool((t) => (t === "stitch-align" ? "select" : "stitch-align"))}
-              title="Align the match line — click a point near the joint, then the SAME point where the other sheet draws it; that sheet slides so the two coincide. Do this before tracing (a stitch with takeoffs on it won't re-align)."
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${tool === "stitch-align" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: tool === "stitch-align" ? "var(--cobalt)" : "transparent", color: tool === "stitch-align" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-              <Icon name="calibrate" size={15} />Align
-            </button>
-          )}
-          <button onClick={() => setTool((t) => (t === "zone" ? "select" : "zone"))}
-            title="Zone check — trace a region (an apartment, a wing) to read every condition's quantities inside it, materials included. Nothing is saved; the outline clears when you leave the tool."
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${tool === "zone" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: tool === "zone" ? "var(--cobalt)" : "transparent", color: tool === "zone" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-            <Icon name="zone" size={15} />Zone
-          </button>
-          <button onClick={() => setSnapOn((v) => !v)} title="Snap to plan lines/corners (beta)"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${snapOn ? "var(--c-positive)" : "var(--ink-faint)"}`, background: snapOn ? "var(--c-positive)" : "transparent", color: snapOn ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-            <Icon name="snap" size={15} />Snap
-          </button>
-          <button onClick={() => setAngleOn((v) => !v)} title="45°/90° angle guides — the next segment locks to the 45° family as you draw (hold ⇧ to force the lock at any angle)"
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${angleOn ? "var(--cobalt)" : "var(--ink-faint)"}`, background: angleOn ? "var(--cobalt)" : "transparent", color: angleOn ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
-            <Icon name="angle" size={15} />45°
-          </button>
-        </>)}
-        {vRule}
-        {/* Drafting conventions — how a trace looks and where it bends, one
-            dropdown. Style and Outline came up from the ⋯ menu, Straight/Curve
-            over from the readout (2026-09-12): a convention you set before
-            tracing belongs beside the aids, one click from the sheet. */}
-        {cluster("Draft", draftMenu)}
-        {/* The caption always shows the ACTIVE label (+ the cobalt highlight keyed
-            on it) so what a new trace will get is never hidden — even in Select
-            mode, where the dropdown VALUE instead shows the selected shape's label
-            so changing it reliably re-labels that shape (a value-always-active
-            select couldn't reassign to the already-active label — onChange wouldn't fire). */}
-        {shapeLabels.length > 0 && cluster(
-          tool === "select" && selectedId ? `Label · ${activeLabel || "none"} → shape` : (activeLabel ? `Label · ${activeLabel}` : "Label"),
-          <select
-            value={tool === "select" && selectedId ? shapeLabelValue(shapes.find((s) => s.id === selectedId)) : (activeLabel || "")}
-            onChange={(e) => activateLabel(e.target.value || null)}
-            title="Phase/area label. The caption shows the ACTIVE label (what new takeoffs get). With a shape selected (Select tool), the dropdown shows and re-labels that shape. Manage the list in the Columns tab."
-            style={{ fontFamily: "var(--f-mono)", fontSize: 11.5, padding: "5px 6px", border: `1px solid ${activeLabel ? "var(--cobalt)" : "var(--ink-faint)"}`, background: activeLabel ? "var(--cobalt)" : "transparent", color: activeLabel ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", maxWidth: 150 }}>
-            <option value="">No label</option>
-            {shapeLabels.map((v) => <option key={v} value={v}>{v}</option>)}
-          </select>
-        )}
-        {/* Typed voice command (RFC #59 slice 2): the same grammar push-to-talk
-            will feed — a keyboard command line meanwhile, and the accessibility
-            path. Focus suppresses canvas shortcuts via the existing INPUT guards.
-            Deixis: focus marks the utterance's start — "this room" then needs an
-            aim placed AFTER it (park the pointer on the room, type, Enter). */}
-        {commandBoxEnabled() && cluster("Command",
-          <input
-            type="text"
-            placeholder="cpt 1 · waste 7 · this room"
-            title={'Command line (RFC #59): a condition tag ("CPT-1", "carpet one", "tile 2 waste 5"), "waste 7", "label Phase 1", "clear label", "author <your name>" (new marks sign it — the report can group by author), or "note …" — Enter runs it through the same actions the buttons use. End with "this room" / "here" while the pointer rests on a room to trace and commit it there ("carpet one, this room"). Push-to-talk dictation will feed this box.'}
-            onFocus={() => { voiceAimMarkRef.current = aimSeqRef.current; }}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              const v = e.currentTarget.value.trim();
-              if (!v) return;
-              const el = e.currentTarget;   // capture: currentTarget nulls after dispatch, and deixis outcomes can resolve async (raster)
-              // router confirm (RFC #59 slice 5): the rejected text is still in
-              // the box (only success clears it) — a second ⏎ on the SAME text
-              // confirms the pending offer instead of re-rejecting in a loop
-              if (pendingAgentOfferRef.current && v === pendingAgentOfferRef.current.transcript) {
-                agentOfferFnsRef.current.confirm();
-                el.value = "";
-                return;
-              }
-              Promise.resolve(onVoiceCommand(v)).then((ok) => { if (ok) el.value = ""; });
-            }}
-            style={{ fontFamily: "var(--f-mono)", fontSize: 11.5, padding: "5px 6px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", width: 150 }}
-          />
-        )}
-        {/* Push-to-talk (RFC #59 recognizer): hold the button (or M) to dictate
-            into the same grammar the Command box runs. Hidden entirely where
-            capture is unsupported — graceful feature-absence, never broken. */}
-        {commandBoxEnabled() && captureSupported() && cluster("Voice",
-          <button
-            title={'Hold to talk (or hold M anywhere on the canvas): speak a command — "carpet one, waste seven", "label phase two", "note …", or end with "this room" to trace at the cursor. Release to run; Esc discards. Audio is processed on-device and never leaves the browser.'}
-            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); voiceHoldRef.current = true; voiceFnsRef.current.start(); }}
-            onPointerUp={() => { if (voiceHoldRef.current) { voiceHoldRef.current = false; voiceFnsRef.current.end(true); } }}
-            onPointerCancel={() => { if (voiceHoldRef.current) { voiceHoldRef.current = false; voiceFnsRef.current.end(false); } }}
-            style={{ padding: "5px 10px", border: `1px solid ${voiceChip?.tone === "live" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: voiceChip?.tone === "live" ? "var(--cobalt)" : "transparent", color: voiceChip?.tone === "live" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, lineHeight: 1 }}>
-            {voiceChip?.tone === "live" ? "● talking" : "talk · M"}
-          </button>
-        )}
-        <div style={{ flex: 1 }} />
-        {cluster("Action",
-          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 6, minWidth: 150 }}>
-            {markupDraft && (tool === "cloud" || tool === "callout" || tool === "highlight" || tool === "dimension") && <span style={{ fontSize: 11, color: "var(--cobalt)" }}>click the {tool === "callout" ? "label spot" : tool === "dimension" ? "other end" : "opposite corner"}…</span>}
-            {finishOk && (
-              <button onClick={finishShape} title="Finish shape (↵ or double-click)" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "none", background: "var(--c-positive)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}><Icon name="check" size={14} />Finish ({poly.length})</button>
-            )}
-            {proposal?.regions.length > 0 && (
-              <button onClick={createProposal} title="Create the selected takeoff(s) (↵). ⌫ removes the last click; Esc discards the selection." style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "none", background: "var(--c-positive)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}><Icon name="check" size={14} />Create ({proposal.regions.length})</button>
-            )}
-          </span>
-        )}
-        <div style={{ flex: 1 }} />
-        </div>
-        <span data-topbar-pinned style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, paddingTop: 16 }}>
-        {cluster(`Scale — ${labelFor(focusPanel)}`,
-          <>
-            <button onClick={() => setUnits((u) => (u === "metric" ? "imperial" : "metric"))}
-              title={units === "metric" ? "Metric display (m² / m) — click for imperial. Calibrate in meters; 1:50-style scales in the list. Display only — stored takeoffs never change." : "Imperial display (SF / LF) — click for metric (m² / m, calibrate in meters, 1:50-style scales). Display only — stored takeoffs never change."}
-              style={{ padding: "6px 10px", border: `1px solid ${units === "metric" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: units === "metric" ? "var(--cobalt)" : "transparent", color: units === "metric" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, lineHeight: 1 }}>
-              {units === "metric" ? "m" : "ft"}
-            </button>
-            <ToolMenu
-              title={scaleTitle}
-              onOpenChange={onScaleMenuDepth}
-              face={<span data-tour="scale">{scaleFace}</span>}
-              faceStyle={{ fontFamily: "var(--f-mono)", fontSize: 11.5, ...scaleFaceStyle }}
-              menuStyle={{ minWidth: 250 }}
-              items={scaleItems}
-            />
-          </>
-        )}
-        <button type="button" ref={workspaceLayout ? undefined : workButtonRef} aria-expanded={agentOpen} onClick={() => setAgentOpen((v) => !v)}
-          title="Work and review — measurements, provenance, and agent proposals"
-          style={{ minHeight: "var(--ctl-m)", padding: "var(--sp-1) var(--sp-3)", border: "1px solid var(--cobalt)", background: agentOpen ? "var(--cobalt)" : "transparent", color: agentOpen ? "var(--accent-contrast)" : "var(--cobalt)", cursor: "pointer", fontSize: "var(--fs-s)", fontWeight: 600 }}>
-          Work{agentRunning ? " · Working" : shapes.some((s) => s.origin?.reviewed === false) ? ` · ${shapes.filter((s) => s.origin?.reviewed === false).length}` : ""}
-        </button>
-        <button onClick={openEstimate} disabled={!conditions.length} title="Price the takeoff — material and labor per unit, markups, Excel."
-          style={{ padding: "8px 14px", border: "1px solid var(--ink)", background: "transparent", color: conditions.length ? "var(--ink)" : "var(--text-faint)", cursor: conditions.length ? "pointer" : "default", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase" }}>Estimate</button>
-        <button data-tour="report" onClick={() => setShowReport(true)} disabled={!conditions.length} title="Open the takeoff report — per-condition breakdown with waste, plus CSV / JSON export."
-          style={{ padding: "8px 14px", border: "none", background: conditions.length ? "var(--ink)" : "var(--text-faint)", color: "var(--paper-bright)", cursor: conditions.length ? "pointer" : "default", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase" }}>Report</button>
-        {/* ⋯ overflow — rarely-used project controls, so the row never wraps
-            and nothing shifts position mid-work (issue #61's contract). */}
-        <ToolMenu
-          title="More — guide, appearance, schedule import, project moves"
-          onOpenChange={onMenuDepth}
-          face={<span style={{ fontWeight: 700, letterSpacing: "0.08em" }}>⋯</span>}
-          items={[
-            ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
-            { id: "workspace-preview", label: workspaceLayout ? "Classic layout" : "Premium layout — compact controls", onSelect: () => workspacePrefs.setEnabled(!workspaceLayout) },
-            { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
-            { id: "tour", label: "Guided first takeoff", onSelect: startTour },
-            { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
-            { id: "theme", label: theme === "dark" ? "Light chrome" : "Dark chrome", onSelect: toggleTheme },
-            "divider",
-            { id: "schedule", icon: "rectTool", label: "Import from schedule", active: tool === "schedule", onSelect: () => { setScheduleAnchor(null); setTool((t) => (t === "schedule" ? "select" : "schedule")); } },
-            ...(cloudMode ? [
-              "divider",
-              { id: "closeproj", label: "Close project", onSelect: closeProject },
-              ...(browseProjects ? [{ id: "projects", label: "Team projects", onSelect: browseProjects }] : []),
-            ] : []),
-            ...(!cloudMode && googleUser && isGoogleConfigured() && projectHomeFolderId() ? [
-              "divider",
-              { id: "browse", label: "Browse team projects", onSelect: () => navigate("/projects") },
-            ] : []),
-          ]}
-        />
-        <PresenceChip bridge={store.syncBridge} />
-        <AccountChip note={cloudMode ? "Synced to Google Drive" : "Local workspace"} onOpenChange={onMenuDepth} />
-        </span>
-      </div>
-      )}
-
-      {/* quick-access condition palette — its own slim band under the toolbar
-          (like the sheet-tabs / conditions-strip rows), not crammed into the
-          already-wrapping top bar. A curated ≤9 pinned conditions for one-click
-          activation without opening the panel: drag a condition here from the
-          Takeoffs panel (or the strip) to pin it, or use a row's pushpin. Each
-          chip carries its 1–9 hotkey badge (cobalt); single-click activates
-          (reassigning a selected shape, like every activation surface),
-          double-click opens the docked panel scrolled to that row, the pushpin
-          unpins, and dragging one chip onto another reorders (which renumbers
-          the hotkeys). Below the chips, the active condition's appearance editor
-          — the same one the docked panel row renders — so line/fill/hatch/height
-          are editable without opening the sidebar. Shown once there's a
-          condition to pin, so the drop zone is discoverable. */}
-      {!focusMode && (!workspaceLayout || workspaceArrangement.palette) && conditions.length > 0 && (
-        <div
-          onDragOver={(e) => { if (e.dataTransfer.types.includes(CONDITION_DND_MIME)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "copy"; } }}
-          onDrop={(e) => { if (!e.dataTransfer.types.includes(CONDITION_DND_MIME)) return; e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData(CONDITION_DND_MIME); if (id) pinToPalette(id); }}
-          style={{ padding: "5px 14px", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)" }}>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-            <span title="Quick-access conditions — drag a condition here (or use a row's pushpin) to pin it, up to 9. Press 1–9 to activate by this order; click a chip to activate; double-click to open the panel."
-              style={{ fontFamily: "var(--f-mono)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--ink-muted)" }}>Conditions</span>
-            {paletteConds.length === 0 ? (
-              <span style={{ fontSize: 11.5, color: "var(--ink-muted)", fontStyle: "italic", padding: "3px 8px", border: "1px dashed var(--ink-faint)" }}>drag conditions here (or pin a row) for 1-9 one-click access</span>
-            ) : paletteConds.map((c) => {
-              const on = c.id === activeCond;
-              const reassign = tool === "select" && selectedId;
-              const idx = palette.indexOf(c.id);   // palette position → the 1–9 hotkey number
-              return (
-                <span key={c.id} style={{ display: "inline-flex", alignItems: "center" }}
-                  onDragOver={(e) => { if (e.dataTransfer.types.includes(CONDITION_DND_MIME)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; } }}
-                  onDrop={(e) => { if (!e.dataTransfer.types.includes(CONDITION_DND_MIME)) return; e.preventDefault(); e.stopPropagation(); const dragId = e.dataTransfer.getData(CONDITION_DND_MIME); if (dragId) { if (palette.includes(dragId)) movePalette(dragId, idx); else pinToPalette(dragId); } }}>
-                  <button type="button" draggable
-                    onDragStart={(e) => { e.dataTransfer.setData(CONDITION_DND_MIME, c.id); e.dataTransfer.effectAllowed = "copyMove"; }}
-                    onClick={() => activateCondition(c.id)}
-                    onDoubleClick={() => openConditionInPanel(c.id)}
-                    title={reassign ? `Reassign the selected takeoff to ${c.finish_tag} (double-click opens the panel)` : `${c.finish_tag} — press ${idx + 1} or click to activate, double-click to open in the panel, drag onto another chip to reorder`}
-                    style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 5px", border: on ? `2px solid ${c.color}` : (reassign ? "1px dashed var(--cobalt)" : "1px solid var(--ink-faint)"), background: on ? "var(--surface-pop)" : "transparent", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 12.5, lineHeight: 1 }}>
-                    {idx < 9 && <span style={{ fontSize: 9, fontFamily: "var(--f-mono,monospace)", color: "var(--cobalt)", border: "1px solid var(--cobalt)", borderRadius: 3, padding: "0 3px" }}>{idx + 1}</span>}
-                    <span style={{ borderRadius: 4, overflow: "hidden", lineHeight: 0 }}><HatchSwatch type={c.hatch || "solid"} line={c.color} fill={c.fill} /></span>{c.finish_tag}
-                  </button>
-                  <button type="button" onClick={() => unpinFromPalette(c.id)} title={`Unpin ${c.finish_tag} from the palette`}
-                    style={{ border: "none", background: "none", cursor: "pointer", color: "var(--cobalt)", padding: "0 3px", lineHeight: 0, display: "inline-flex" }}>
-                    <Icon name="pin" size={12} />
-                  </button>
-                </span>
-              );
-            })}
-            {paletteConds.length >= PALETTE_MAX && (
-              <span style={{ fontSize: 10.5, color: "var(--ink-muted)", fontStyle: "italic" }}>full ({PALETTE_MAX})</span>
-            )}
-            {/* add a condition without opening the (now-collapsed) sidebar */}
-            <button type="button" onClick={addCondition} title="Add a new condition"
-              style={{ padding: "3px 9px", borderRadius: 0, border: "1px dashed var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--ink-muted)" }}>+ condition</button>
-          </div>
-          {/* the active condition's appearance editor, restored to the top bar —
-              same component the docked panel row renders (one source of truth) */}
-          {aCond && (
-            <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px solid var(--ink-faint)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-2)" }}>
-              <button type="button" aria-expanded={conditionDetails} onClick={() => setConditionDetails((v) => !v)} style={{ border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink-secondary)", padding: "var(--sp-1) var(--sp-2)", fontSize: "var(--fs-s)", cursor: "pointer" }}>{conditionDetails ? "▾" : "▸"} {aCond.finish_tag} properties</button>
-              {conditionDetails && <ConditionAppearanceEditor cond={aCond} onUpdateCond={updateCond} onSetCondParam={setCondParam} onAssignAttr={assignAttr} conditionColumns={conditionColumns} layout="row" units={units} />}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!focusMode && view === "canvas" && annotations.toolbar}
-
-      {/* open-sheet tabs — what you opened from the gallery; click to view,
-          ⊞ to side-by-side, ✕ to close; the dropdown lists every open sheet */}
-      {!focusMode && openTabs.length > 0 && (
-        <div data-sheet-tabs style={{ display: "flex", gap: 5, alignItems: "center", padding: "5px 14px", flexWrap: openTabs.length > MANY_TABS ? "nowrap" : "wrap", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)", minWidth: 0 }}>
-          <span style={{ fontFamily: "var(--f-mono)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--ink-muted)", flexShrink: 0 }}>Sheets</span>
-          {openTabs.length > MANY_TABS && (
-            <button type="button" onClick={() => scrollTabStrip(-1)} title="Scroll sheets left" aria-label="Scroll sheets left" style={{ flexShrink: 0, padding: "4px 5px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", display: "inline-flex" }}><Icon name="chevronLeft" size={12} /></button>
-          )}
-          <div ref={tabStripRef} data-sheet-tab-strip style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: openTabs.length > MANY_TABS ? "nowrap" : "wrap", overflowX: openTabs.length > MANY_TABS ? "auto" : "visible", minWidth: 0, flex: openTabs.length > MANY_TABS ? 1 : "0 1 auto", scrollbarWidth: "none", overscrollBehaviorX: "contain" }}>
-          {openTabs.map((k) => {
-            const inGroup = sheetGroup.includes(k);
-            const on = sheetGroup.length ? inGroup : k === sheetKey;
-            const lbl = tabLabel(k);
-            return (
-              <span key={k} data-sheet-tab={on ? "active" : "idle"}
-                draggable={!isStitchKey(k) && sheetHasInk(k)}
-                onMouseEnter={() => armSheetDrag(k)}
-                onDragStart={(e) => onSheetTabDragStart(k, e)}
-                title={!isStitchKey(k) && sheetHasInk(k) ? "Drag this tab out of the app to export the marked sheet" : undefined}
-                style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, border: "1px solid var(--ink-faint)", borderBottom: on ? "2px solid var(--cobalt)" : "1px solid var(--ink-faint)", background: on ? "var(--paper-cream)" : "transparent", padding: "3px 6px 2px 9px", maxWidth: 190 }}>
-                <button onClick={() => goToSheet(k)} title={k} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 11.5, color: "var(--ink)", fontFamily: "var(--f-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140, padding: 0 }}>{lbl}</button>
-                <button onClick={() => toggleInGroup(k)} title={inGroup ? "Remove from side-by-side" : "Side-by-side with the current sheet"} style={{ border: "none", background: "none", cursor: "pointer", color: inGroup ? "var(--cobalt)" : "var(--ink-faint)", padding: 0, display: "inline-flex" }}><Icon name="sideBySide" size={11} /></button>
-                <button onClick={() => closeTab(k)} title="Close tab" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)", padding: 0, display: "inline-flex" }}><Icon name="close" size={10} /></button>
-              </span>
-            );
-          })}
-          </div>
-          {openTabs.length > MANY_TABS && (
-            <button type="button" onClick={() => scrollTabStrip(1)} title="Scroll sheets right" aria-label="Scroll sheets right" style={{ flexShrink: 0, padding: "4px 5px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", display: "inline-flex" }}><Icon name="chevronRight" size={12} /></button>
-          )}
-          {openTabs.length > 1 && openTabs.length <= MANY_TABS && (
-            <ToolMenu
-              title="Jump to an open sheet"
-              onOpenChange={onMenuDepth}
-              face={<span style={{ fontFamily: "var(--f-mono)", fontSize: 11 }}>{openTabs.length} open</span>}
-              items={openTabs.map((k) => ({ id: k, icon: "document", label: tabLabel(k), active: sheetGroup.length ? sheetGroup.includes(k) : k === sheetKey, onSelect: () => goToSheet(k) }))}
-            />
-          )}
-        </div>
-      )}
-
-      {/* compact conditions strip — OPTIONAL small-project mode. The docked
-          Takeoffs panel is the primary conditions surface; the strip renders
-          the same state (activate/reassign, hotkey badges, + condition) for
-          users who want max panel-collapse and one-click switching. Toggled
-          from the panel header, persisted with the panel prefs. */}
-      {!focusMode && !workspaceLayout && panelPrefs.strip && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 14px", flexWrap: "wrap", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)" }}>
-          <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--ink-muted)" }}>Conditions</span>
-          {conditions.map((c, i) => {
-            const on = c.id === activeCond;
-            // the 1–9 badge follows the same rule as the hotkeys: palette order
-            // when curated, condition order (fallback) when nothing is pinned
-            const pinnedPal = palette.length > 0;
-            const hIdx = pinnedPal ? palette.indexOf(c.id) : i;
-            const hot = hIdx >= 0 && hIdx < 9;
-            return (
-              <button key={c.id} draggable onDragStart={(e) => { e.dataTransfer.setData(CONDITION_DND_MIME, c.id); e.dataTransfer.effectAllowed = "copy"; }} onClick={() => activateCondition(c.id)} title={tool === "select" && selectedId ? "Reassign selected shape to this condition" : (hot ? `Press ${hIdx + 1} · drag to the palette to pin` : "Drag to the palette to pin")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px 3px 4px", borderRadius: 0, border: on ? `2px solid ${c.color}` : (tool === "select" && selectedId ? "1px dashed var(--cobalt)" : "1px solid var(--ink-faint)"), background: on ? "var(--surface-pop)" : "transparent", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 12.5 }}>
-                {hot && <span style={{ fontSize: 9, fontFamily: "var(--f-mono,monospace)", color: pinnedPal ? "var(--cobalt)" : "var(--ink-muted)", border: `1px solid ${pinnedPal ? "var(--cobalt)" : "var(--ink-faint)"}`, borderRadius: 3, padding: "0 3px" }}>{hIdx + 1}</span>}
-                <span style={{ borderRadius: 4, overflow: "hidden", lineHeight: 0 }}><HatchSwatch type={c.hatch || "solid"} line={c.color} fill={c.fill} /></span>{c.finish_tag}
-              </button>
-            );
-          })}
-          <button onClick={addCondition} style={{ padding: "4px 10px", borderRadius: 0, border: "1px dashed var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 12.5, color: "var(--ink-muted)" }}>+ condition</button>
-        </div>
-      )}
-
-      {/* Copy text prompt (#471) — the calibrate/check prompt-bar idiom */}
-      {tool === "textcopy" && (
-        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14, display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
-          <span>Copy text: click two corners around the text ({textAnchor ? 1 : 0}/2). Rotated runs are left out and counted.</span>
-          <button type="button" className="btn-ghost" onClick={() => copyTextFrom(focusPanel.key, null, "page")}>Copy page text</button>
-        </div>
-      )}
-
-      {/* calibration prompt */}
-      {tool === "calibrate" && (
-        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14 }}>
-          {calib.length < 2 ? <span>Custom scale: click two points along a known dimension ({calib.length}/2). Tip: use the longest dimension. (Or just pick a standard scale above.)</span> : (
-            <span>Real length:{" "}
-              <input name="calibration-length" type="number" value={pendingLen} onChange={(e) => setPendingLen(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyCalibration()} placeholder={units === "metric" ? "meters" : "feet"} autoFocus style={{ width: 90, padding: 5, borderRadius: 0, border: "1px solid var(--ink-faint)" }} /> {units === "metric" ? "m" : "ft"}
-              <button onClick={applyCalibration} style={{ marginLeft: 8, padding: "5px 12px", borderRadius: 0, border: "none", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer" }}>Apply</button>
-              <button onClick={() => setCalib([])} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button>
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* check-a-dimension prompt — read-only twin of calibrate: measure a printed
-          dimension at the current scale, compare with what the drawing says */}
-      {tool === "check" && (
-        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14 }}>
-          {check.length < 2 ? (
-            <span>Check a dimension: click both ends of a printed dimension ({check.length}/2). The measured length shows here — compare it with what the drawing says.</span>
-          ) : checkCross ? (
-            <span style={{ color: "var(--c-danger)" }}>Check on one sheet — those two clicks landed on different sheets. <button onClick={() => { setCheck([]); setCheckStated(""); }} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button></span>
-          ) : !checkUpp ? (
-            <span style={{ color: "var(--c-danger)" }}>No scale set for {labelFor(checkPanel)} — pick a standard scale or calibrate first, then check it here.</span>
-          ) : checkPx <= 0 ? (
-            <span style={{ color: "var(--c-danger)" }}>Those two clicks landed on the same point — click the two <b>ends</b> of a printed dimension.</span>
-          ) : (
-            <span>
-              measures <b style={{ fontFamily: "var(--f-mono)" }}>{fmtCheckLen(checkFeet, units)}</b> at {stdValue || "custom scale"} · drawing says{" "}
-              <input name="check-stated-length" value={checkStated} onChange={(e) => setCheckStated(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder={units === "metric" ? "meters" : `feet (12'6, 6" ok)`} autoFocus style={{ width: 100, padding: 5, borderRadius: 0, border: "1px solid var(--ink-faint)" }} /> {units === "metric" ? "m" : "ft"}
-              {checkErrPct != null && (() => {
-                // checkVerdict grades the ROUNDED value the chip displays (and
-                // normalizes -0), so color and number can never contradict —
-                // see units.ts for the ≤1/≤5 tie-break rationale
-                const v = checkVerdict(checkErrPct);
-                const pct = `${v.shown >= 0 ? "+" : ""}${v.shown.toFixed(1)}%`;
-                return (
-                  <b style={{ marginLeft: 8, color: v.grade === "match" ? "var(--c-positive)" : v.grade === "close" ? "var(--c-warning)" : "var(--c-danger)" }}>
-                    {v.grade === "match" ? `matches — scale checks out (${pct})`
-                      : v.grade === "close" ? `off by ${pct} — re-check or recalibrate`
-                      : `off by ${pct} — wrong scale; recalibrate`}
-                  </b>
-                );
-              })()}
-              {checkStatedFeet > 0 && (
-                <button onClick={recalibrateFromCheck} style={{ marginLeft: 8, padding: "5px 12px", borderRadius: 0, border: "none", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer" }}>Recalibrate to this</button>
-              )}
-              <button onClick={() => { setCheck([]); setCheckStated(""); }} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button>
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* canvas + issue desk */}
-      <div data-canvas-workspace style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0, position: "relative" /* anchors the narrow-screen panel overlay */ }}>
-       {workspaceLayout && <><WorkspaceNavigator open={!focusMode && workspaceNavigationOpen} items={workspaceSheets} current={treeCurrent} namer={namer} countKnown={countKnown} hold={ocrHold} onSelect={(key) => openSheets([key], false)} onClose={() => setWorkspaceNavigationOpen(false)} onGallery={() => { setView("gallery"); setWorkspaceNavigationOpen(false); }} dockSide={workspaceArrangement.sheets} width={workspaceArrangement.sheetWidth} dockHandle={workspaceDockHandle("sheets", "Sheets")} /><DockTargets dragging={workspaceDragging} /></>}
-       {/* tool rail — machined faces grouped by MCP module (the concept shell).
-           Individual tiles replace deck 2's Measure/Cut Out menus; Markup keeps
-           its variety flyout on one tile (five markup kinds don't earn five
-           faces). Lives in the canvas row so docked panels + canvas reflow
-           beside it; survives focus mode — it IS the tool access. */}
-       {view === "canvas" && (
-       <nav data-tool-rail data-dock-side={workspaceLayout ? workspaceArrangement.tools : undefined} role="toolbar" aria-label="Tools" style={{ order: workspaceLayout ? workspaceArrangement.tools === "right" ? 30 : -30 : undefined, width: "var(--rail-w)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-1)", paddingTop: "var(--sp-2)", borderRight: "1px solid var(--ink-faint)", background: "var(--paper-bright)", overflowY: "auto", overflowX: "visible" }}>
-         {workspaceDockHandle("tools", "Tools")}
-         {railLabel("SEL")}
-         {railTile("select", "select", "Select — pick a takeoff, drag points; drag open canvas to pan", "V")}
-         {railLabel("MEAS")}
-         {MEASURE_TOOLS.filter((t) => t.id !== "oneclick" || oneClickEnabled()).map((t) => railTile(t.id, t.icon, t.label, t.shortcut))}
-         {railLabel("CUT")}
-         {CUT_TOOLS.map((t) => railTile(t.id, t.icon, t.label, t.shortcut, null, { tint: "var(--c-danger)" }))}
-         {railLabel("MARK")}
-         <span ref={(el) => { if (el) markTileTopRef.current = el.getBoundingClientRect().top; }} style={{ position: "relative", display: "inline-flex" }}>
-           <ToolMenu
-             title="Create annotation — cloud, callout, text, highlight, or dimension"
-             active={MARKUP_IDS.includes(tool)}
-             onOpenChange={onMenuDepth}
-             flyout="right"
-             face={<Icon name="markup" size={17} />}
-             items={[
-               { section: "Markup — notes on the plan, never measured" },
-               ...MARKUP_TOOLS.map((t) => ({ id: t.id, icon: t.icon, label: t.label, shortcut: t.shortcut, active: tool === t.id, onSelect: () => { setTool(t.id); setMarkupDraft(null); } })),
-             ]}
-           />
-           {/* highlighter style popover — fixed beside the rail while armed
-               (fixed, not absolute: the rail's scroll box would clip it) */}
-           {tool === "highlighter" && (
-             <div style={{ position: "fixed", left: "calc(var(--rail-w) + 8px)", top: markTileTopRef.current || 200, zIndex: Z.popover, background: "var(--paper-bright)", border: "1px solid var(--ink-faint)", borderRadius: 0, boxShadow: "var(--shadow-pop)", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 7 }}>
-               <div style={{ display: "flex", gap: 6 }} title="Ink">
-                 {HL_INKS.map((c) => (
-                   <button key={c} onClick={() => setHlStyle((st) => ({ ...st, color: c }))}
-                     style={{ width: 16, height: 16, padding: 0, background: c, border: hlStyle.color === c ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer" }} />
-                 ))}
-               </div>
-               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                 {HL_SIZES.map(([lbl, px]) => (
-                   <button key={lbl} onClick={() => setHlStyle((st) => ({ ...st, size: px }))} title={`${lbl === "F" ? "Fine" : lbl === "M" ? "Medium" : "Broad"} tip`}
-                     style={{ width: 22, height: 20, padding: 0, fontFamily: "var(--f-mono)", fontSize: 10, cursor: "pointer", border: hlStyle.size === px ? "1px solid var(--ink)" : "1px solid var(--ink-faint)", background: hlStyle.size === px ? "var(--ink)" : "transparent", color: hlStyle.size === px ? "var(--paper-bright)" : "var(--ink)" }}>{lbl}</button>
-                 ))}
-                 <span style={{ width: 1, alignSelf: "stretch", background: "var(--ink-faint)" }} />
-                 {[["chisel", "M4 16 L14 6 L18 10 L8 20 Z"], ["round", "M5 17 Q12 3 19 13"]].map(([tip, d]) => (
-                   <button key={tip} onClick={() => setHlStyle((st) => ({ ...st, tip }))} title={`${tip} tip`}
-                     style={{ width: 24, height: 20, padding: 1, cursor: "pointer", border: hlStyle.tip === tip ? "1px solid var(--ink)" : "1px solid var(--ink-faint)", background: "transparent" }}>
-                     <svg viewBox="0 0 24 24" width="18" height="14">{tip === "chisel"
-                       ? <path d={d} fill="currentColor" stroke="none" />
-                       : <path d={d} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />}</svg>
-                   </button>
-                 ))}
-               </div>
-             </div>
-           )}
-         </span>
-         {/* Approval stamp — ink over pencil. Human-only by design: this tile
-             is the ONLY way an estimator seal is minted (no MCP tool, no agent
-             path), so the mark means a person looked. */}
-         {railTile("approve", "approve", "Approval stamp — the estimator's ink. Click a committed takeoff to approve it, or empty plan to approve the sheet; click a seal to lift it. ⌘Z undoes. Human-only.", null,
-           () => setTool((t) => (t === "approve" ? "select" : "approve")), { tint: tool === "approve" ? "var(--c-positive)" : undefined, armed: tool === "approve" })}
-         {railLabel("READ")}
-         {railTile("textcopy", "copyText", "Copy text — click two corners around a note or schedule; its text goes on your clipboard", null, armCopyText)}
-         {railLabel("CAL")}
-         {railTile("calibrate", "calibrate", "Calibrate — click two points of a known dimension", null)}
-       </nav>
-       )}
-       {/* docked LEFT panel — one of Markups/Stamps/RFIs at a time. Reflows the
-           canvas (a flex sibling), mirroring the docked Takeoffs panel on the right. */}
-       {leftTab && (
-         <div style={{ width: 360, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--ink-faint)", background: "var(--paper-bright)", overflow: "hidden", minHeight: 0 }}>
-           {/* tab strip */}
-           <div style={{ display: "flex", alignItems: "stretch", background: "var(--cobalt)", color: "var(--accent-contrast)" }}>
-             {[{ id: "markup", label: "Markups", n: markupCount }, { id: "stamp", label: "Stamps", n: stampLib.stamps.length }, { id: "rfi", label: "RFIs", n: rfis.length }].map((t) => (
-               <button key={t.id} onClick={() => setLeftTab(t.id)} title={t.label}
-                 style={{ flex: 1, padding: "9px 6px", border: "none", borderBottom: leftTab === t.id ? "2px solid var(--accent-contrast)" : "2px solid transparent", background: leftTab === t.id ? "rgba(255,255,255,.18)" : "transparent", color: "var(--accent-contrast)", cursor: "pointer", fontWeight: leftTab === t.id ? 700 : 500, fontSize: 12 }}>
-                 {t.label}{t.n ? ` · ${t.n}` : ""}
-               </button>
-             ))}
-             <button onClick={() => setLeftTab(null)} title="Close panel" style={{ padding: "0 12px", border: "none", background: "transparent", color: "var(--accent-contrast)", fontSize: 16, cursor: "pointer" }}>×</button>
-           </div>
-           {/* body of the active tab */}
-           <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
-             {leftTab === "markup" && (
-               <div>
-                 {/* layer show/hide — hides the on-canvas markup layer AND its hit-testing
-                     (can't select/delete/fly-to an invisible markup); orthogonal to the
-                     marked-set export, which still includes markups. */}
-                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)" }}>
-                   <button
-                     onClick={() => { const nv = !showMarkups; setShowMarkups(nv); if (!nv) setSelectedMarkupId(null); }}
-                     title={showMarkups ? "Hide the markup layer on the canvas" : "Show the markup layer on the canvas"}
-                     style={{ background: "transparent", border: "1px solid var(--ink-faint)", color: "var(--ink)", fontSize: 11, cursor: "pointer", padding: "2px 7px" }}>
-                     {showMarkups ? "Hide layer" : "Show layer"}
-                   </button>
-                 </div>
-                 <div style={{ padding: "8px 10px", color: "var(--ink-muted)" }}>
-                   Open <b>Create annotation</b> in the drawing toolbar to choose a cloud, highlight, callout, text note, or dimension, then click the plan to annotate it. <b>🖼 Image</b> marquees a region (two clicks) — or use <b>Upload image…</b> in Captures below.
-                 </div>
-                 {markups.filter((m) => panelKeySet.has(m.sheet_id) && m.type !== "image").length === 0 && (
-                   <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>
-                     No markups {groupKeys.length > 1 ? "on these sheets" : "on this sheet"} yet.
-                     <div style={{ marginTop: 4, fontSize: 11 }}>Images now live in <b>Captures</b> below.</div>
-                   </div>
-                 )}
-                 {markups.filter((m) => panelKeySet.has(m.sheet_id) && m.type !== "image").map((m) => (
-                   <div key={m.id} style={{ padding: "10px 12px", borderTop: "1px solid var(--ink-faint)", background: selectedMarkupId === m.id ? "var(--surface-pop)" : "transparent" }}>
-                     {/* the header line selects + flies to the markup (parity with the RFI
-                         register's onFlyTo) — the inner controls stopPropagation so only the
-                         label area triggers it, never edit/delete. */}
-                     <div onClick={() => flyToMarkup(m)} title="Select and center this markup" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                       <span style={{ fontSize: 10, fontWeight: 700, color: "var(--cobalt)", textTransform: "uppercase" }}>{m.type}</span>
-                       {/* inline edit — the panel's fallback for the canvas overlay, since a
-                           markup here may be off-screen or on another sheet (no click point).
-                           Enter/blur commit, Esc cancels; INPUT is guarded from the global keys. */}
-                       {panelEditId === m.id ? (
-                         <input name="markup-text" autoComplete="off" autoFocus defaultValue={m.text || ""}
-                           onClick={(e) => e.stopPropagation()}
-                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); } else if (e.key === "Escape") { e.preventDefault(); e.currentTarget.value = m.text || ""; setPanelEditId(null); } }}
-                           onBlur={(e) => { updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); }}
-                           style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: "1px 4px", border: "1px solid var(--cobalt)", borderRadius: 0, outline: "none" }} />
-                       ) : (
-                         (() => {
-                           // shown resolved ({{qty}} → "5 EA", #474); the edit box keeps the template
-                           const rm = resolveMarkup(m, noteQtyLabels);
-                           const warn = rm.unresolved.length > 0;
-                           return <span title={warn ? `Can't fill ${rm.unresolved.join(", ")}: link this note to a condition that has a quantity` : (rm.m !== m ? m.text : undefined)} style={{ flex: 1, color: warn ? "var(--c-danger)" : "var(--ink)" }}>{m.type === "svg" ? <em style={{ color: "var(--ink-muted)" }}>(vector symbol)</em> : ([m.type === "dimension" && Number(m.len_ft) > 0 ? dimLabel(m.len_ft) : "", rm.m.text].filter(Boolean).join(" · ") || <em style={{ color: "var(--ink-muted)" }}>(no text)</em>)}</span>;
-                         })()
-                       )}
-                       {m.type !== "svg" && <button onClick={(e) => { e.stopPropagation(); setPanelEditId((id) => (id === m.id ? null : m.id)); }} title="Edit text" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)" }}>✎</button>}
-                       <button onClick={(e) => { e.stopPropagation(); deleteMarkup(m.id); }} title="Delete markup" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--c-danger)" }}>🗑</button>
-                     </div>
-                     {/* appearance — per-markup color (reuse PALETTE) + line style; both
-                         additive: unset color falls back to the cobalt(linked)/amber default,
-                         unset style to solid. The RFI ⬢/number badge stays cobalt regardless. */}
-                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 7, flexWrap: "wrap" }}>
-                       <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginRight: 2 }}>Color</span>
-                       <button title="Auto (linkage color)" onClick={() => updateMarkup(m.id, { color: "" })} style={{ width: 26, height: 15, borderRadius: 4, background: "var(--paper-bright)", border: !m.color ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer", fontSize: 8.5, lineHeight: "11px", color: "var(--ink-muted)" }}>auto</button>
-                       {PALETTE.map((c) => <button key={c} title={c} onClick={() => updateMarkup(m.id, { color: c })} style={{ width: 15, height: 15, borderRadius: 4, background: c, border: m.color === c ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer" }} />)}
-                       <select name="markup-line-style" value={m.line_style || "solid"} onChange={(e) => updateMarkup(m.id, { line_style: e.target.value })} title="Line style" style={{ marginLeft: 4, fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }}>
-                         {LINE_STYLE_IDS.map((id) => <option key={id} value={id}>{LINE_STYLES[id].label}</option>)}
-                       </select>
-                       {/* line weight — a multiplier over the element's base stroke width (default
-                           ×1, clamped 0.5–3); additive, absent = ×1 so legacy markups are unchanged */}
-                       <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginLeft: 4 }}>Weight</span>
-                       <select name="markup-weight" value={String(snapWeight(m.weight))} onChange={(e) => updateMarkup(m.id, { weight: Number(e.target.value) })} title="Line weight (× base)" style={{ fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }}>
-                         {WEIGHT_STEPS.map((wv) => <option key={wv} value={wv}>{wv}×</option>)}
-                       </select>
-                       {/* revision-delta △n — clouds only; blank clears it (no delta drawn) */}
-                       {m.type === "cloud" && (
-                         <>
-                           <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginLeft: 4 }} title="Revision-delta number (△) drawn at a cloud corner">Rev △</span>
-                           <input name="markup-rev" type="number" min="0" step="1" value={Number.isFinite(m.rev) ? m.rev : ""} placeholder="—"
-                             onChange={(e) => { const raw = e.target.value; updateMarkup(m.id, { rev: raw === "" ? undefined : Math.max(0, Math.floor(Number(raw) || 0)) }); }}
-                             title="Revision number for the △ delta (blank = none)"
-                             style={{ width: 40, fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }} />
-                         </>
-                       )}
-                     </div>
-                     {/* Condition link — which scope this annotation is ABOUT.
-                         Same one-to-many shape as the RFI link below it. */}
-                     {(() => {
-                       const lc = m.condition_id ? condById[m.condition_id] : null;
-                       const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
-                       return (
-                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-                           {lc ? (
-                             <>
-                               <span title={`Annotation is about ${lc.finish_tag}`}
-                                 style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700 }}>
-                                 <span style={{ width: 9, height: 9, background: lc.color, border: "1px solid var(--ink-faint)" }} />
-                                 {lc.finish_tag}
-                               </span>
-                               <button onClick={() => { setActiveCond(lc.id); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Make this the active condition">Select</button>
-                               <button onClick={() => unlinkCondition(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Detach this annotation from its condition">Detach</button>
-                             </>
-                           ) : conditions.length > 0 && (
-                             <select name="link-condition" value="" onChange={(e) => { if (e.target.value) linkCondition(m, e.target.value); }}
-                               title="Attach this annotation to a condition" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 170 }}>
-                               <option value="">Attach to condition…</option>
-                               {conditions.map((c) => <option key={c.id} value={c.id}>{c.finish_tag}</option>)}
-                             </select>
-                           )}
-                         </div>
-                       );
-                     })()}
-                     {/* RFI controls — raise a fresh RFI, link an existing one, or unlink */}
-                     {(() => {
-                       const linked = m.rfi_id ? rfis.find((r) => r.id === m.rfi_id) : null;
-                       const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
-                       return (
-                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-                           {linked ? (
-                             <>
-                               <span style={{ fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, color: "var(--cobalt)" }}>⬢ {String(linked.number ?? "")}</span>
-                               <button onClick={() => { setLeftTab("rfi"); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Open the RFI register">Open</button>
-                               <button onClick={() => unlinkRfi(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Unlink this markup from its RFI">Unlink</button>
-                             </>
-                           ) : (
-                             <>
-                               <button onClick={() => raiseRfi(m)} style={{ ...ctrl, color: "var(--cobalt)", fontWeight: 600 }} title="Create a new RFI from this markup">Raise RFI</button>
-                               {rfis.length > 0 && (
-                                 <select name="link-rfi" value="" onChange={(e) => { if (e.target.value) linkRfi(m, e.target.value); }}
-                                   title="Link this markup to an existing RFI" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 150 }}>
-                                   <option value="">Link existing…</option>
-                                   {rfis.map((r) => <option key={r.id} value={r.id}>{r.number}{r.subject ? ` · ${r.subject}` : ""}</option>)}
-                                 </select>
-                               )}
-                             </>
-                           )}
-                         </div>
-                       );
-                     })()}
-                   </div>
-                 ))}
-                 {/* Captures — a GLOBAL image-markup library, every sheet, NOT
-                     filtered to the panels open right now (unlike the per-sheet
-                     list above): that global-ness is the whole point of the
-                     feature — find, re-place, trace, or caption any capture
-                     regardless of which sheet is open. Uploads live here too
-                     (no source fields, so ◎ and the caption toggle are hidden
-                     — see isTraceable). */}
-                 <div style={{ borderTop: "2px solid var(--ink-faint)" }}>
-                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)", gap: 8 }}>
-                     <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Captures</span>
-                     {/* hidden input reused by the Upload button — re-encoded through addImageFromFile */}
-                     <input name="markup-image-file" ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }}
-                       onChange={(e) => { const f = e.target.files?.[0]; if (f) addImageFromFile(f); e.target.value = ""; }} />
-                     <button
-                       onClick={() => imageInputRef.current?.click()}
-                       title="Upload a raster image (PNG or JPEG) as a floating annotation on the current sheet"
-                       style={{ background: "transparent", border: "1px solid var(--ink-faint)", color: "var(--ink)", fontSize: 11, cursor: "pointer", padding: "2px 7px" }}>
-                       Upload image…
-                     </button>
-                   </div>
-                   {/* always-on name search — mirrors the condQuery idiom
-                       (TakeoffsPanel ~:718/763/1054-1056) */}
-                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)" }}>
-                     <input name="capture-filter" value={captureQuery} onChange={(e) => setCaptureQuery(e.target.value)} placeholder="filter captures…"
-                       style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 0, border: "1px solid var(--ink-faint)", fontSize: 12 }} />
-                     {captureQuery && <button onClick={() => setCaptureQuery("")} title="Clear the filter" style={{ border: "none", background: "none", color: "var(--ink-muted)", cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>}
-                   </div>
-                   {(() => {
-                     // one pass over `markups` for the image subset; the query
-                     // then narrows THAT (small) list instead of re-scanning
-                     // every markup a second time — filterCaptures's own
-                     // type==="image" filter is a no-op on an already-image-only input.
-                     const allCaptures = filterCaptures(markups, "");
-                     const captures = filterCaptures(allCaptures, captureQuery);
-                     if (allCaptures.length === 0) {
-                       return <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>No captures yet. Marquee a region with 🖼 or use Upload image… above.</div>;
-                     }
-                     if (captures.length === 0) {
-                       return <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>No captures match “{captureQuery}”.</div>;
-                     }
-                     return captures.map((m) => {
-                       // Captures-only gate for ◎ + the caption toggle — legacy
-                       // pre-slice-1 images and uploads both lack src_sheet_id.
-                       const traceable = isTraceable(m);
-                       return (
-                         <div key={m.id} style={{ padding: "10px 12px", borderTop: "1px solid var(--ink-faint)", background: selectedMarkupId === m.id ? "var(--surface-pop)" : "transparent" }}>
-                           {/* header line — thumb, name(✎), sheet badge, age,
-                               Place, ◎ trace, caption toggle, delete. Mirrors the
-                               per-sheet row's click-to-fly / stopPropagation
-                               pattern above. */}
-                           <div onClick={() => { if (m.reference_only) { setPinSelectedId(m.id); setPinsOpen(true); } else flyToMarkup(m); }} title={imageProvenance(m)} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexWrap: "wrap" }}>
-                             {(() => {
-                               const th = ensureThumb(m);
-                               return <span style={{ flex: "0 0 auto", width: 30, height: 30, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
-                                 {th ? <img src={th} alt="" style={{ maxWidth: "100%", maxHeight: "100%", display: "block" }} /> : <span style={{ fontSize: 14 }}>🖼</span>}
-                               </span>;
-                             })()}
-                             {panelEditId === m.id ? (
-                               <input name="capture-text" autoComplete="off" autoFocus defaultValue={m.text || ""}
-                                 onClick={(e) => e.stopPropagation()}
-                                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); } else if (e.key === "Escape") { e.preventDefault(); e.currentTarget.value = m.text || ""; setPanelEditId(null); } }}
-                                 onBlur={(e) => { updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); }}
-                                 style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: "1px 4px", border: "1px solid var(--cobalt)", borderRadius: 0, outline: "none" }} />
-                             ) : (
-                               <span style={{ flex: "0 1 auto", minWidth: 0, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.text || <em style={{ color: "var(--ink-muted)" }}>(no name)</em>}</span>
-                             )}
-                             <button onClick={(e) => { e.stopPropagation(); setPanelEditId((id) => (id === m.id ? null : m.id)); }} title="Edit name" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)" }}>✎</button>
-                             <span style={{ color: "var(--ink-faint)" }}>·</span>
-                             <span title={`Currently on ${sheetBaseLabel(m.sheet_id)}`} style={{ fontSize: 10.5, color: "var(--ink-muted)", padding: "1px 6px", border: "1px solid var(--ink-faint)", borderRadius: 4, background: "var(--paper-cream)", whiteSpace: "nowrap" }}>{sheetBaseLabel(m.sheet_id)}</span>
-                             {/* legacy/imported captures can predate created_at (see
-                                 imageProvenance's own guard on the same field) — a
-                                 blank relativeAge must not leave a dangling "·" */}
-                             {(() => {
-                               const age = relativeAge(m.created_at, Date.now());
-                               return age ? (
-                                 <>
-                                   <span style={{ color: "var(--ink-faint)" }}>·</span>
-                                   <span style={{ fontSize: 10.5, color: "var(--ink-muted)", whiteSpace: "nowrap" }} title={absoluteUtc(m.created_at)}>{age}</span>
-                                 </>
-                               ) : null;
-                             })()}
-                             <button onClick={(e) => { e.stopPropagation(); setPinSelectedId(m.id); setPinsOpen(true); }} title="Keep this capture beside your takeoff while changing sheets">Pin</button>
-                             {!m.reference_only && (<button onClick={(e) => { e.stopPropagation(); beginPlace(m); }} title={panelKeySet.has(m.sheet_id) ? "Reposition: centers the view on the image, then it follows the cursor — click the sheet to drop it" : "Place this image on the current sheet — it follows the cursor until you click to drop it"} style={{ border: "1px solid var(--ink-faint)", background: placingImageId === m.id ? "var(--cobalt)" : "transparent", color: placingImageId === m.id ? "#fff" : "var(--cobalt)", cursor: "pointer", fontSize: 11, padding: "1px 7px" }}>Place</button>)}
-
-                             {traceable && (
-                               <button onClick={(e) => { e.stopPropagation(); traceSource(m); }} title="Jump to the source sheet and flash the captured region" style={{ border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--cobalt)", cursor: "pointer", fontSize: 11, padding: "1px 7px", whiteSpace: "nowrap" }}>
-                                 {traceLabel(m.src_sheet_id, m.sheet_id, sheetBaseLabel(m.src_sheet_id))}
-                               </button>
-                             )}
-                             {traceable && (
-                               <button onClick={(e) => { e.stopPropagation(); updateMarkup(m.id, { source_label: !m.source_label }); }}
-                                 title="Show/Hide the source caption on the image"
-                                 style={{ padding: "2px 7px", border: `1px solid ${m.source_label ? "var(--cobalt)" : "var(--ink-faint)"}`, background: m.source_label ? "var(--cobalt)" : "transparent", color: m.source_label ? "var(--paper-bright)" : "var(--ink-muted)", cursor: "pointer", fontSize: 10.5, fontFamily: "var(--f-mono)", lineHeight: 1.4 }}>
-                                 caption
-                               </button>
-                             )}
-                             <button onClick={(e) => { e.stopPropagation(); deleteMarkup(m.id); }} title="Delete capture" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--c-danger)" }}>🗑</button>
-                           </div>
-                           {/* Condition link — identical block to the per-sheet row's
-                               (8211–8235 pre-slice-4); keys off `m` and works for any
-                               markup type, captures included. */}
-                           {(() => {
-                             const lc = m.condition_id ? condById[m.condition_id] : null;
-                             const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
-                             return (
-                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-                                 {lc ? (
-                                   <>
-                                     <span title={`Annotation is about ${lc.finish_tag}`}
-                                       style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700 }}>
-                                       <span style={{ width: 9, height: 9, background: lc.color, border: "1px solid var(--ink-faint)" }} />
-                                       {lc.finish_tag}
-                                     </span>
-                                     <button onClick={() => { setActiveCond(lc.id); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Make this the active condition">Select</button>
-                                     <button onClick={() => unlinkCondition(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Detach this annotation from its condition">Detach</button>
-                                   </>
-                                 ) : conditions.length > 0 && (
-                                   <select name="link-condition" value="" onChange={(e) => { if (e.target.value) linkCondition(m, e.target.value); }}
-                                     title="Attach this annotation to a condition" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 170 }}>
-                                     <option value="">Attach to condition…</option>
-                                     {conditions.map((c) => <option key={c.id} value={c.id}>{c.finish_tag}</option>)}
-                                   </select>
-                                 )}
-                               </div>
-                             );
-                           })()}
-                           {/* RFI controls — identical block to the per-sheet row's
-                               (8237–8262 pre-slice-4). */}
-                           {(() => {
-                             const linked = m.rfi_id ? rfis.find((r) => r.id === m.rfi_id) : null;
-                             const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
-                             return (
-                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
-                                 {linked ? (
-                                   <>
-                                     <span style={{ fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, color: "var(--cobalt)" }}>⬢ {String(linked.number ?? "")}</span>
-                                     <button onClick={() => { setLeftTab("rfi"); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Open the RFI register">Open</button>
-                                     <button onClick={() => unlinkRfi(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Unlink this markup from its RFI">Unlink</button>
-                                   </>
-                                 ) : (
-                                   <>
-                                     <button onClick={() => raiseRfi(m)} style={{ ...ctrl, color: "var(--cobalt)", fontWeight: 600 }} title="Create a new RFI from this markup">Raise RFI</button>
-                                     {rfis.length > 0 && (
-                                       <select name="link-rfi" value="" onChange={(e) => { if (e.target.value) linkRfi(m, e.target.value); }}
-                                         title="Link this markup to an existing RFI" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 150 }}>
-                                         <option value="">Link existing…</option>
-                                         {rfis.map((r) => <option key={r.id} value={r.id}>{r.number}{r.subject ? ` · ${r.subject}` : ""}</option>)}
-                                       </select>
-                                     )}
-                                   </>
-                                 )}
-                               </div>
-                             );
-                           })()}
-                         </div>
-                       );
-                     });
-                   })()}
-                 </div>
-               </div>
-             )}
-             {leftTab === "stamp" && (
-               <StampPanel
-                 docked
-                 library={stampLib} armedStamp={armedStamp}
-                 selectedMarkup={selectedMarkupId ? markups.find((m) => m.id === selectedMarkupId) : null}
-                 onArm={armStamp} onSaveSelected={saveMarkupAsStamp} onDelete={deleteStamp} onRename={renameStamp}
-                 onExport={exportStamps} onImport={importStamps} onImportSvg={importSvgStamp} onClose={() => setLeftTab(null)}
-               />
-             )}
-             {leftTab === "rfi" && (
-               <RfiPanel
-                 docked
-                 rfis={rfis} markups={markups}
-                 onUpdateRfi={updateRfi} onDeleteRfi={deleteRfi} onFlyTo={flyToMarkup}
-                 sheetLabel={(k) => tabLabel(k)} onClose={() => setLeftTab(null)}
-               />
-             )}
-           </div>
-         </div>
-       )}
-       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+  // This div always lives inside SplitLayout's primary pane (a plain block,
+  // not a flex container — SplitLayout itself is the flex item that claims
+  // the row's space), and its only content is position:absolute (out of
+  // flow), so without an explicit height it would collapse to 0. width/
+  // height:100% make it self-sizing off its parent's box (percent-flex or
+  // full-bleed, whichever SplitLayout gave that pane).
+  const primaryViewport = (
+       <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}
+         onDragOver={(e) => {
+           // Filter on the tab MIME so this never fires for a dragged condition
+           // chip (CONDITION_DND_MIME) or an OS file drag (dataTransfer.files) —
+           // both must fall through untouched to their own handlers (the
+           // quick-access palette's onDrop, and the app-shell's file-drop
+           // onDrop — `handleFiles(e.dataTransfer?.files)` on the top-level
+           // .app-shell div — neither of which this element sits between).
+           if (![...e.dataTransfer.types].includes(SHEET_TAB_DND_MIME)) return;
+           e.preventDefault(); e.stopPropagation();
+           e.dataTransfer.dropEffect = "copy"; // negotiate the cursor — a bare preventDefault() without this leaves the browser showing "no-drop" over a valid target
+           const r = e.currentTarget.getBoundingClientRect();
+           // Task 8: edges are ALSO disabled (center-join-only) when the
+           // device can't split — same rule the menu's referenceCandidate
+           // uses, so the drag gesture and its menu fallback never disagree
+           // about whether split creation is currently offered.
+           setDragZone(dropZoneAt({ w: r.width, h: r.height }, e.clientX - r.left, e.clientY - r.top, { edgesDisabled: !!splitView || !deviceCanSplit }));
+         }}
+         onDragLeave={(e) => {
+           if (![...e.dataTransfer.types].includes(SHEET_TAB_DND_MIME)) return;
+           // dragenter/dragleave fire at every child boundary too (the stage's
+           // canvases, the panel rail buttons) — only clear when the pointer
+           // actually left this wrapper, not when it crossed onto a descendant,
+           // or the overlay would strobe on every pixel of internal movement.
+           if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return;
+           setDragZone(null);
+         }}
+         onDrop={(e) => {
+           if (![...e.dataTransfer.types].includes(SHEET_TAB_DND_MIME)) return;
+           e.preventDefault(); e.stopPropagation();
+           const droppedKey = e.dataTransfer.getData(SHEET_TAB_DND_MIME);
+           setDragZone(null);
+           if (!droppedKey) return;
+           // recompute the zone from THIS event's own coordinates rather than
+           // trusting the dragZone state from the last dragover render — the
+           // drop must honor where the pointer actually released, not lag a
+           // render behind it.
+           const r = e.currentTarget.getBoundingClientRect();
+           const zone = dropZoneAt({ w: r.width, h: r.height }, e.clientX - r.left, e.clientY - r.top, { edgesDisabled: !!splitView || !deviceCanSplit });
+           if (zone === "center") { toggleInGroup(droppedKey); return; } // join primary group (existing behavior)
+           const orientation = zoneToOrientation(zone); // "v" | "h"
+           if (refuseIfOverCap(1)) return; // Task 8: refuse rather than silently drop when this would exceed the total-sheet budget
+           // dropped sheet frames the reference pane; primary keeps its content
+           setSplitView({ orientation, ratio: 0.5, refKey: droppedKey, refSet: [droppedKey] });
+         }}>
         <div ref={containerRef} onPointerDownCapture={annotations.onPointerDownCapture} onPointerMoveCapture={annotations.onPointerMoveCapture} onPointerUpCapture={annotations.onPointerUpCapture} onPointerCancelCapture={annotations.onPointerCancelCapture} onDoubleClickCapture={annotations.onDoubleClickCapture} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp} onPointerLeave={leaveCanvas} onContextMenu={(e) => e.preventDefault()}
           onDoubleClick={(e) => { if (tool === "oneclick") { if (proposal?.regions.length) createProposal(); } else if (tool === "area" || tool === "deduct" || tool === "linear" || tool === "surface" || tool === "zone") finishShape(); else if (tool === "select") editMarkupAt(e); }}
@@ -10021,59 +9759,15 @@ export default function TakeoffCanvas() {
                 return (
                   <g key={p.key} transform={`translate(${p.xOffset},0)`}>
                     {panels.length > 1 && <text x={0} y={-26} fontSize={64} fontWeight={700} fill={darkMode ? "#9a917f" : "#6b6256"}>{label}</text>}
-                    {pShapes.map((s) => {
-                      const cond = condById[s.condition_id];
-                      const col = cond?.color || "#888";
-                      const sel = s.id === selectedId;
-                      const pts = dn(s.verts_norm);
-                      // Screen-constant strokes: zoom is a CSS transform on the
-                      // stage div, which never enters this SVG's CTM — so
-                      // vector-effect can't help and raw widths go subpixel at
-                      // overview zoom (invisible conditions). Divide by scale
-                      // like every other screen-relative size here.
-                      const z = tf.scale;
-                      const sw = (sel ? DS.selection.width : 2) / z;
-                      // Committed-but-unreviewed machine shapes (an imported MCP
-                      // takeoff) render dashed pencil — same invariant as the
-                      // ephemeral agent proposals, until Accept flips reviewed.
-                      const pending = s.origin?.reviewed === false;
-                      const pDash = `${4 / z} ${3 / z}`;
-                      if (s.measure_role === "count") {
-                        const [cx, cy] = pts[0], r = 7 / z;
-                        return <rect key={s.id} x={cx - r} y={cy - r} width={r * 2} height={r * 2} rx={2 / z} fill={col + (pending ? "55" : "cc")} stroke={sel ? DS.selection.color : "#fff"} strokeWidth={(sel ? 3 : 1.5) / z} strokeDasharray={pending ? `${3 / z} ${2.5 / z}` : undefined} />;
-                      }
-                      if (s.measure_role === "surface_area") {
-                        return <polyline key={s.id} points={pts.map((q) => q.join(",")).join(" ")} fill="none" stroke={sel ? DS.selection.color : col} strokeOpacity={pending ? 0.85 : undefined} strokeWidth={(sel ? 4.5 : 3.5) / z} strokeDasharray={pending ? pDash : `${10 / z} ${3 / z} ${2 / z} ${3 / z}`} strokeLinecap="round" strokeLinejoin="round" />;
-                      }
-                      if (s.measure_role === "linear") {
-                        // line_style governs linear outlines (surface_area keeps its dash-dot identity above)
-                        const lpts = s.curved ? flattenCurve(pts) : pts;
-                        return <polyline key={s.id} points={lpts.map((q) => q.join(",")).join(" ")} fill="none" stroke={sel ? DS.selection.color : col} strokeOpacity={pending ? 0.85 : undefined} strokeWidth={(sel ? 4 : 3) / z} strokeDasharray={pending ? pDash : dashArrayFor(cond?.line_style || "solid", z)} strokeLinecap="round" strokeLinejoin="round" />;
-                      }
-                      const ded = s.measure_role === "deduct";
-                      // #137 — a RECONCILED deduct (cuts_shape_id) renders as a
-                      // dashed outline only: its geometry is already excised
-                      // from its parent's fill below (fill-rule evenodd), so a
-                      // solid overlay here would reintroduce the exact
-                      // "decal on top" bug the real subtract fixes.
-                      if (ded && s.cuts_shape_id) {
-                        return <polygon key={s.id} points={pts.map((q) => q.join(",")).join(" ")} fill="none" stroke={sel ? DS.selection.color : "#b03a26"} strokeWidth={(sel ? 3 : 1.5) / z} strokeDasharray={`${5 / z} ${3 / z}`} />;
-                      }
-                      // #137 — a parent carrying real hole ring(s): ONE compound
-                      // path, outer ring + every hole ring, fill-rule evenodd so
-                      // the hole is an actual excision from the fill rather than
-                      // a shape sitting on top of it.
-                      if (!ded && s.verts_norm_holes?.length) {
-                        const ringD = (ring) => `M${dn(ring).map((q) => q.join(",")).join("L")}Z`;
-                        const d = ringD(s.verts_norm) + s.verts_norm_holes.map(ringD).join("");
-                        return <path key={s.id} d={d} fillRule="evenodd" fill={pending ? col + "14" : shapeFill(cond)} stroke={sel ? DS.selection.color : col} strokeOpacity={pending ? 0.9 : undefined} strokeWidth={sw} strokeDasharray={pending ? pDash : dashArrayFor(cond?.line_style || "solid", z)} />;
-                      }
-                      // deduct keeps its danger-red dashing (a safety signal, wins over line_style); positive floor_area follows the condition's line_style
-                      return <polygon key={s.id} points={pts.map((q) => q.join(",")).join(" ")}
-                        fill={ded ? (pending ? "rgba(176,58,38,.10)" : "rgba(176,58,38,.28)") : pending ? col + "14" : shapeFill(cond)}
-                        stroke={ded ? "#b03a26" : (sel ? DS.selection.color : col)} strokeOpacity={pending ? 0.9 : undefined} strokeWidth={sw}
-                        strokeDasharray={pending ? pDash : ded ? `${6 / z} ${4 / z}` : dashArrayFor(cond?.line_style || "solid", z)} />;
-                    })}
+                    {/* Fill/stroke logic for one shape lives in shapeGlyphs.jsx,
+                        shared byte-for-byte with the reference pane's read-only
+                        mirror (ReferencePane.jsx) — see that module for the full
+                        measure_role switch. `sel`/`DS.selection` only matter when
+                        `sel` is true, which never happens on the reference side. */}
+                    {pShapes.map((s) => renderShapeGlyph(s, {
+                      dn, cond: condById[s.condition_id], sel: s.id === selectedId,
+                      z: tf.scale, darkMode, selection: DS.selection, patId,
+                    }))}
                     {/* vertex handles for the selected shape (drag to reshape) */}
                     {selectedId && (() => {
                       const sel = pShapes.find((s) => s.id === selectedId);
@@ -10110,299 +9804,20 @@ export default function TakeoffCanvas() {
                         </g>
                       );
                     })()}
-                    {/* markup layer — highlights / clouds / callouts / text notes on this
-                        panel. Highlights draw FIRST (behind) so their translucent fill never
-                        dims the linework above. A selected markup wears a CONTRASTING halo
-                        (white outer ring + cobalt inner). Per-markup color drives the STROKE/
-                        FILL (dark-boosted on the dark canvas); RFI linkage is an unconditional
-                        ⬢/number badge, independent of the note text. Layer hides via showMarkups. */}
-                    {showMarkups && visibleMarkups.filter((m) => m.sheet_id === p.key)
-                      // three draw tiers that MATCH the three hit tiers (selectAt),
-                      // so on-screen z-order never contradicts selection priority:
-                      // image at the back (0), highlight (1), everything else on top
-                      // (2). Painting is document order, so tier 0 draws first/behind
-                      // and tier 2 last/on top; hit-test ranks them in reverse, so the
-                      // topmost-drawn markup is the one a click selects.
-                      .slice().sort((a, b) => (a.type === "image" ? 0 : a.type === "highlight" ? 1 : 2) - (b.type === "image" ? 0 : b.type === "highlight" ? 1 : 2))
-                      .map((m0) => {
-                      // fields resolve before anything reads the text, Premium ink included;
-                      // an unresolved field leaves the literal in place and tints the note
-                      const { m, unresolved: mUnres } = resolveMarkup(m0, noteQtyLabels);
-                      const premiumInk = annotations.render(m, p);
-                      if (premiumInk) {
-                        const at=m.at||m.from||m.rect?.[0]||m.pts?.[0]||m.quads?.[0]?.[0];
-                        const linked=rfis.find(r=>r.id===m.rfi_id);
-                        return <g key={m.id}>{premiumInk}{m.rfi_id&&at&&<text x={at[0]*p.img.w} y={at[1]*p.img.h-14/tf.scale} fill="#1f3fc7" fontSize={12/tf.scale} fontWeight="700">RFI {linked?.number||''}</text>}</g>;
-                      }
-                      const z = tf.scale;
-                      // Colour precedence: an explicit per-markup colour always
-                      // wins (the user picked it), then the LINKED CONDITION's
-                      // colour so an annotation reads as part of that scope at a
-                      // glance, then RFI blue, then the unattached default.
-                      const mCond = m.condition_id ? condById[m.condition_id] : null;
-                      const base = m.color || mCond?.color || (m.rfi_id ? "#1f3fc7" : "#c47a10");
-                      const mk = darkMode ? boostForDark(base) : base;   // literal — SVG attrs don't resolve CSS vars
-                      // a note quoting a field that can't resolve reads in the danger ink;
-                      // note blocks sit on a white backing in both themes, labels on the sheet
-                      const labelInk = mUnres.length ? (darkMode ? FIELD_WARN_INK_DARK : FIELD_WARN_INK) : mk;
-                      const noteInk = mUnres.length ? FIELD_WARN_INK : "#0e1a2e";
-                      const dash = dashArrayFor(m.line_style || "solid", z);
-                      const w = clampWeight(m.weight);   // stroke-width multiplier over each element's base, default ×1
-                      const selM = m.id === selectedMarkupId;
-                      // linkage badge — unconditional for any linked markup (a note-less
-                      // recolored cloud still reads as linked); kept in cobalt for legibility
-                      // regardless of the user's color, pinned clear of the halo.
-                      const linked = m.rfi_id ? rfis.find((r) => r.id === m.rfi_id) : null;
-                      const badgeCol = darkMode ? boostForDark("#1f3fc7") : "#1f3fc7";
-                      const badge = (bx, by) => (m.rfi_id ? (
-                        <text x={bx} y={by} fill={badgeCol} fontSize={12 / z} fontWeight="700" textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{"⬢"}{linked && linked.number != null && linked.number !== "" ? " " + linked.number : ""}</text>
-                      ) : null);
-                      // revision-delta △n — a small numbered triangle at a cloud corner,
-                      // clear of the halo, the top-left RFI badge, and the centered note.
-                      // Absent/zero m.rev → nothing (legacy clouds render unchanged).
-                      // the triangle backing is ALWAYS white, so stroke/number it in the
-                      // UN-boosted color (mk's dark boost is tuned to contrast the dark
-                      // canvas, and would wash out on white).
-                      const revTri = (rx, ry) => (Number.isFinite(m.rev) && m.rev > 0 ? (
-                        <g style={{ pointerEvents: "none" }}>
-                          <path d={`M${rx},${ry - 9 / z} L${rx + 8 / z},${ry + 6 / z} L${rx - 8 / z},${ry + 6 / z} Z`} fill="#fff" stroke={base} strokeWidth={1.4 / z} />
-                          <text x={rx} y={ry + 2.5 / z} fill={base} fontSize={9 / z} fontWeight="700" textAnchor="middle" dominantBaseline="central">{m.rev}</text>
-                        </g>
-                      ) : null);
-                      // halo ring widths scale with weight so a heavy stroke never overruns them
-                      const halo = (x0, y0, x1, y1) => (selM ? (
-                        <>
-                          <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="none" stroke="#fff" strokeWidth={(5 * w) / z} />
-                          <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill="none" stroke="#1f3fc7" strokeWidth={(2 * w) / z} />
-                        </>
-                      ) : null);
-                      if (m.type === "highlight" && Array.isArray(m.pts)) {
-                        // freehand highlighter stroke — the ink keeps its OWN hue (a highlight
-                        // IS its color; dark legibility comes from the higher opacity, not a
-                        // boost). Weight (×) multiplies the stored width like every markup.
-                        const ip = m.pts.map(([nx, ny]) => [nx * p.img.w, ny * p.img.h]);
-                        if (ip.length < 2) return null;
-                        const sw = (m.w || 0.01) * p.img.w * w, o = darkMode ? 0.42 : 0.32;
-                        const ink = m.tip === "chisel"
-                          ? <path d={"M" + chiselRibbon(ip, sw, 45).map((q) => q.join(",")).join(" L") + " Z"} fill={m.color || "#ffd60a"} fillOpacity={o} />
-                          : <path d={strokePathD(ip)} fill="none" stroke={m.color || "#ffd60a"} strokeOpacity={o} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" />;
-                        return (
-                          <g key={m.id}>
-                            {/* selection halo follows the stroke's spine (white outer + cobalt
-                                inner, the selected-markup convention adapted to an open path) */}
-                            {selM && (
-                              <>
-                                <path d={strokePathD(ip)} fill="none" stroke="#fff" strokeWidth={sw + 8 / z} strokeLinecap="round" strokeLinejoin="round" />
-                                <path d={strokePathD(ip)} fill="none" stroke="#1f3fc7" strokeOpacity={0.55} strokeWidth={sw + 4 / z} strokeLinecap="round" strokeLinejoin="round" />
-                              </>
-                            )}
-                            {ink}
-                            {badge(ip[0][0], ip[0][1] - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "highlight") {
-                        const [c0, c1] = m.rect;
-                        const hx0 = Math.min(c0[0], c1[0]) * p.img.w, hy0 = Math.min(c0[1], c1[1]) * p.img.h;
-                        const hx1 = Math.max(c0[0], c1[0]) * p.img.w, hy1 = Math.max(c0[1], c1[1]) * p.img.h;
-                        const pad = (5 * w) / z;
-                        return (
-                          <g key={m.id}>
-                            {halo(hx0 - pad, hy0 - pad, hx1 + pad, hy1 + pad)}
-                            <rect x={hx0} y={hy0} width={hx1 - hx0} height={hy1 - hy0} fill={mk} fillOpacity={0.18} stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} />
-                            {m.text && <text x={(hx0 + hx1) / 2} y={(hy0 + hy1) / 2} fill={labelInk} fontSize={inkPx(LABEL_PT, z)} fontWeight="700" fontFamily={NOTE_FONT_FAMILY} textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{m.text}</text>}
-                            {badge(hx0, hy0 - pad - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "cloud") {
-                        const [c0, c1] = m.rect;
-                        const pad = (5 * w) / z;
-                        const bx0 = Math.min(c0[0], c1[0]) * p.img.w - pad, by0 = Math.min(c0[1], c1[1]) * p.img.h - pad;
-                        const bx1 = Math.max(c0[0], c1[0]) * p.img.w + pad, by1 = Math.max(c0[1], c1[1]) * p.img.h + pad;
-                        return (
-                          <g key={m.id}>
-                            {halo(bx0, by0, bx1, by1)}
-                            <path d={cloudPath(c0[0] * p.img.w, c0[1] * p.img.h, c1[0] * p.img.w, c1[1] * p.img.h)} fill="none" stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} />
-                            {m.text && <text x={(c0[0] + c1[0]) / 2 * p.img.w} y={(c0[1] + c1[1]) / 2 * p.img.h} fill={labelInk} fontSize={inkPx(LABEL_PT, z)} fontWeight="700" fontFamily={NOTE_FONT_FAMILY} textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{m.text}</text>}
-                            {badge(bx0, by0 - 9 / z)}
-                            {revTri(bx1, by0 - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "callout") {
-                        // the note is INK: page-point size (× zoom on screen, floored for
-                        // legibility), wrapped at three inches into a block anchored at
-                        // baseline-left — the same layout the Marked Set burns and hitMarkup tests
-                        const [tx, ty] = m.target, [ax, ay] = m.at;
-                        const AX = ax * p.img.w, AY = ay * p.img.h;
-                        const fs = inkPx(NOTE_PT, z);
-                        const L = layoutNote({ text: m.text, fontPx: fs, measure: canvasMeasure(fs) });
-                        const b = noteBox(AX, AY, L);
-                        return (
-                          <g key={m.id}>
-                            {halo(b.x0 - 2 / z, b.y0 - 2 / z, b.x1 + 2 / z, b.y1 + 2 / z)}
-                            <line x1={tx * p.img.w} y1={ty * p.img.h} x2={AX} y2={AY} stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} />
-                            {/* arrowhead at the target end — replaces the old vertex star */}
-                            <path d={arrowheadPath(AX, AY, tx * p.img.w, ty * p.img.h, 9 / z)} fill={mk} />
-                            {L.lines.length > 0 && <rect x={b.x0} y={b.y0} width={L.w} height={L.h} fill="rgba(255,255,255,.92)" stroke={mk} strokeWidth={(1 * w) / z} strokeDasharray={dash} />}
-                            {L.lines.length > 0 && (
-                              <text fill={noteInk} fontSize={fs} fontWeight="600" fontFamily={NOTE_FONT_FAMILY} style={{ pointerEvents: "none" }}>
-                                {L.lines.map((ln, i) => <tspan key={i} x={AX} y={lineBaseline(AY, L, i)}>{ln || "\u00a0"}</tspan>)}
-                              </text>
-                            )}
-                            {badge(AX, b.y0 - 8 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "arrow") {
-                        const [fx, fy] = [m.from[0] * p.img.w, m.from[1] * p.img.h];
-                        const [tx, ty] = [m.to[0] * p.img.w, m.to[1] * p.img.h];
-                        const midx = (fx + tx) / 2, midy = (fy + ty) / 2;
-                        const hx0 = Math.min(fx, tx), hy0 = Math.min(fy, ty), hx1 = Math.max(fx, tx), hy1 = Math.max(fy, ty);
-                        const pad = (6 * w) / z;
-                        return (
-                          <g key={m.id}>
-                            {halo(hx0 - pad, hy0 - pad, hx1 + pad, hy1 + pad)}
-                            <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} strokeLinecap="round" />
-                            {/* filled arrowhead at the `to` end */}
-                            <path d={arrowheadPath(fx, fy, tx, ty, 11 / z)} fill={mk} />
-                            {m.text && <text x={midx} y={midy - inkPx(LABEL_PT, z) * 0.6} fill={labelInk} fontSize={inkPx(LABEL_PT, z)} fontWeight="700" fontFamily={NOTE_FONT_FAMILY} textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{m.text}</text>}
-                            {badge(hx0, hy0 - pad - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "dimension" && m.from && m.to) {
-                        // a dimension line: perpendicular ticks at both ends and the
-                        // measured length (m.len_ft, snapshotted at annotate time from
-                        // the sheet scale) centered beside the line — a note ABOUT a
-                        // distance, never a takeoff quantity
-                        const [fx, fy] = [m.from[0] * p.img.w, m.from[1] * p.img.h];
-                        const [tx, ty] = [m.to[0] * p.img.w, m.to[1] * p.img.h];
-                        const dl = Math.hypot(tx - fx, ty - fy) || 1;
-                        const dnx = -(ty - fy) / dl, dny = (tx - fx) / dl;   // unit normal
-                        const tick = 7 / z;
-                        const dimText = [Number(m.len_ft) > 0 ? dimLabel(m.len_ft) : "", m.text].filter(Boolean).join(" · ");
-                        const hx0 = Math.min(fx, tx), hy0 = Math.min(fy, ty), hx1 = Math.max(fx, tx), hy1 = Math.max(fy, ty);
-                        const pad = (6 * w) / z;
-                        return (
-                          <g key={m.id}>
-                            {halo(hx0 - pad, hy0 - pad, hx1 + pad, hy1 + pad)}
-                            <line x1={fx} y1={fy} x2={tx} y2={ty} stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} />
-                            <line x1={fx - dnx * tick} y1={fy - dny * tick} x2={fx + dnx * tick} y2={fy + dny * tick} stroke={mk} strokeWidth={(2 * w) / z} />
-                            <line x1={tx - dnx * tick} y1={ty - dny * tick} x2={tx + dnx * tick} y2={ty + dny * tick} stroke={mk} strokeWidth={(2 * w) / z} />
-                            {dimText && <text x={(fx + tx) / 2 + dnx * (inkPx(LABEL_PT, z) * 0.9)} y={(fy + ty) / 2 + dny * (inkPx(LABEL_PT, z) * 0.9)} fill={labelInk} fontSize={inkPx(LABEL_PT, z)} fontWeight="700" fontFamily={NOTE_FONT_FAMILY} textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{dimText}</text>}
-                            {badge(hx0, hy0 - pad - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "bubble") {
-                        const cx = m.at[0] * p.img.w, cy = m.at[1] * p.img.h;
-                        const rad = (Number(m.r) > 0 ? Number(m.r) : 0.02) * p.img.w;
-                        const pad = (5 * w) / z;
-                        return (
-                          <g key={m.id}>
-                            {halo(cx - rad - pad, cy - rad - pad, cx + rad + pad, cy + rad + pad)}
-                            <circle cx={cx} cy={cy} r={rad} fill={darkMode ? "rgba(12,15,20,.85)" : "rgba(255,255,255,.85)"} stroke={mk} strokeWidth={(2 * w) / z} strokeDasharray={dash} />
-                            {m.text && <text x={cx} y={cy} fill={labelInk} fontSize={Math.min(13, rad * z * 0.9) / z} fontWeight="700" textAnchor="middle" dominantBaseline="central" style={{ pointerEvents: "none" }}>{m.text}</text>}
-                            {badge(cx + rad, cy - rad - 4 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "image") {
-                        // a raster image markup (screenshot capture or upload). Width-anchored
-                        // like svg but off `m.w` alone (imagePlacedBox), rendered as-is (no
-                        // dark-mode invert — a screenshot is captured from the light PDF).
-                        // Self-contained: a guard-fail returns null, never falling through to
-                        // the text renderer below (which would paint a phantom note box).
-                        const { bw, bh } = imagePlacedBox(m.w, m.aspect, p.img.w);
-                        // only a PNG/JPEG DATA url renders (matches the marked-set
-                        // export invariant) — an imported record with an http(s)://
-                        // src must never make <image href> fetch remote content.
-                        if (!(m.src && pickEmbedFormat(m.src) && Array.isArray(m.at) && bw > 0 && bh > 0)) return null;
-                        const x0 = m.at[0] * p.img.w - bw / 2, y0 = m.at[1] * p.img.h - bh / 2;
-                        // Source caption (captures only) — the origin sheet NAME, read
-                        // from the frozen src_label (resolved at capture time; the
-                        // marked-set PDF reads the SAME stored string, so screen and PDF
-                        // can't diverge). Legacy captures without src_label fall back to
-                        // the live closure. A stitch origin has no page number, so drop the
-                        // "· p.N" for it. "" (upload or no src_sheet_id) ⇒ render nothing.
-                        const capText = m.source === "capture" && m.source_label && m.src_sheet_id
-                          ? sourceCaption(m.src_label ?? sheetBaseLabel(m.src_sheet_id), isStitchKey(m.src_sheet_id) ? 0 : parseSheetKey(m.src_sheet_id).page)
-                          : "";
-                        return (
-                          <g key={m.id}>
-                            {halo(x0, y0, x0 + bw, y0 + bh)}
-                            <image href={m.src} x={x0} y={y0} width={bw} height={bh} preserveAspectRatio="none" style={{ pointerEvents: "none" }} />
-                            {/* PERMANENT frame — a placed screenshot overlays its own source and is
-                                invisible without it; the halo is selection-only. White + slate double
-                                stroke reads on both canvas themes (the image itself is never inverted). */}
-                            <rect x={x0} y={y0} width={bw} height={bh} fill="none" stroke="#fff" strokeWidth={2.5 / z} style={{ pointerEvents: "none" }} />
-                            <rect x={x0} y={y0} width={bw} height={bh} fill="none" stroke="#2a3550" strokeWidth={1 / z} style={{ pointerEvents: "none" }} />
-                            {selM && <rect x={x0 + bw - 4 / z} y={y0 + bh - 4 / z} width={8 / z} height={8 / z} fill="#1f3fc7" stroke="#fff" strokeWidth={1.5 / z} style={{ pointerEvents: "none" }} />}
-                            {capText && (() => {
-                              // Frame-hugging chip on the TOP edge, centered on the box
-                              // width so it never collides with the top-LEFT link badge
-                              // (badge(x0, y0-9/z) is centered ON x0). Explicit light
-                              // fill + dark ink — NOT theme tokens (the image render
-                              // never dark-mode-inverts, so a chip that flipped with the
-                              // app theme would read backwards against it). Fixed screen
-                              // size (every dimension /z): on a very small capture it can
-                              // overrun the frame width, which is fine — it stays on the
-                              // top edge, clear of the bottom-right resize handle.
-                              const capCx = x0 + bw / 2, capCy = y0 - 9 / z;
-                              const capH = 15 / z, capW = (capText.length * 5.6 + 14) / z;
-                              return (
-                                <g style={{ pointerEvents: "none" }}>
-                                  <rect x={capCx - capW / 2} y={capCy - capH / 2} width={capW} height={capH} rx={3 / z}
-                                    fill="rgba(255,247,237,.95)" stroke="#0e1a2e" strokeWidth={1 / z} />
-                                  <text x={capCx} y={capCy} fill="#0e1a2e" fontSize={10 / z} fontWeight="600" textAnchor="middle" dominantBaseline="central">{capText}</text>
-                                </g>
-                              );
-                            })()}
-                            {badge(x0, y0 - 9 / z)}
-                          </g>
-                        );
-                      }
-                      if (m.type === "svg" && m.path && Array.isArray(m.vb)) {
-                        // a vector symbol (imported .svg or saved-as-stamp art). The
-                        // path is baked local→image px through a uniform scale off the
-                        // LONGER viewBox extent so it never distorts and a one-axis
-                        // symbol can't blow up; stroke/fill are the symbol's OWN color
-                        // (dark-boosted), not the linkage tint.
-                        const { s: sx, bw, bh } = svgPlacedBox(m.vb, m.w, p.img.w);
-                        if (!(sx > 0)) return null;
-                        const x0 = m.at[0] * p.img.w - bw / 2, y0 = m.at[1] * p.img.h - bh / 2;
-                        const d = transformPath(m.path, (lx, ly) => [x0 + lx * sx, y0 + ly * sx]);
-                        const fillOn = m.fill && m.fill !== "none";
-                        const fcol = fillOn ? (darkMode ? boostForDark(m.fill) : m.fill) : "none";
-                        return (
-                          <g key={m.id}>
-                            {halo(x0, y0, x0 + bw, y0 + bh)}
-                            <path d={d} fill={fcol} fillOpacity={fillOn ? 0.9 : undefined} stroke={mk} strokeWidth={(1.6 * w) / z} strokeLinejoin="round" style={{ pointerEvents: "none" }} />
-                            {badge(x0, y0 - 9 / z)}
-                          </g>
-                        );
-                      }
-                      // a text note — ink on the sheet, laid out exactly like a callout's block
-                      const [x, y] = m.at;
-                      const AX = x * p.img.w, AY = y * p.img.h;
-                      const fs = inkPx(NOTE_PT, z);
-                      const L = layoutNote({ text: m.text, fontPx: fs, measure: canvasMeasure(fs) });
-                      const b = noteBox(AX, AY, L);
-                      return (
-                        <g key={m.id}>
-                          {halo(b.x0 - 2 / z, b.y0 - 2 / z, b.x1 + 2 / z, b.y1 + 2 / z)}
-                          {L.lines.length > 0 && <rect x={b.x0} y={b.y0} width={L.w} height={L.h} fill="rgba(255,247,237,.92)" stroke={mk} strokeWidth={(1 * w) / z} strokeDasharray={dash} />}
-                          {L.lines.length > 0 && (
-                            <text fill={noteInk} fontSize={fs} fontWeight="600" fontFamily={NOTE_FONT_FAMILY} style={{ pointerEvents: "none" }}>
-                              {L.lines.map((ln, i) => <tspan key={i} x={AX} y={lineBaseline(AY, L, i)}>{ln || "\u00a0"}</tspan>)}
-                            </text>
-                          )}
-                          {badge(AX, b.y0 - 8 / z)}
-                        </g>
-                      );
-                    })}
+                    {/* markup layer — clouds / callouts / text notes / dimensions / arrows /
+                        highlights / bubbles / captured images / vector stamps on this panel.
+                        The ink itself lives in markupGlyphs.jsx, shared byte-for-byte with the
+                        reference pane's read-only mirror; the paint order and the per-panel
+                        scope come from lib/markupPaint.ts, shared the same way. Highlights draw
+                        FIRST (behind) so their translucent fill never dims the linework above. A
+                        selected markup wears a CONTRASTING halo (white outer ring + cobalt
+                        inner) — `selected` is the only thing this side adds. Layer hides via
+                        showMarkups. */}
+                    {showMarkups && paintOrderedMarkups(visibleMarkups.filter((m) => m.sheet_id === p.key)).map((m0) =>
+                      renderMarkupGlyph(m0, {
+                        img: p.img, z: tf.scale, darkMode, condById, rfis, noteQtyLabels, sheetBaseLabel,
+                        selected: m0.id === selectedMarkupId, premiumInk: annotations.render,
+                      }))}
                     {/* approval seals — ink over pencil (lib/approvals.js): the
                         estimator's APPROVED ring, the agent's AGENT diamond. Its
                         own layer above markups and NOT gated on showMarkups — a
@@ -10852,14 +10267,32 @@ export default function TakeoffCanvas() {
               so the composed click never reaches these buttons); right/middle/
               Space presses still bubble so a pan can start on top, and dblclick
               is stopped so rapid clicks can't finishShape() */}
-          <div onPointerDown={(e) => { if (e.button === 0 && !spaceRef.current) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}
-            style={{ position: "absolute", left: 14, bottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-            <button onClick={() => stage.w && fitToView(stage.w, stage.h)} title="Fit sheet to view" style={{ width: 34, height: 34, borderRadius: 0, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", cursor: "pointer", fontSize: 12 }}>fit</button>
-            <button onClick={() => setDarkMode((d) => !d)} title={darkMode ? "Sheet back to positive print" : "Invert sheet — negative print (affects marked-set export)"}
-              style={{ width: 34, height: 34, borderRadius: 0, border: `1px solid ${darkMode ? "var(--cobalt)" : "var(--ink-faint)"}`, background: darkMode ? "var(--cobalt)" : "var(--paper-bright)", color: darkMode ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontSize: 13 }}>
-              {darkMode ? "☀" : "☾"}</button>
-            <button onClick={() => toggleFocusMode()} title={focusMode ? "Focus off — show all chrome (F)" : "Focus — trade chrome for canvas height (F)"}
-              style={{ width: 34, height: 34, borderRadius: 0, border: `1px solid ${focusMode ? "var(--cobalt)" : "var(--ink-faint)"}`, background: focusMode ? "var(--cobalt)" : "var(--paper-bright)", color: focusMode ? "var(--accent-contrast)" : "var(--ink)", cursor: "pointer", fontSize: 13 }}>⛶</button>
+          <div data-view-controls onPointerDown={(e) => { if (e.button === 0 && !spaceRef.current) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}
+            style={dockBottom
+              ? { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", display: "flex", flexDirection: "column", gap: 2, padding: 4, border: "1px solid var(--ink-faint)", borderRadius: 10, background: "var(--paper-cream)", boxShadow: "var(--shadow-2)", zIndex: 24 }
+              : { position: "absolute", left: 14, bottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+            {(() => {
+              // Premium's view group: zoom in / out about the canvas centre, fit, focus, and the
+              // open source's sheet invert. The wheel and pinch still zoom toward the cursor.
+              const face = (on) => dockBottom
+                ? { width: 32, height: 32, borderRadius: 7, border: "1px solid transparent", background: on ? "var(--cobalt)" : "transparent", color: on ? "var(--accent-contrast)" : "var(--ink)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }
+                : { width: 34, height: 34, borderRadius: 0, border: `1px solid ${on ? "var(--cobalt)" : "var(--ink-faint)"}`, background: on ? "var(--cobalt)" : "var(--paper-bright)", color: on ? "var(--accent-contrast)" : "var(--ink)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 };
+              const zoomStep = (f) => {
+                const el = containerRef.current;
+                if (!el) return;
+                promoteStage();                                    // same opening as a wheel gesture
+                gestureUntilRef.current = performance.now() + GESTURE_MS;
+                const r = el.getBoundingClientRect();
+                zoomAround(r.width / 2, r.height / 2, f);           // about the visible canvas centre
+              };
+              return (<>
+                {dockBottom && <button onClick={() => zoomStep(1.25)} title="Zoom in" aria-label="Zoom in" style={face(false)}><Icon name="zoomIn" size={16} /></button>}
+                {dockBottom && <button onClick={() => zoomStep(0.8)} title="Zoom out" aria-label="Zoom out" style={face(false)}><Icon name="zoomOut" size={16} /></button>}
+                <button onClick={() => stage.w && fitToView(stage.w, stage.h)} title="Fit sheet to view" aria-label="Fit sheet to view" style={face(false)}>{dockBottom ? <Icon name="fit" size={16} /> : "fit"}</button>
+                <button onClick={() => toggleFocusMode()} title={focusMode ? "Focus off — show all chrome (F)" : "Focus — trade chrome for canvas height (F)"} aria-label="Focus mode" aria-pressed={focusMode} style={face(focusMode)}>{dockBottom ? <Icon name="focus" size={16} /> : "⛶"}</button>
+                <button onClick={() => setDarkMode((d) => !d)} title={darkMode ? "Sheet back to positive print" : "Invert sheet — negative print (affects marked-set export)"} aria-label="Invert sheet" aria-pressed={darkMode} style={face(darkMode)}>{dockBottom ? <Icon name="invert" size={16} /> : (darkMode ? "☀" : "☾")}</button>
+              </>);
+            })()}
           </div>
 
           {/* Read page text (#471) and Read picture text (#489) — beside the
@@ -10892,7 +10325,7 @@ export default function TakeoffCanvas() {
             transient commitMsg text lives in the status bar now); Dismiss/
             Cancel are always one click — a rule is never applied silently. */}
         {(ruleOffer || ruleStage) && (
-        <div ref={ruleBannerRef} style={{ position: "absolute", left: "50%", bottom: 14, transform: "translateX(-50%)", zIndex: Z.canvasUi, display: "flex", flexDirection: "column-reverse", alignItems: "center", gap: 8, maxWidth: "82%", pointerEvents: "none" }}>
+        <div ref={ruleBannerRef} style={{ position: "absolute", left: "50%", bottom: dockBottom ? 70 : 14, transform: "translateX(-50%)", zIndex: Z.canvasUi, display: "flex", flexDirection: "column-reverse", alignItems: "center", gap: 8, maxWidth: "82%", pointerEvents: "none" }}>
         {(ruleOffer || ruleStage) && (
           <div style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "var(--paper-bright)", border: "1.5px dashed var(--c-danger)", boxShadow: "var(--shadow-1)", fontSize: 12.5, color: "var(--ink)", maxWidth: "100%" }}>
             {ruleOffer ? (<>
@@ -11216,11 +10649,1032 @@ export default function TakeoffCanvas() {
           {panelBtn(() => setShowRevisions(true), "revisions", "Revisions — save the takeoff at each bid revision, compare what moved", showRevisions)}
         </div>
 
+        {workspaceLayout && !focusMode && view === "canvas" && !showReport && <CanvasSideTabs
+          conditionsOpen={condDockOpen && !fullTableOpen} conditionCount={conditions.length}
+          onConditions={() => { if (fullTableOpen) { setFullTableOpen(false); setCondDockOpen(true); } else setCondDockOpen((v) => !v); }}
+          assistantOpen={assistantOpen} onAssistant={() => (assistantOpen ? setAssistantOpen(false) : openAssistant())} working={agentRunning} />}
+        <DropZoneOverlay zone={dragZone} />
        </div>
+  );
+  return (
+    // .app-shell: the print stylesheet collapses this 100vh flex column while the report is open
+    <div
+      className={`app-shell${workspaceLayout ? " workspace-calm premium-workspace" : ""}${workspaceLayout && !focusMode ? " pc-on" : ""}`}
+      data-workspace-look={workspaceLayout ? workspaceArrangement.look : undefined}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer?.files); }}
+      style={{ position: "relative", display: "flex", flexDirection: "column", height: "100vh", "--workspace-glow-strength": workspaceArrangement.backlight / 100 }}>
+      {pinWindow}
+      {premiumUpsell && premiumOpen && <PremiumInterest onClose={() => setPremiumOpen(false)} onOpenChange={onMenuDepth} />}
+      {/* file inputs — always mounted (drag-drop and the ⋯ import path need
+          the refs even while focus mode hides the bar) */}
+      <input name="sheet-file" ref={fileInputRef} type="file" accept=".pdf,application/pdf,image/*,.zip,application/zip,application/x-zip-compressed,.otk" multiple style={{ display: "none" }}
+        onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
+      <input name="profile-import" ref={profileInputRef} type="file" accept=".otprofile,application/json" style={{ display: "none" }}
+        onChange={(e) => { importProfileFile(e.target.files?.[0]); e.target.value = ""; }} />
+      <input name="takeoff-import" ref={importInputRef} type="file" accept=".json,application/json" style={{ display: "none" }}
+        onChange={(e) => { importTakeoffFile(e.target.files?.[0]); e.target.value = ""; }} />
+      {/* THE top bar — one row (the two decks of issue #61 merged once the
+          tool rail absorbed the draw menus). Project verbs left, work verbs
+          center, Report + the ⋯ overflow (guide, appearance — chrome theme and
+          drawing style —, schedule import, cloud moves) right. Cluster captions stay — they're the drafting
+          language. The row never wraps; rarely-used controls live in ⋯ so
+          nothing shifts position mid-work. Focus mode (F) hides the whole
+          bar — the rail and status bar carry the essentials.
+          Un-wrapped is not the same as unreachable, though: this row is
+          ~1550px of fixed-width controls, so on a 1440-class laptop Report and
+          the Action menu render past the right edge. The document can
+          technically scroll to them, but the canvas claims wheel and trackpad
+          gestures for zoom/pan, so that scroll never arrives and the app reads
+          as "Export is unclickable". The row therefore SCROLLS itself; its
+          menus open position:fixed off the trigger rect (ToolMenu) so this
+          overflow cannot clip them. */}
+      {!focusMode && workspaceLayout && <PremiumRail running={agentRunning} onMenuDepth={onMenuDepth}
+        onSearch={() => setWorkspaceSearchOpen(true)}
+        onSheets={() => setWorkspaceNavigationOpen((v) => !v)} sheetsOpen={workspaceNavigationOpen}
+        onOpenPlans={() => fileInputRef.current?.click()}
+        onCollapse={toggleFocusMode} onLayout={() => setWorkspaceLayoutOpen(true)}
+        helpItems={[
+          { id: "tour", label: "Guided first takeoff", onSelect: startTour },
+          { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+          { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
+          { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
+        ]} />}
+      {!focusMode && workspaceLayout && (() => {
+        const kept = shapes.filter((sh) => sh.origin?.reviewed !== false).length;
+        const pendingN = shapes.filter((sh) => sh.origin?.reviewed === false).length;
+        const moreItems = [
+          { section: "Plans" },
+          { id: "open-plans", icon: "plus", label: "Open plans…", onSelect: () => fileInputRef.current?.click() },
+          // the sheet switcher already lists pages and files; keep the set operations and file moves
+          ...sheetMenuItems.filter((it) => it !== "divider" && !/^(pg|f)-/.test(it.id || "") && (!it.section || it.section.startsWith("Profile"))),
+          "divider",
+          { section: "Panels" },
+          { id: "work", icon: "target", label: "Work and review", checked: agentOpen, onSelect: () => setAgentOpen((v) => !v) },
+          { id: "full-takeoffs", icon: "takeoffs", label: "Takeoffs table — library, materials, columns", checked: fullTableOpen, onSelect: () => setFullTableOpen((v) => !v) },
+          { id: "markups", icon: "document", label: `Markup list${markupCount ? ` (${markupCount})` : ""}`, checked: leftTab === "markup", onSelect: () => setLeftTab((t) => (t === "markup" ? null : "markup")) },
+          { id: "stamps", icon: "stamp", label: "Stamps", checked: leftTab === "stamp", onSelect: () => setLeftTab((t) => (t === "stamp" ? null : "stamp")) },
+          { id: "rfis", icon: "rfi", label: `RFI register${rfis.length ? ` (${rfis.length})` : ""}`, checked: leftTab === "rfi", onSelect: () => setLeftTab((t) => (t === "rfi" ? null : "rfi")) },
+          ...(rollByCond.size > 0 ? [{ id: "roll", icon: "roll", label: "Roll goods", checked: rollPanelOpen, onSelect: () => setRollPanelOpen((o) => !o) }] : []),
+          ...(layerEntries.length > 0 ? [{ id: "layers", icon: "layers", label: "PDF layers", checked: layersOpen, onSelect: () => setLayersOpen((o) => !o) }] : []),
+          { id: "revisions", icon: "revisions", label: "Revisions", onSelect: () => setShowRevisions(true) },
+          { id: "estimate", label: "Estimate", onSelect: openEstimate },
+          { id: "report", icon: "document", label: "Report", onSelect: () => setShowReport(true) },
+          "divider",
+          { section: "Drawing" },
+          { id: "snap", label: "Snap to plan lines", checked: snapOn, stayOpen: true, onSelect: () => setSnapOn((v) => !v) },
+          { id: "angle", label: "45° / 90° guides", checked: angleOn, stayOpen: true, onSelect: () => setAngleOn((v) => !v) },
+          { id: "zone", icon: "zone", label: "Zone check", active: tool === "zone", onSelect: () => setTool((t) => (t === "zone" ? "select" : "zone")) },
+          { id: "schedule", icon: "rectTool", label: "Import from schedule", active: tool === "schedule", onSelect: () => { setScheduleAnchor(null); setTool((t) => (t === "schedule" ? "select" : "schedule")); } },
+          { id: "units", label: units === "metric" ? "Units: metric (switch to ft)" : "Units: feet (switch to metric)", onSelect: () => setUnits((u) => (u === "metric" ? "imperial" : "metric")) },
+          "divider",
+          { section: "Workspace" },
+          { id: "layout", icon: "sliders", label: "Layout…", onSelect: () => setWorkspaceLayoutOpen(true) },
+          { id: "focus", icon: "focus", label: "Focus mode", shortcut: "F", onSelect: toggleFocusMode },
+          { id: "controls", label: workspaceControlsOpen ? "Hide classic toolbar" : "Classic toolbar", checked: workspaceControlsOpen, onSelect: () => setWorkspaceControlsOpen((v) => !v) },
+          { id: "classic", label: "Classic layout", onSelect: () => workspacePrefs.setEnabled(false) },
+          ...(cloudMode ? [{ id: "closeproj", label: "Close project", onSelect: closeProject }] : []),
+          ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
+        ];
+        return <PremiumTopBar
+          title={projectName || active}
+          subtitle={pendingN ? `${pendingN} to review · ${kept} kept` : kept ? `${kept} shape${kept === 1 ? "" : "s"} kept` : "Nothing kept yet"}
+          onBack={() => setView("gallery")} onGallery={() => setView("gallery")}
+          sheets={workspaceSheets} current={treeCurrent} onSheet={(key) => openSheets([key], false)} onMenuDepth={onMenuDepth}
+          scaleMenu={<ToolMenu title={scaleTitle} onOpenChange={onScaleMenuDepth} face={<span data-tour="scale" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Icon name="scaleRule" size={16} />{scaleFace}</span>} faceStyle={{ fontFamily: "var(--f-body)", fontSize: 13.5, fontWeight: 500, ...scaleFaceStyle }} menuStyle={{ minWidth: 250 }} items={scaleItems} />}
+          action={finishOk && <button type="button" className="cd-btn" style={{ flex: "0 0 auto", marginLeft: 6 }} onClick={finishShape}>Finish ({poly.length})</button>}
+          onList={() => setShowReport(true)} total={estTotal} onEstimate={openEstimate}
+          moreItems={moreItems}
+          onBell={() => setAgentOpen((v) => !v)} pending={pendingN} />;
+      })()}
+      {workspaceLayout && !workspaceArrangement.readout && selShape?.measure_role === "surface_area" && <div className="calm-property-editor"><label>Selected wall height <input aria-label="Selected wall height" type="number" min="0" step={heightStep(units)} value={shapeHDraft ?? dimInputStr(selShape.height_ft, units, "height")} onChange={(e) => { setShapeHDraft(e.target.value); setShapeHeight(e.target.value); }} onBlur={() => { if (shapeHDraft != null) setShapeHeight(shapeHDraft); setShapeHDraft(null); }} /></label><span>{heightUnit(units)} → {fa(selShape.computed?.area_sf || 0)}</span><button type="button" onClick={clearShapeHeight}>Use condition height</button></div>}
+      {!focusMode && workspaceLayout && workspaceDetailsOpen && aCond && <div className="calm-property-editor"><strong>{aCond.finish_tag}</strong><ConditionAppearanceEditor cond={aCond} onUpdateCond={updateCond} onSetCondParam={setCondParam} onAssignAttr={assignAttr} conditionColumns={conditionColumns} layout="row" units={units} /><button type="button" onClick={() => setWorkspaceDetailsOpen(false)}>Close properties</button></div>}
+      {workspaceLayout && <><WorkspaceCommandMenu open={workspaceSearchOpen} onClose={() => setWorkspaceSearchOpen(false)} actions={workspaceActions} onOpenChange={onMenuDepth} /><WorkspaceLayoutDialog open={workspaceLayoutOpen} onClose={() => setWorkspaceLayoutOpen(false)} prefs={workspacePrefs} onOpenChange={onMenuDepth} /></>}
+      {!focusMode && (!workspaceLayout || workspaceControlsOpen) && (
+      <div data-topbar style={{ display: "flex", gap: 7, alignItems: "center", padding: "0 14px 6px", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)", whiteSpace: "nowrap" }}>
+        {/* The working controls scroll as one region when the window is
+            narrower than the row (1440-class laptops); Report, ⋯, presence and
+            account sit OUTSIDE that region so they are on screen at every
+            width — the row's contract (#61: nothing wraps or shifts) holds,
+            and nothing important is ever past the right edge. paddingTop 16
+            keeps the cluster captions (top:-13) inside the scroll box. */}
+        <div data-topbar-scroll style={{ display: "flex", gap: 7, alignItems: "center", flex: "1 1 0", minWidth: 0, padding: "16px 0 0", overflowX: "auto", overflowY: "hidden", scrollbarWidth: "thin", overscrollBehaviorX: "contain" }}>
+        <strong style={{ fontFamily: "var(--f-display)", fontSize: 15, color: "var(--ink)", letterSpacing: "-0.02em" }}>open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span></strong>
+        <button type="button" onClick={() => fileInputRef.current?.click()} title="Open plans — PDF, image, or a .zip plan set (or just drag them onto the canvas)"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: "1px solid var(--ink)", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+          <Icon name="plus" size={14} />Open</button>
+        <button type="button" onClick={() => setView("gallery")}
+          title={`Plan set — the visual gallery; open one or several sheets (G)${sheetGroup.length ? ` · ${sheetGroup.length} side-by-side now` : ""}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${sheetGroup.length ? "var(--cobalt)" : "var(--ink-faint)"}`, background: sheetGroup.length ? "var(--cobalt)" : "transparent", color: sheetGroup.length ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+          <Icon name="sheets" size={15} />Sheets
+        </button>
+        {pinButton}
+        {sheets.length > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={!!sheetGroup.length || page <= 1} title="Previous sheet"
+              style={{ padding: "5px 8px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", opacity: (!!sheetGroup.length || page <= 1) ? 0.4 : 1 }}><Icon name="chevronLeft" size={12} /></button>
+            <ToolMenu
+              title="Sheet — the sheets in this set, files, grouping, and the gallery"
+              onOpenChange={onMenuDepth}
+              face={<span style={{ display: "inline-block", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sheetChipLabel}</span>}
+              faceStyle={{ fontFamily: "var(--f-mono)", fontSize: 12, fontWeight: 400, padding: "6px 8px" }}
+              menuStyle={{ minWidth: 260, maxHeight: "min(480px, 60vh)", overflowY: "auto" }}
+              items={sheetMenuItems}
+            />
+            <button type="button" onClick={() => setPage((p) => Math.min(pageCount, p + 1))} disabled={!!sheetGroup.length || page >= pageCount} title="Next sheet"
+              style={{ padding: "5px 8px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", opacity: (!!sheetGroup.length || page >= pageCount) ? 0.4 : 1 }}><Icon name="chevronRight" size={12} /></button>
+          </span>
+        )}
+        {vRule}
+        {cluster("Edit", <>
+          <ToolMenu
+            title="Edit takeoffs"
+            onOpenChange={onMenuDepth}
+            face={<span>Edit</span>}
+            items={[
+              { id: "copy", icon: "copy", label: "Copy", shortcut: "⌘C", disabled: !selectedId, onSelect: copySelected },
+              { id: "paste", icon: "paste", label: "Paste", shortcut: "⌘V", disabled: !clipRef.current.length, onSelect: () => pasteClipboard() },
+              { id: "dup", icon: "duplicate", label: "Duplicate", shortcut: "⌘D", disabled: !selectedId, onSelect: duplicateSelected },
+              "divider",
+              { id: "flipH", label: "Flip Horizontal", disabled: !selectedId, onSelect: () => flipSelected("h") },
+              { id: "flipV", label: "Flip Vertical", disabled: !selectedId, onSelect: () => flipSelected("v") },
+              { id: "tidy", label: "Tidy shape", disabled: !selectedId, onSelect: tidySelected },
+              "divider",
+              { id: "finish", icon: "check", label: `Finish shape${poly.length ? ` (${poly.length} pts)` : ""}`, shortcut: "↵", disabled: !finishOk, onSelect: finishShape },
+              { id: "undopt", icon: "undo", label: "Undo last point", shortcut: "⌘Z", disabled: !poly.length, onSelect: dropLastPoint },
+              { id: "undoshape", icon: "undo", label: "Undo last shape", disabled: !visibleShapes.length, onSelect: undoLast },
+              { id: "redo", label: "Redo", shortcut: "⇧⌘Z", onSelect: redoShapeCommand },
+              "divider",
+              { id: "del", icon: "close", label: "Delete selected", shortcut: "⌫", disabled: !selectedId, tint: "var(--c-danger)", onSelect: deleteSelected },
+            ]}
+          />
+        </>)}
+        {vRule}
+        {cluster("Aids", <>
+          {panels.length === 1 && isStitchKey(panels[0].key) && (
+            <button onClick={() => setTool((t) => (t === "stitch-align" ? "select" : "stitch-align"))}
+              title="Align the match line — click a point near the joint, then the SAME point where the other sheet draws it; that sheet slides so the two coincide. Do this before tracing (a stitch with takeoffs on it won't re-align)."
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${tool === "stitch-align" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: tool === "stitch-align" ? "var(--cobalt)" : "transparent", color: tool === "stitch-align" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+              <Icon name="calibrate" size={15} />Align
+            </button>
+          )}
+          <button onClick={() => setTool((t) => (t === "zone" ? "select" : "zone"))}
+            title="Zone check — trace a region (an apartment, a wing) to read every condition's quantities inside it, materials included. Nothing is saved; the outline clears when you leave the tool."
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${tool === "zone" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: tool === "zone" ? "var(--cobalt)" : "transparent", color: tool === "zone" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+            <Icon name="zone" size={15} />Zone
+          </button>
+          <button onClick={() => setSnapOn((v) => !v)} title="Snap to plan lines/corners (beta)"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${snapOn ? "var(--c-positive)" : "var(--ink-faint)"}`, background: snapOn ? "var(--c-positive)" : "transparent", color: snapOn ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+            <Icon name="snap" size={15} />Snap
+          </button>
+          <button onClick={() => setAngleOn((v) => !v)} title="45°/90° angle guides — the next segment locks to the 45° family as you draw (hold ⇧ to force the lock at any angle)"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: `1px solid ${angleOn ? "var(--cobalt)" : "var(--ink-faint)"}`, background: angleOn ? "var(--cobalt)" : "transparent", color: angleOn ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}>
+            <Icon name="angle" size={15} />45°
+          </button>
+        </>)}
+        {vRule}
+        {/* Drafting conventions — how a trace looks and where it bends, one
+            dropdown. Style and Outline came up from the ⋯ menu, Straight/Curve
+            over from the readout (2026-09-12): a convention you set before
+            tracing belongs beside the aids, one click from the sheet. */}
+        {cluster("Draft", draftMenu)}
+        {/* The caption always shows the ACTIVE label (+ the cobalt highlight keyed
+            on it) so what a new trace will get is never hidden — even in Select
+            mode, where the dropdown VALUE instead shows the selected shape's label
+            so changing it reliably re-labels that shape (a value-always-active
+            select couldn't reassign to the already-active label — onChange wouldn't fire). */}
+        {shapeLabels.length > 0 && cluster(
+          tool === "select" && selectedId ? `Label · ${activeLabel || "none"} → shape` : (activeLabel ? `Label · ${activeLabel}` : "Label"),
+          <select
+            value={tool === "select" && selectedId ? shapeLabelValue(shapes.find((s) => s.id === selectedId)) : (activeLabel || "")}
+            onChange={(e) => activateLabel(e.target.value || null)}
+            title="Phase/area label. The caption shows the ACTIVE label (what new takeoffs get). With a shape selected (Select tool), the dropdown shows and re-labels that shape. Manage the list in the Columns tab."
+            style={{ fontFamily: "var(--f-mono)", fontSize: 11.5, padding: "5px 6px", border: `1px solid ${activeLabel ? "var(--cobalt)" : "var(--ink-faint)"}`, background: activeLabel ? "var(--cobalt)" : "transparent", color: activeLabel ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", maxWidth: 150 }}>
+            <option value="">No label</option>
+            {shapeLabels.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        )}
+        {/* Typed voice command (RFC #59 slice 2): the same grammar push-to-talk
+            will feed — a keyboard command line meanwhile, and the accessibility
+            path. Focus suppresses canvas shortcuts via the existing INPUT guards.
+            Deixis: focus marks the utterance's start — "this room" then needs an
+            aim placed AFTER it (park the pointer on the room, type, Enter). */}
+        {commandBoxEnabled() && cluster("Command",
+          <input
+            type="text"
+            placeholder="cpt 1 · waste 7 · this room"
+            title={'Command line (RFC #59): a condition tag ("CPT-1", "carpet one", "tile 2 waste 5"), "waste 7", "label Phase 1", "clear label", "author <your name>" (new marks sign it — the report can group by author), or "note …" — Enter runs it through the same actions the buttons use. End with "this room" / "here" while the pointer rests on a room to trace and commit it there ("carpet one, this room"). Push-to-talk dictation will feed this box.'}
+            onFocus={() => { voiceAimMarkRef.current = aimSeqRef.current; }}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const v = e.currentTarget.value.trim();
+              if (!v) return;
+              const el = e.currentTarget;   // capture: currentTarget nulls after dispatch, and deixis outcomes can resolve async (raster)
+              // router confirm (RFC #59 slice 5): the rejected text is still in
+              // the box (only success clears it) — a second ⏎ on the SAME text
+              // confirms the pending offer instead of re-rejecting in a loop
+              if (pendingAgentOfferRef.current && v === pendingAgentOfferRef.current.transcript) {
+                agentOfferFnsRef.current.confirm();
+                el.value = "";
+                return;
+              }
+              Promise.resolve(onVoiceCommand(v)).then((ok) => { if (ok) el.value = ""; });
+            }}
+            style={{ fontFamily: "var(--f-mono)", fontSize: 11.5, padding: "5px 6px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", width: 150 }}
+          />
+        )}
+        {/* Push-to-talk (RFC #59 recognizer): hold the button (or M) to dictate
+            into the same grammar the Command box runs. Hidden entirely where
+            capture is unsupported — graceful feature-absence, never broken. */}
+        {commandBoxEnabled() && captureSupported() && cluster("Voice",
+          <button
+            title={'Hold to talk (or hold M anywhere on the canvas): speak a command — "carpet one, waste seven", "label phase two", "note …", or end with "this room" to trace at the cursor. Release to run; Esc discards. Audio is processed on-device and never leaves the browser.'}
+            onPointerDown={(e) => { e.preventDefault(); e.currentTarget.setPointerCapture(e.pointerId); voiceHoldRef.current = true; voiceFnsRef.current.start(); }}
+            onPointerUp={() => { if (voiceHoldRef.current) { voiceHoldRef.current = false; voiceFnsRef.current.end(true); } }}
+            onPointerCancel={() => { if (voiceHoldRef.current) { voiceHoldRef.current = false; voiceFnsRef.current.end(false); } }}
+            style={{ padding: "5px 10px", border: `1px solid ${voiceChip?.tone === "live" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: voiceChip?.tone === "live" ? "var(--cobalt)" : "transparent", color: voiceChip?.tone === "live" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, lineHeight: 1 }}>
+            {voiceChip?.tone === "live" ? "● talking" : "talk · M"}
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
+        {cluster("Action",
+          <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "flex-end", gap: 6, minWidth: 150 }}>
+            {markupDraft && (tool === "cloud" || tool === "callout" || tool === "highlight" || tool === "dimension") && <span style={{ fontSize: 11, color: "var(--cobalt)" }}>click the {tool === "callout" ? "label spot" : tool === "dimension" ? "other end" : "opposite corner"}…</span>}
+            {finishOk && (
+              <button onClick={finishShape} title="Finish shape (↵ or double-click)" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "none", background: "var(--c-positive)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}><Icon name="check" size={14} />Finish ({poly.length})</button>
+            )}
+            {proposal?.regions.length > 0 && (
+              <button onClick={createProposal} title="Create the selected takeoff(s) (↵). ⌫ removes the last click; Esc discards the selection." style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", border: "none", background: "var(--c-positive)", color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 12.5, lineHeight: 1 }}><Icon name="check" size={14} />Create ({proposal.regions.length})</button>
+            )}
+          </span>
+        )}
+        <div style={{ flex: 1 }} />
+        </div>
+        <span data-topbar-pinned style={{ display: "inline-flex", alignItems: "center", gap: 7, flexShrink: 0, paddingTop: 16 }}>
+        {cluster(`Scale — ${labelFor(focusPanel)}`,
+          <>
+            <button onClick={() => setUnits((u) => (u === "metric" ? "imperial" : "metric"))}
+              title={units === "metric" ? "Metric display (m² / m) — click for imperial. Calibrate in meters; 1:50-style scales in the list. Display only — stored takeoffs never change." : "Imperial display (SF / LF) — click for metric (m² / m, calibrate in meters, 1:50-style scales). Display only — stored takeoffs never change."}
+              style={{ padding: "6px 10px", border: `1px solid ${units === "metric" ? "var(--cobalt)" : "var(--ink-faint)"}`, background: units === "metric" ? "var(--cobalt)" : "transparent", color: units === "metric" ? "var(--paper-bright)" : "var(--ink)", cursor: "pointer", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, lineHeight: 1 }}>
+              {units === "metric" ? "m" : "ft"}
+            </button>
+            <ToolMenu
+              title={scaleTitle}
+              onOpenChange={onScaleMenuDepth}
+              face={<span data-tour="scale">{scaleFace}</span>}
+              faceStyle={{ fontFamily: "var(--f-mono)", fontSize: 11.5, ...scaleFaceStyle }}
+              menuStyle={{ minWidth: 250 }}
+              items={scaleItems}
+            />
+          </>
+        )}
+        <button type="button" ref={workspaceLayout ? undefined : workButtonRef} aria-expanded={agentOpen} onClick={() => setAgentOpen((v) => !v)}
+          title="Work and review — measurements, provenance, and agent proposals"
+          style={{ minHeight: "var(--ctl-m)", padding: "var(--sp-1) var(--sp-3)", border: "1px solid var(--cobalt)", background: agentOpen ? "var(--cobalt)" : "transparent", color: agentOpen ? "var(--accent-contrast)" : "var(--cobalt)", cursor: "pointer", fontSize: "var(--fs-s)", fontWeight: 600 }}>
+          Work{agentRunning ? " · Working" : shapes.some((s) => s.origin?.reviewed === false) ? ` · ${shapes.filter((s) => s.origin?.reviewed === false).length}` : ""}
+        </button>
+        <button onClick={openEstimate} disabled={!conditions.length} title="Price the takeoff — material and labor per unit, markups, Excel."
+          style={{ padding: "8px 14px", border: "1px solid var(--ink)", background: "transparent", color: conditions.length ? "var(--ink)" : "var(--text-faint)", cursor: conditions.length ? "pointer" : "default", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase" }}>Estimate</button>
+        <button data-tour="report" onClick={() => setShowReport(true)} disabled={!conditions.length} title="Open the takeoff report — per-condition breakdown with waste, plus CSV / JSON export."
+          style={{ padding: "8px 14px", border: "none", background: conditions.length ? "var(--ink)" : "var(--text-faint)", color: "var(--paper-bright)", cursor: conditions.length ? "pointer" : "default", fontWeight: 700, fontFamily: "var(--f-mono)", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase" }}>Report</button>
+        {/* ⋯ overflow — rarely-used project controls, so the row never wraps
+            and nothing shifts position mid-work (issue #61's contract). */}
+        <ToolMenu
+          title="More — guide, appearance, schedule import, project moves"
+          onOpenChange={onMenuDepth}
+          face={<span style={{ fontWeight: 700, letterSpacing: "0.08em" }}>⋯</span>}
+          items={[
+            ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
+            { id: "workspace-preview", label: workspaceLayout ? "Classic layout" : "Premium layout — compact controls", onSelect: () => workspacePrefs.setEnabled(!workspaceLayout) },
+            { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+            { id: "tour", label: "Guided first takeoff", onSelect: startTour },
+            { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
+          { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
+            { id: "theme", label: theme === "dark" ? "Light chrome" : "Dark chrome", onSelect: toggleTheme },
+            "divider",
+            { id: "schedule", icon: "rectTool", label: "Import from schedule", active: tool === "schedule", onSelect: () => { setScheduleAnchor(null); setTool((t) => (t === "schedule" ? "select" : "schedule")); } },
+            ...(cloudMode ? [
+              "divider",
+              { id: "closeproj", label: "Close project", onSelect: closeProject },
+              ...(browseProjects ? [{ id: "projects", label: "Team projects", onSelect: browseProjects }] : []),
+            ] : []),
+            ...(!cloudMode && googleUser && isGoogleConfigured() && projectHomeFolderId() ? [
+              "divider",
+              { id: "browse", label: "Browse team projects", onSelect: () => navigate("/projects") },
+            ] : []),
+          ]}
+        />
+        <PresenceChip bridge={store.syncBridge} />
+        <AccountChip note={cloudMode ? "Synced to Google Drive" : "Local workspace"} onOpenChange={onMenuDepth} />
+        </span>
+      </div>
+      )}
 
-        {/* Agent panel — DOCKED right-rail sibling (reflows the canvas like the
-            Takeoffs panel). Honest empty state until the BYO-AI seam is
-            configured; otherwise the goal box, the streaming run log, and the
+      {/* quick-access condition palette — its own slim band under the toolbar
+          (like the sheet-tabs / conditions-strip rows), not crammed into the
+          already-wrapping top bar. A curated ≤9 pinned conditions for one-click
+          activation without opening the panel: drag a condition here from the
+          Takeoffs panel (or the strip) to pin it, or use a row's pushpin. Each
+          chip carries its 1–9 hotkey badge (cobalt); single-click activates
+          (reassigning a selected shape, like every activation surface),
+          double-click opens the docked panel scrolled to that row, the pushpin
+          unpins, and dragging one chip onto another reorders (which renumbers
+          the hotkeys). Below the chips, the active condition's appearance editor
+          — the same one the docked panel row renders — so line/fill/hatch/height
+          are editable without opening the sidebar. Shown once there's a
+          condition to pin, so the drop zone is discoverable. */}
+      {!focusMode && (!workspaceLayout || workspaceArrangement.palette) && conditions.length > 0 && (
+        <div
+          onDragOver={(e) => { if (e.dataTransfer.types.includes(CONDITION_DND_MIME)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "copy"; } }}
+          onDrop={(e) => { if (!e.dataTransfer.types.includes(CONDITION_DND_MIME)) return; e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData(CONDITION_DND_MIME); if (id) pinToPalette(id); }}
+          style={{ padding: "5px 14px", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span title="Quick-access conditions — drag a condition here (or use a row's pushpin) to pin it, up to 9. Press 1–9 to activate by this order; click a chip to activate; double-click to open the panel."
+              style={{ fontFamily: "var(--f-mono)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--ink-muted)" }}>Conditions</span>
+            {paletteConds.length === 0 ? (
+              <span style={{ fontSize: 11.5, color: "var(--ink-muted)", fontStyle: "italic", padding: "3px 8px", border: "1px dashed var(--ink-faint)" }}>drag conditions here (or pin a row) for 1-9 one-click access</span>
+            ) : paletteConds.map((c) => {
+              const on = c.id === activeCond;
+              const reassign = tool === "select" && selectedId;
+              const idx = palette.indexOf(c.id);   // palette position → the 1–9 hotkey number
+              return (
+                <span key={c.id} style={{ display: "inline-flex", alignItems: "center" }}
+                  onDragOver={(e) => { if (e.dataTransfer.types.includes(CONDITION_DND_MIME)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; } }}
+                  onDrop={(e) => { if (!e.dataTransfer.types.includes(CONDITION_DND_MIME)) return; e.preventDefault(); e.stopPropagation(); const dragId = e.dataTransfer.getData(CONDITION_DND_MIME); if (dragId) { if (palette.includes(dragId)) movePalette(dragId, idx); else pinToPalette(dragId); } }}>
+                  <button type="button" draggable
+                    onDragStart={(e) => { e.dataTransfer.setData(CONDITION_DND_MIME, c.id); e.dataTransfer.effectAllowed = "copyMove"; }}
+                    onClick={() => activateCondition(c.id)}
+                    onDoubleClick={() => openConditionInPanel(c.id)}
+                    title={reassign ? `Reassign the selected takeoff to ${c.finish_tag} (double-click opens the panel)` : `${c.finish_tag} — press ${idx + 1} or click to activate, double-click to open in the panel, drag onto another chip to reorder`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 5px", border: on ? `2px solid ${c.color}` : (reassign ? "1px dashed var(--cobalt)" : "1px solid var(--ink-faint)"), background: on ? "var(--surface-pop)" : "transparent", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 12.5, lineHeight: 1 }}>
+                    {idx < 9 && <span style={{ fontSize: 9, fontFamily: "var(--f-mono,monospace)", color: "var(--cobalt)", border: "1px solid var(--cobalt)", borderRadius: 3, padding: "0 3px" }}>{idx + 1}</span>}
+                    <span style={{ borderRadius: 4, overflow: "hidden", lineHeight: 0 }}><HatchSwatch type={c.hatch || "solid"} line={c.color} fill={c.fill} /></span>{c.finish_tag}
+                  </button>
+                  <button type="button" onClick={() => unpinFromPalette(c.id)} title={`Unpin ${c.finish_tag} from the palette`}
+                    style={{ border: "none", background: "none", cursor: "pointer", color: "var(--cobalt)", padding: "0 3px", lineHeight: 0, display: "inline-flex" }}>
+                    <Icon name="pin" size={12} />
+                  </button>
+                </span>
+              );
+            })}
+            {paletteConds.length >= PALETTE_MAX && (
+              <span style={{ fontSize: 10.5, color: "var(--ink-muted)", fontStyle: "italic" }}>full ({PALETTE_MAX})</span>
+            )}
+            {/* add a condition without opening the (now-collapsed) sidebar */}
+            <button type="button" onClick={addCondition} title="Add a new condition"
+              style={{ padding: "3px 9px", borderRadius: 0, border: "1px dashed var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 12, color: "var(--ink-muted)" }}>+ condition</button>
+          </div>
+          {/* the active condition's appearance editor, restored to the top bar —
+              same component the docked panel row renders (one source of truth) */}
+          {aCond && (
+            <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px solid var(--ink-faint)", display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--sp-2)" }}>
+              <button type="button" aria-expanded={conditionDetails} onClick={() => setConditionDetails((v) => !v)} style={{ border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink-secondary)", padding: "var(--sp-1) var(--sp-2)", fontSize: "var(--fs-s)", cursor: "pointer" }}>{conditionDetails ? "▾" : "▸"} {aCond.finish_tag} properties</button>
+              {conditionDetails && <ConditionAppearanceEditor cond={aCond} onUpdateCond={updateCond} onSetCondParam={setCondParam} onAssignAttr={assignAttr} conditionColumns={conditionColumns} layout="row" units={units} />}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!focusMode && view === "canvas" && annotations.toolbar}
+
+      {/* open-sheet tabs — what you opened from the gallery; click to view,
+          ⊞ to side-by-side, ✕ to close; the dropdown lists every open sheet */}
+      {!focusMode && openTabs.length > 0 && !(workspaceLayout && openTabs.length <= 1 && !sheetGroup.length && !splitView) && (
+        <div data-sheet-tabs style={{ display: "flex", gap: 5, alignItems: "center", padding: "5px 14px", flexWrap: openTabs.length > MANY_TABS ? "nowrap" : "wrap", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)", minWidth: 0 }}>
+          <span style={{ fontFamily: "var(--f-mono)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--ink-muted)", flexShrink: 0 }}>Sheets</span>
+          {openTabs.length > MANY_TABS && (
+            <button type="button" onClick={() => scrollTabStrip(-1)} title="Scroll sheets left" aria-label="Scroll sheets left" style={{ flexShrink: 0, padding: "4px 5px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", display: "inline-flex" }}><Icon name="chevronLeft" size={12} /></button>
+          )}
+          <div ref={tabStripRef} data-sheet-tab-strip style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: openTabs.length > MANY_TABS ? "nowrap" : "wrap", overflowX: openTabs.length > MANY_TABS ? "auto" : "visible", minWidth: 0, flex: openTabs.length > MANY_TABS ? 1 : "0 1 auto", scrollbarWidth: "none", overscrollBehaviorX: "contain" }}>
+          {openTabs.map((k) => {
+            const inGroup = sheetGroup.includes(k);
+            const on = sheetGroup.length ? inGroup : k === sheetKey;
+            const lbl = tabLabel(k);
+            return (
+              <span key={k} data-sheet-tab={on ? "active" : "idle"} draggable={!isStitchKey(k)}
+                onMouseEnter={() => armSheetDrag(k)}
+                onDragStart={(e) => onSheetTabDragStart(k, e)}
+                // dragend fires exactly once per drag gesture regardless of how
+                // it ended (a real drop, an Escape-cancel, or releasing outside
+                // any valid target) — the one reliable place to guarantee the
+                // overlay never survives a cancelled drag (onDrop only clears
+                // dragZone on an actual drop).
+                onDragEnd={() => setDragZone(null)}
+                title={!isStitchKey(k) ? "Drag this tab to a screen edge to split, or out of the app to export the marked sheet" : undefined}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, border: "1px solid var(--ink-faint)", borderBottom: on ? "2px solid var(--cobalt)" : "1px solid var(--ink-faint)", background: on ? "var(--paper-cream)" : "transparent", padding: "3px 6px 2px 9px", maxWidth: 190 }}>
+                <button onClick={() => goToSheet(k)} title={k} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 11.5, color: "var(--ink)", fontFamily: "var(--f-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140, padding: 0 }}>{lbl}</button>
+                <button onClick={() => toggleInGroup(k)} title={inGroup ? "Remove from side-by-side" : "Side-by-side with the current sheet"} style={{ border: "none", background: "none", cursor: "pointer", color: inGroup ? "var(--cobalt)" : "var(--ink-faint)", padding: 0, display: "inline-flex" }}><Icon name="sideBySide" size={11} /></button>
+                <button onClick={() => closeTab(k)} title="Close tab" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)", padding: 0, display: "inline-flex" }}><Icon name="close" size={10} /></button>
+              </span>
+            );
+          })}
+          </div>
+          {openTabs.length > MANY_TABS && (
+            <button type="button" onClick={() => scrollTabStrip(1)} title="Scroll sheets right" aria-label="Scroll sheets right" style={{ flexShrink: 0, padding: "4px 5px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", display: "inline-flex" }}><Icon name="chevronRight" size={12} /></button>
+          )}
+          {openTabs.length > 1 && openTabs.length <= MANY_TABS && (
+            <ToolMenu
+              title="Jump to an open sheet"
+              onOpenChange={onMenuDepth}
+              face={<span style={{ fontFamily: "var(--f-mono)", fontSize: 11 }}>{openTabs.length} open</span>}
+              items={openTabs.map((k) => ({ id: k, icon: "document", label: tabLabel(k), active: sheetGroup.length ? sheetGroup.includes(k) : k === sheetKey, onSelect: () => goToSheet(k) }))}
+            />
+          )}
+        </div>
+      )}
+
+      {/* compact conditions strip — OPTIONAL small-project mode. The docked
+          Takeoffs panel is the primary conditions surface; the strip renders
+          the same state (activate/reassign, hotkey badges, + condition) for
+          users who want max panel-collapse and one-click switching. Toggled
+          from the panel header, persisted with the panel prefs. */}
+      {!focusMode && !workspaceLayout && panelPrefs.strip && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "7px 14px", flexWrap: "wrap", borderBottom: "1px solid var(--ink-faint)", background: "var(--paper-bright)" }}>
+          <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--ink-muted)" }}>Conditions</span>
+          {conditions.map((c, i) => {
+            const on = c.id === activeCond;
+            // the 1–9 badge follows the same rule as the hotkeys: palette order
+            // when curated, condition order (fallback) when nothing is pinned
+            const pinnedPal = palette.length > 0;
+            const hIdx = pinnedPal ? palette.indexOf(c.id) : i;
+            const hot = hIdx >= 0 && hIdx < 9;
+            return (
+              <button key={c.id} draggable onDragStart={(e) => { e.dataTransfer.setData(CONDITION_DND_MIME, c.id); e.dataTransfer.effectAllowed = "copy"; }} onClick={() => activateCondition(c.id)} title={tool === "select" && selectedId ? "Reassign selected shape to this condition" : (hot ? `Press ${hIdx + 1} · drag to the palette to pin` : "Drag to the palette to pin")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 10px 3px 4px", borderRadius: 0, border: on ? `2px solid ${c.color}` : (tool === "select" && selectedId ? "1px dashed var(--cobalt)" : "1px solid var(--ink-faint)"), background: on ? "var(--surface-pop)" : "transparent", cursor: "pointer", fontWeight: on ? 700 : 500, fontSize: 12.5 }}>
+                {hot && <span style={{ fontSize: 9, fontFamily: "var(--f-mono,monospace)", color: pinnedPal ? "var(--cobalt)" : "var(--ink-muted)", border: `1px solid ${pinnedPal ? "var(--cobalt)" : "var(--ink-faint)"}`, borderRadius: 3, padding: "0 3px" }}>{hIdx + 1}</span>}
+                <span style={{ borderRadius: 4, overflow: "hidden", lineHeight: 0 }}><HatchSwatch type={c.hatch || "solid"} line={c.color} fill={c.fill} /></span>{c.finish_tag}
+              </button>
+            );
+          })}
+          <button onClick={addCondition} style={{ padding: "4px 10px", borderRadius: 0, border: "1px dashed var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 12.5, color: "var(--ink-muted)" }}>+ condition</button>
+        </div>
+      )}
+
+      {/* Copy text prompt (#471) — the calibrate/check prompt-bar idiom */}
+      {tool === "textcopy" && (
+        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14, display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
+          <span>Copy text: click two corners around the text ({textAnchor ? 1 : 0}/2). Rotated runs are left out and counted.</span>
+          <button type="button" className="btn-ghost" onClick={() => copyTextFrom(focusPanel.key, null, "page")}>Copy page text</button>
+        </div>
+      )}
+
+      {/* calibration prompt */}
+      {tool === "calibrate" && (
+        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14 }}>
+          {calib.length < 2 ? <span>Custom scale: click two points along a known dimension ({calib.length}/2). Tip: use the longest dimension. (Or just pick a standard scale above.)</span> : (
+            <span>Real length:{" "}
+              <input name="calibration-length" type="number" value={pendingLen} onChange={(e) => setPendingLen(e.target.value)} onKeyDown={(e) => e.key === "Enter" && applyCalibration()} placeholder={units === "metric" ? "meters" : "feet"} autoFocus style={{ width: 90, padding: 5, borderRadius: 0, border: "1px solid var(--ink-faint)" }} /> {units === "metric" ? "m" : "ft"}
+              <button onClick={applyCalibration} style={{ marginLeft: 8, padding: "5px 12px", borderRadius: 0, border: "none", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer" }}>Apply</button>
+              <button onClick={() => setCalib([])} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* check-a-dimension prompt — read-only twin of calibrate: measure a printed
+          dimension at the current scale, compare with what the drawing says */}
+      {tool === "check" && (
+        <div style={{ padding: "8px 14px", background: "var(--paper-bright)", borderBottom: "1px solid var(--hairline-warm)", fontSize: 14 }}>
+          {check.length < 2 ? (
+            <span>Check a dimension: click both ends of a printed dimension ({check.length}/2). The measured length shows here — compare it with what the drawing says.</span>
+          ) : checkCross ? (
+            <span style={{ color: "var(--c-danger)" }}>Check on one sheet — those two clicks landed on different sheets. <button onClick={() => { setCheck([]); setCheckStated(""); }} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button></span>
+          ) : !checkUpp ? (
+            <span style={{ color: "var(--c-danger)" }}>No scale set for {labelFor(checkPanel)} — pick a standard scale or calibrate first, then check it here.</span>
+          ) : checkPx <= 0 ? (
+            <span style={{ color: "var(--c-danger)" }}>Those two clicks landed on the same point — click the two <b>ends</b> of a printed dimension.</span>
+          ) : (
+            <span>
+              measures <b style={{ fontFamily: "var(--f-mono)" }}>{fmtCheckLen(checkFeet, units)}</b> at {stdValue || "custom scale"} · drawing says{" "}
+              <input name="check-stated-length" value={checkStated} onChange={(e) => setCheckStated(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder={units === "metric" ? "meters" : `feet (12'6, 6" ok)`} autoFocus style={{ width: 100, padding: 5, borderRadius: 0, border: "1px solid var(--ink-faint)" }} /> {units === "metric" ? "m" : "ft"}
+              {checkErrPct != null && (() => {
+                // checkVerdict grades the ROUNDED value the chip displays (and
+                // normalizes -0), so color and number can never contradict —
+                // see units.ts for the ≤1/≤5 tie-break rationale
+                const v = checkVerdict(checkErrPct);
+                const pct = `${v.shown >= 0 ? "+" : ""}${v.shown.toFixed(1)}%`;
+                return (
+                  <b style={{ marginLeft: 8, color: v.grade === "match" ? "var(--c-positive)" : v.grade === "close" ? "var(--c-warning)" : "var(--c-danger)" }}>
+                    {v.grade === "match" ? `matches — scale checks out (${pct})`
+                      : v.grade === "close" ? `off by ${pct} — re-check or recalibrate`
+                      : `off by ${pct} — wrong scale; recalibrate`}
+                  </b>
+                );
+              })()}
+              {checkStatedFeet > 0 && (
+                <button onClick={recalibrateFromCheck} style={{ marginLeft: 8, padding: "5px 12px", borderRadius: 0, border: "none", background: "var(--ink)", color: "var(--paper-bright)", cursor: "pointer" }}>Recalibrate to this</button>
+              )}
+              <button onClick={() => { setCheck([]); setCheckStated(""); }} style={{ marginLeft: 6, padding: "5px 10px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer" }}>Reset</button>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* canvas + issue desk */}
+      <div data-canvas-workspace style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0, position: "relative" /* anchors the narrow-screen panel overlay */ }}>
+       {workspaceLayout && <><WorkspaceNavigator open={!focusMode && workspaceNavigationOpen} items={workspaceSheets} current={treeCurrent} namer={namer} countKnown={countKnown} hold={ocrHold} onSelect={(key) => openSheets([key], false)} onClose={() => setWorkspaceNavigationOpen(false)} onGallery={() => { setView("gallery"); setWorkspaceNavigationOpen(false); }} dockSide={workspaceArrangement.sheets} width={workspaceArrangement.sheetWidth} dockHandle={workspaceDockHandle("sheets", "Sheets")} /><DockTargets dragging={workspaceDragging} /></>}
+       {/* tool rail — machined faces grouped by MCP module (the concept shell).
+           Individual tiles replace deck 2's Measure/Cut Out menus; Markup keeps
+           its variety flyout on one tile (five markup kinds don't earn five
+           faces). Lives in the canvas row so docked panels + canvas reflow
+           beside it; survives focus mode — it IS the tool access. */}
+       {view === "canvas" && dockBottom && (() => {
+         // Premium's dock: the five everyday tools and Cut, then ⋯ for everything else, then history
+         const toggleLeft = (id) => setLeftTab((t) => (t === id ? null : id));
+         const trayGroups = [
+           ["Measure", [
+             ...(oneClickEnabled() ? [{ id: "oneclick", icon: "oneClick", label: "One-click area — click inside a room", short: "One-click", shortcut: "O", active: tool === "oneclick", onSelect: () => setTool("oneclick") }] : []),
+             { id: "surface", icon: "surface", label: "Surface (wall) area", short: "Wall area", shortcut: "S", active: tool === "surface", onSelect: () => setTool("surface") },
+             { id: "deduct-rect", icon: "deductRect", label: "Rectangle cutout", short: "Rect cutout", shortcut: "⇧D", active: tool === "deduct-rect", onSelect: () => setTool("deduct-rect") },
+           ]],
+           ["Check & find", [
+             { id: "zone", icon: "zone", label: "Zone check — trace a region to read every condition's quantities inside it. Nothing is saved.", short: "Zone check", active: tool === "zone", onSelect: () => setTool((t) => (t === "zone" ? "select" : "zone")) },
+             { id: "symbol", icon: "symbol", label: "Symbol sweep — box one example; every match is counted", short: "Symbol sweep", shortcut: "Y", active: tool === "symbol", onSelect: () => setTool("symbol") },
+             { id: "textcopy", icon: "copyText", label: "Copy text — click two corners around a note or schedule", short: "Copy text", active: tool === "textcopy", onSelect: armCopyText },
+           ]],
+           ["Mark up", [
+             ...annotations.items.map((it) => ({ ...it, short: { "annot-sweep": "Mark all", "annot-selection": "Select notes", "annot-cloud": "Cloud" }[it.id] })),
+             ...MARKUP_TOOLS.filter((t) => !["highlighter", "cloud", "callout"].includes(t.id)).map((t) => ({ id: t.id, icon: t.icon, label: t.label, short: { text: "Text", highlight: "Box", dimension: "Dimension", image: "Image" }[t.id], shortcut: t.shortcut, active: tool === t.id, onSelect: () => { setTool(t.id); setMarkupDraft(null); } })),
+             { id: "approve", icon: "approve", label: "Approval stamp — your sign-off that a takeoff was checked. Human-only.", short: "Approve", active: tool === "approve", onSelect: () => setTool((t) => (t === "approve" ? "select" : "approve")) },
+             { id: "markup-list", icon: "document", label: "Markup list — existing clouds, callouts, and notes", short: "Markup list", count: markupCount, active: leftTab === "markup", onSelect: () => toggleLeft("markup") },
+             { id: "stamps", icon: "stamp", label: "Stamps — reusable annotations dropped click-to-place", short: "Stamp library", count: stampLib.stamps.length, active: leftTab === "stamp", onSelect: () => toggleLeft("stamp") },
+             { id: "rfis", icon: "rfi", label: "RFI register — raise, track, and export Requests For Information", short: "Issues", count: rfis.length, active: leftTab === "rfi", onSelect: () => toggleLeft("rfi") },
+           ]],
+           ["Scale", [
+             { id: "calibrate", icon: "calibrate", label: "Calibrate — click two points of a known dimension", short: "Calibrate", active: tool === "calibrate", onSelect: () => setTool("calibrate") },
+           ]],
+           ["Aids", [
+             { id: "snap", icon: "snap", label: "Snap to plan lines and corners (beta)", short: "Snap", active: snapOn, stayOpen: true, onSelect: () => setSnapOn((v) => !v) },
+             { id: "angle", icon: "angle", label: "45° / 90° angle guides — ⇧ locks", short: "45° / 90°", active: angleOn, stayOpen: true, onSelect: () => setAngleOn((v) => !v) },
+           ]],
+         ];
+         const trayArmed = trayGroups.some(([, items]) => items.some((it) => it.active && !["snap", "angle", "markup-list", "stamps", "rfis"].includes(it.id)));
+         const sep = (k) => <span key={k} aria-hidden="true" style={{ width: 1, height: 24, background: "var(--ink-faint)", margin: "0 5px", flexShrink: 0 }} />;
+         return (
+           <div ref={dockWrapRef} data-dock-wrap onPointerDown={(e) => e.stopPropagation()}
+             style={{ position: "absolute", left: 0, right: 0, bottom: 14, marginInline: "auto", width: "max-content", maxWidth: "calc(100% - 28px)", zIndex: 25 }}>
+             {trayOpen && <ToolTray groups={trayGroups} onPicked={() => setTrayOpen(false)} />}
+             {tool === "highlighter" && (
+               <div style={{ position: "absolute", left: 0, bottom: "calc(100% + 10px)", zIndex: Z.popover, background: "var(--paper-bright)", border: "1px solid var(--ink-faint)", boxShadow: "var(--shadow-pop)", padding: "8px 10px", display: "flex", gap: 6 }} title="Ink">
+                 {HL_INKS.map((c) => <button key={c} onClick={() => setHlStyle((st) => ({ ...st, color: c }))} aria-label={`Ink ${c}`} style={{ width: 16, height: 16, padding: 0, background: c, border: hlStyle.color === c ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer" }} />)}
+               </div>
+             )}
+             <nav data-tool-rail data-dock-side="bottom" role="toolbar" aria-label="Tools"
+               style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, padding: "6px 8px", border: "1px solid var(--ink-faint)", borderRadius: 12, background: "var(--paper-cream)", boxShadow: "var(--shadow-2)", overflowX: "auto" }}>
+               {railTile("select", "select", "Select — pick a takeoff, drag points; drag open canvas to pan", "V")}
+               {sep("s1")}
+               {railTile("area", "area", "Area", "A")}
+               {railTile("rect", "rectTool", "Rectangle", "R")}
+               {railTile("linear", "linear", "Linear", "L")}
+               {railTile("count", "count", "Count", "C")}
+               {railTile("cut", "scissors", "Cut — polygon cutout (D); click again for a rectangle cutout (⇧D)", "D",
+                 () => setTool((t) => (t === "deduct" ? "deduct-rect" : "deduct")), { armed: tool === "deduct" || tool === "deduct-rect", tint: tool === "deduct" || tool === "deduct-rect" ? "var(--c-danger)" : undefined })}
+               {sep("s2")}
+               <button type="button" onClick={() => setTrayOpen((v) => !v)} aria-expanded={trayOpen} aria-controls="ot-tool-tray" aria-label="More tools"
+                 title="More tools — measure, check & find, mark up, scale and aids"
+                 style={{ position: "relative", width: "var(--ctl-l)", height: "var(--ctl-l)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--r-1)", cursor: "pointer",
+                   border: `1px solid ${trayOpen || trayArmed ? "color-mix(in srgb, var(--cobalt) 45%, transparent)" : "transparent"}`, background: trayOpen ? "var(--tint-select)" : "transparent", color: trayOpen || trayArmed ? "var(--cobalt)" : "var(--ink)" }}>
+                 <Icon name="more" size={18} />
+               </button>
+               {sep("s3")}
+               {railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false })}
+               {railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false })}
+             </nav>
+           </div>
+         );
+       })()}
+       {view === "canvas" && !dockBottom && (
+       <nav data-tool-rail data-dock-side={workspaceLayout ? workspaceArrangement.tools : undefined} role="toolbar" aria-label="Tools"
+         onPointerDown={dockBottom ? (e) => e.stopPropagation() : undefined}
+         style={dockBottom
+           ? { position: "absolute", left: 0, right: 0, bottom: 14, marginInline: "auto", width: "max-content", zIndex: 25, display: "flex", flexDirection: "row", alignItems: "center", gap: 2, padding: "4px 6px", border: "1px solid var(--ink-faint)", borderRadius: 10, background: "var(--paper-cream)", boxShadow: "var(--shadow-2)", maxWidth: "calc(100% - 28px)", overflowX: "auto", overflowY: "visible" }
+           : { order: workspaceLayout ? workspaceArrangement.tools === "right" ? 30 : -30 : undefined, width: "var(--rail-w)", flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: "var(--sp-1)", paddingTop: "var(--sp-2)", borderRight: "1px solid var(--ink-faint)", background: "var(--paper-bright)", overflowY: "auto", overflowX: "visible" }}>
+         {!dockBottom && workspaceDockHandle("tools", "Tools")}
+         {railLabel("SEL")}
+         {railTile("select", "select", "Select — pick a takeoff, drag points; drag open canvas to pan", "V")}
+         {railLabel("MEAS")}
+         {MEASURE_TOOLS.filter((t) => t.id !== "oneclick" || oneClickEnabled()).map((t) => railTile(t.id, t.icon, t.label, t.shortcut))}
+         {railLabel("CUT")}
+         {CUT_TOOLS.map((t) => railTile(t.id, t.icon, t.label, t.shortcut, null, { tint: "var(--c-danger)" }))}
+         {railLabel("MARK")}
+         <span ref={(el) => { if (el) markTileTopRef.current = el.getBoundingClientRect().top; }} style={{ position: "relative", display: "inline-flex" }}>
+           <ToolMenu
+             title="Create annotation — cloud, callout, text, highlight, or dimension"
+             active={MARKUP_IDS.includes(tool)}
+             onOpenChange={onMenuDepth}
+             flyout={dockBottom ? "up" : "right"}
+             face={<Icon name="markup" size={17} />}
+             items={[
+               { section: "Markup — notes on the plan, never measured" },
+               ...MARKUP_TOOLS.map((t) => ({ id: t.id, icon: t.icon, label: t.label, shortcut: t.shortcut, active: tool === t.id, onSelect: () => { setTool(t.id); setMarkupDraft(null); } })),
+             ]}
+           />
+           {/* highlighter style popover — fixed beside the rail while armed
+               (fixed, not absolute: the rail's scroll box would clip it) */}
+           {tool === "highlighter" && (
+             <div style={{ position: dockBottom ? "absolute" : "fixed", ...(dockBottom ? { left: 0, bottom: "calc(100% + 10px)" } : { left: "calc(var(--rail-w) + 8px)", top: markTileTopRef.current || 200 }), zIndex: Z.popover, background: "var(--paper-bright)", border: "1px solid var(--ink-faint)", borderRadius: 0, boxShadow: "var(--shadow-pop)", padding: "8px 10px", display: "flex", flexDirection: "column", gap: 7 }}>
+               <div style={{ display: "flex", gap: 6 }} title="Ink">
+                 {HL_INKS.map((c) => (
+                   <button key={c} onClick={() => setHlStyle((st) => ({ ...st, color: c }))}
+                     style={{ width: 16, height: 16, padding: 0, background: c, border: hlStyle.color === c ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer" }} />
+                 ))}
+               </div>
+               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                 {HL_SIZES.map(([lbl, px]) => (
+                   <button key={lbl} onClick={() => setHlStyle((st) => ({ ...st, size: px }))} title={`${lbl === "F" ? "Fine" : lbl === "M" ? "Medium" : "Broad"} tip`}
+                     style={{ width: 22, height: 20, padding: 0, fontFamily: "var(--f-mono)", fontSize: 10, cursor: "pointer", border: hlStyle.size === px ? "1px solid var(--ink)" : "1px solid var(--ink-faint)", background: hlStyle.size === px ? "var(--ink)" : "transparent", color: hlStyle.size === px ? "var(--paper-bright)" : "var(--ink)" }}>{lbl}</button>
+                 ))}
+                 <span style={{ width: 1, alignSelf: "stretch", background: "var(--ink-faint)" }} />
+                 {[["chisel", "M4 16 L14 6 L18 10 L8 20 Z"], ["round", "M5 17 Q12 3 19 13"]].map(([tip, d]) => (
+                   <button key={tip} onClick={() => setHlStyle((st) => ({ ...st, tip }))} title={`${tip} tip`}
+                     style={{ width: 24, height: 20, padding: 1, cursor: "pointer", border: hlStyle.tip === tip ? "1px solid var(--ink)" : "1px solid var(--ink-faint)", background: "transparent" }}>
+                     <svg viewBox="0 0 24 24" width="18" height="14">{tip === "chisel"
+                       ? <path d={d} fill="currentColor" stroke="none" />
+                       : <path d={d} fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />}</svg>
+                   </button>
+                 ))}
+               </div>
+             </div>
+           )}
+         </span>
+         {/* Approval stamp — ink over pencil. Human-only by design: this tile
+             is the ONLY way an estimator seal is minted (no MCP tool, no agent
+             path), so the mark means a person looked. */}
+         {railTile("approve", "approve", "Approval stamp — the estimator's ink. Click a committed takeoff to approve it, or empty plan to approve the sheet; click a seal to lift it. ⌘Z undoes. Human-only.", null,
+           () => setTool((t) => (t === "approve" ? "select" : "approve")), { tint: tool === "approve" ? "var(--c-positive)" : undefined, armed: tool === "approve" })}
+         {railLabel("READ")}
+         {railTile("textcopy", "copyText", "Copy text — click two corners around a note or schedule; its text goes on your clipboard", null, armCopyText)}
+         {railLabel("CAL")}
+         {railTile("calibrate", "calibrate", "Calibrate — click two points of a known dimension", null)}
+         {dockBottom && railLabel("HIST")}
+         {dockBottom && railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false })}
+         {dockBottom && railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false })}
+       </nav>
+       )}
+       {/* docked LEFT panel — one of Markups/Stamps/RFIs at a time. Reflows the
+           canvas (a flex sibling), mirroring the docked Takeoffs panel on the right. */}
+       {leftTab && (
+         <div style={{ width: 360, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--ink-faint)", background: "var(--paper-bright)", overflow: "hidden", minHeight: 0 }}>
+           {/* tab strip */}
+           <div style={{ display: "flex", alignItems: "stretch", background: "var(--cobalt)", color: "var(--accent-contrast)" }}>
+             {[{ id: "markup", label: "Markups", n: markupCount }, { id: "stamp", label: "Stamps", n: stampLib.stamps.length }, { id: "rfi", label: "RFIs", n: rfis.length }].map((t) => (
+               <button key={t.id} onClick={() => setLeftTab(t.id)} title={t.label}
+                 style={{ flex: 1, padding: "9px 6px", border: "none", borderBottom: leftTab === t.id ? "2px solid var(--accent-contrast)" : "2px solid transparent", background: leftTab === t.id ? "rgba(255,255,255,.18)" : "transparent", color: "var(--accent-contrast)", cursor: "pointer", fontWeight: leftTab === t.id ? 700 : 500, fontSize: 12 }}>
+                 {t.label}{t.n ? ` · ${t.n}` : ""}
+               </button>
+             ))}
+             <button onClick={() => setLeftTab(null)} title="Close panel" style={{ padding: "0 12px", border: "none", background: "transparent", color: "var(--accent-contrast)", fontSize: 16, cursor: "pointer" }}>×</button>
+           </div>
+           {/* body of the active tab */}
+           <div style={{ flex: 1, overflow: "auto", minHeight: 0 }}>
+             {leftTab === "markup" && (
+               <div>
+                 {/* layer show/hide — hides the on-canvas markup layer AND its hit-testing
+                     (can't select/delete/fly-to an invisible markup); orthogonal to the
+                     marked-set export, which still includes markups. */}
+                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)" }}>
+                   <button
+                     onClick={() => { const nv = !showMarkups; setShowMarkups(nv); if (!nv) setSelectedMarkupId(null); }}
+                     title={showMarkups ? "Hide the markup layer on the canvas" : "Show the markup layer on the canvas"}
+                     style={{ background: "transparent", border: "1px solid var(--ink-faint)", color: "var(--ink)", fontSize: 11, cursor: "pointer", padding: "2px 7px" }}>
+                     {showMarkups ? "Hide layer" : "Show layer"}
+                   </button>
+                 </div>
+                 <div style={{ padding: "8px 10px", color: "var(--ink-muted)" }}>
+                   Open <b>Create annotation</b> in the drawing toolbar to choose a cloud, highlight, callout, text note, or dimension, then click the plan to annotate it. <b>🖼 Image</b> marquees a region (two clicks) — or use <b>Upload image…</b> in Captures below.
+                 </div>
+                 {markups.filter((m) => panelKeySet.has(m.sheet_id) && m.type !== "image").length === 0 && (
+                   <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>
+                     No markups {groupKeys.length > 1 ? "on these sheets" : "on this sheet"} yet.
+                     <div style={{ marginTop: 4, fontSize: 11 }}>Images now live in <b>Captures</b> below.</div>
+                   </div>
+                 )}
+                 {markups.filter((m) => panelKeySet.has(m.sheet_id) && m.type !== "image").map((m) => (
+                   <div key={m.id} style={{ padding: "10px 12px", borderTop: "1px solid var(--ink-faint)", background: selectedMarkupId === m.id ? "var(--surface-pop)" : "transparent" }}>
+                     {/* the header line selects + flies to the markup (parity with the RFI
+                         register's onFlyTo) — the inner controls stopPropagation so only the
+                         label area triggers it, never edit/delete. */}
+                     <div onClick={() => flyToMarkup(m)} title="Select and center this markup" style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                       <span style={{ fontSize: 10, fontWeight: 700, color: "var(--cobalt)", textTransform: "uppercase" }}>{m.type}</span>
+                       {/* inline edit — the panel's fallback for the canvas overlay, since a
+                           markup here may be off-screen or on another sheet (no click point).
+                           Enter/blur commit, Esc cancels; INPUT is guarded from the global keys. */}
+                       {panelEditId === m.id ? (
+                         <input name="markup-text" autoComplete="off" autoFocus defaultValue={m.text || ""}
+                           onClick={(e) => e.stopPropagation()}
+                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); } else if (e.key === "Escape") { e.preventDefault(); e.currentTarget.value = m.text || ""; setPanelEditId(null); } }}
+                           onBlur={(e) => { updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); }}
+                           style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: "1px 4px", border: "1px solid var(--cobalt)", borderRadius: 0, outline: "none" }} />
+                       ) : (
+                         (() => {
+                           // shown resolved ({{qty}} → "5 EA", #474); the edit box keeps the template
+                           const rm = resolveMarkup(m, noteQtyLabels);
+                           const warn = rm.unresolved.length > 0;
+                           return <span title={warn ? `Can't fill ${rm.unresolved.join(", ")}: link this note to a condition that has a quantity` : (rm.m !== m ? m.text : undefined)} style={{ flex: 1, color: warn ? "var(--c-danger)" : "var(--ink)" }}>{m.type === "svg" ? <em style={{ color: "var(--ink-muted)" }}>(vector symbol)</em> : ([m.type === "dimension" && Number(m.len_ft) > 0 ? dimLabel(m.len_ft) : "", rm.m.text].filter(Boolean).join(" · ") || <em style={{ color: "var(--ink-muted)" }}>(no text)</em>)}</span>;
+                         })()
+                       )}
+                       {m.type !== "svg" && <button onClick={(e) => { e.stopPropagation(); setPanelEditId((id) => (id === m.id ? null : m.id)); }} title="Edit text" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)" }}>✎</button>}
+                       <button onClick={(e) => { e.stopPropagation(); deleteMarkup(m.id); }} title="Delete markup" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--c-danger)" }}>🗑</button>
+                     </div>
+                     {/* appearance — per-markup color (reuse PALETTE) + line style; both
+                         additive: unset color falls back to the cobalt(linked)/amber default,
+                         unset style to solid. The RFI ⬢/number badge stays cobalt regardless. */}
+                     <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 7, flexWrap: "wrap" }}>
+                       <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginRight: 2 }}>Color</span>
+                       <button title="Auto (linkage color)" onClick={() => updateMarkup(m.id, { color: "" })} style={{ width: 26, height: 15, borderRadius: 4, background: "var(--paper-bright)", border: !m.color ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer", fontSize: 8.5, lineHeight: "11px", color: "var(--ink-muted)" }}>auto</button>
+                       {PALETTE.map((c) => <button key={c} title={c} onClick={() => updateMarkup(m.id, { color: c })} style={{ width: 15, height: 15, borderRadius: 4, background: c, border: m.color === c ? "2px solid var(--ink)" : "1px solid var(--ink-faint)", cursor: "pointer" }} />)}
+                       <select name="markup-line-style" value={m.line_style || "solid"} onChange={(e) => updateMarkup(m.id, { line_style: e.target.value })} title="Line style" style={{ marginLeft: 4, fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }}>
+                         {LINE_STYLE_IDS.map((id) => <option key={id} value={id}>{LINE_STYLES[id].label}</option>)}
+                       </select>
+                       {/* line weight — a multiplier over the element's base stroke width (default
+                           ×1, clamped 0.5–3); additive, absent = ×1 so legacy markups are unchanged */}
+                       <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginLeft: 4 }}>Weight</span>
+                       <select name="markup-weight" value={String(snapWeight(m.weight))} onChange={(e) => updateMarkup(m.id, { weight: Number(e.target.value) })} title="Line weight (× base)" style={{ fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }}>
+                         {WEIGHT_STEPS.map((wv) => <option key={wv} value={wv}>{wv}×</option>)}
+                       </select>
+                       {/* revision-delta △n — clouds only; blank clears it (no delta drawn) */}
+                       {m.type === "cloud" && (
+                         <>
+                           <span style={{ fontSize: 10.5, color: "var(--ink-muted)", marginLeft: 4 }} title="Revision-delta number (△) drawn at a cloud corner">Rev △</span>
+                           <input name="markup-rev" type="number" min="0" step="1" value={Number.isFinite(m.rev) ? m.rev : ""} placeholder="—"
+                             onChange={(e) => { const raw = e.target.value; updateMarkup(m.id, { rev: raw === "" ? undefined : Math.max(0, Math.floor(Number(raw) || 0)) }); }}
+                             title="Revision number for the △ delta (blank = none)"
+                             style={{ width: 40, fontSize: 11, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", padding: "1px 3px" }} />
+                         </>
+                       )}
+                     </div>
+                     {/* Condition link — which scope this annotation is ABOUT.
+                         Same one-to-many shape as the RFI link below it. */}
+                     {(() => {
+                       const lc = m.condition_id ? condById[m.condition_id] : null;
+                       const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
+                       return (
+                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+                           {lc ? (
+                             <>
+                               <span title={`Annotation is about ${lc.finish_tag}`}
+                                 style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700 }}>
+                                 <span style={{ width: 9, height: 9, background: lc.color, border: "1px solid var(--ink-faint)" }} />
+                                 {lc.finish_tag}
+                               </span>
+                               <button onClick={() => { setActiveCond(lc.id); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Make this the active condition">Select</button>
+                               <button onClick={() => unlinkCondition(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Detach this annotation from its condition">Detach</button>
+                             </>
+                           ) : conditions.length > 0 && (
+                             <select name="link-condition" value="" onChange={(e) => { if (e.target.value) linkCondition(m, e.target.value); }}
+                               title="Attach this annotation to a condition" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 170 }}>
+                               <option value="">Attach to condition…</option>
+                               {conditions.map((c) => <option key={c.id} value={c.id}>{c.finish_tag}</option>)}
+                             </select>
+                           )}
+                         </div>
+                       );
+                     })()}
+                     {/* RFI controls — raise a fresh RFI, link an existing one, or unlink */}
+                     {(() => {
+                       const linked = m.rfi_id ? rfis.find((r) => r.id === m.rfi_id) : null;
+                       const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
+                       return (
+                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+                           {linked ? (
+                             <>
+                               <span style={{ fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, color: "var(--cobalt)" }}>⬢ {String(linked.number ?? "")}</span>
+                               <button onClick={() => { setLeftTab("rfi"); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Open the RFI register">Open</button>
+                               <button onClick={() => unlinkRfi(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Unlink this markup from its RFI">Unlink</button>
+                             </>
+                           ) : (
+                             <>
+                               <button onClick={() => raiseRfi(m)} style={{ ...ctrl, color: "var(--cobalt)", fontWeight: 600 }} title="Create a new RFI from this markup">Raise RFI</button>
+                               {rfis.length > 0 && (
+                                 <select name="link-rfi" value="" onChange={(e) => { if (e.target.value) linkRfi(m, e.target.value); }}
+                                   title="Link this markup to an existing RFI" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 150 }}>
+                                   <option value="">Link existing…</option>
+                                   {rfis.map((r) => <option key={r.id} value={r.id}>{r.number}{r.subject ? ` · ${r.subject}` : ""}</option>)}
+                                 </select>
+                               )}
+                             </>
+                           )}
+                         </div>
+                       );
+                     })()}
+                   </div>
+                 ))}
+                 {/* Captures — a GLOBAL image-markup library, every sheet, NOT
+                     filtered to the panels open right now (unlike the per-sheet
+                     list above): that global-ness is the whole point of the
+                     feature — find, re-place, trace, or caption any capture
+                     regardless of which sheet is open. Uploads live here too
+                     (no source fields, so ◎ and the caption toggle are hidden
+                     — see isTraceable). */}
+                 <div style={{ borderTop: "2px solid var(--ink-faint)" }}>
+                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)", gap: 8 }}>
+                     <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Captures</span>
+                     {/* hidden input reused by the Upload button — re-encoded through addImageFromFile */}
+                     <input name="markup-image-file" ref={imageInputRef} type="file" accept="image/*" style={{ display: "none" }}
+                       onChange={(e) => { const f = e.target.files?.[0]; if (f) addImageFromFile(f); e.target.value = ""; }} />
+                     <button
+                       onClick={() => imageInputRef.current?.click()}
+                       title="Upload a raster image (PNG or JPEG) as a floating annotation on the current sheet"
+                       style={{ background: "transparent", border: "1px solid var(--ink-faint)", color: "var(--ink)", fontSize: 11, cursor: "pointer", padding: "2px 7px" }}>
+                       Upload image…
+                     </button>
+                   </div>
+                   {/* always-on name search — mirrors the condQuery idiom
+                       (TakeoffsPanel ~:718/763/1054-1056) */}
+                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderBottom: "1px solid var(--ink-faint)" }}>
+                     <input name="capture-filter" value={captureQuery} onChange={(e) => setCaptureQuery(e.target.value)} placeholder="filter captures…"
+                       style={{ flex: 1, minWidth: 0, padding: "4px 8px", borderRadius: 0, border: "1px solid var(--ink-faint)", fontSize: 12 }} />
+                     {captureQuery && <button onClick={() => setCaptureQuery("")} title="Clear the filter" style={{ border: "none", background: "none", color: "var(--ink-muted)", cursor: "pointer", fontSize: 13, padding: 0 }}>×</button>}
+                   </div>
+                   {(() => {
+                     // one pass over `markups` for the image subset; the query
+                     // then narrows THAT (small) list instead of re-scanning
+                     // every markup a second time — filterCaptures's own
+                     // type==="image" filter is a no-op on an already-image-only input.
+                     const allCaptures = filterCaptures(markups, "");
+                     const captures = filterCaptures(allCaptures, captureQuery);
+                     if (allCaptures.length === 0) {
+                       return <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>No captures yet. Marquee a region with 🖼 or use Upload image… above.</div>;
+                     }
+                     if (captures.length === 0) {
+                       return <div style={{ padding: "4px 12px 14px", color: "var(--ink-muted)" }}>No captures match “{captureQuery}”.</div>;
+                     }
+                     return captures.map((m) => {
+                       // Captures-only gate for ◎ + the caption toggle — legacy
+                       // pre-slice-1 images and uploads both lack src_sheet_id.
+                       const traceable = isTraceable(m);
+                       return (
+                         <div key={m.id} style={{ padding: "10px 12px", borderTop: "1px solid var(--ink-faint)", background: selectedMarkupId === m.id ? "var(--surface-pop)" : "transparent" }}>
+                           {/* header line — thumb, name(✎), sheet badge, age,
+                               Place, ◎ trace, caption toggle, delete. Mirrors the
+                               per-sheet row's click-to-fly / stopPropagation
+                               pattern above. */}
+                           <div onClick={() => { if (m.reference_only) { setPinSelectedId(m.id); setPinsOpen(true); } else flyToMarkup(m); }} title={imageProvenance(m)} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flexWrap: "wrap" }}>
+                             {(() => {
+                               const th = ensureThumb(m);
+                               return <span style={{ flex: "0 0 auto", width: 30, height: 30, border: "1px solid var(--ink-faint)", background: "var(--paper-bright)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+                                 {th ? <img src={th} alt="" style={{ maxWidth: "100%", maxHeight: "100%", display: "block" }} /> : <span style={{ fontSize: 14 }}>🖼</span>}
+                               </span>;
+                             })()}
+                             {panelEditId === m.id ? (
+                               <input name="capture-text" autoComplete="off" autoFocus defaultValue={m.text || ""}
+                                 onClick={(e) => e.stopPropagation()}
+                                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); } else if (e.key === "Escape") { e.preventDefault(); e.currentTarget.value = m.text || ""; setPanelEditId(null); } }}
+                                 onBlur={(e) => { updateMarkup(m.id, { text: e.currentTarget.value.trim() }); setPanelEditId(null); }}
+                                 style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: "1px 4px", border: "1px solid var(--cobalt)", borderRadius: 0, outline: "none" }} />
+                             ) : (
+                               <span style={{ flex: "0 1 auto", minWidth: 0, color: "var(--ink)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.text || <em style={{ color: "var(--ink-muted)" }}>(no name)</em>}</span>
+                             )}
+                             <button onClick={(e) => { e.stopPropagation(); setPanelEditId((id) => (id === m.id ? null : m.id)); }} title="Edit name" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)" }}>✎</button>
+                             <span style={{ color: "var(--ink-faint)" }}>·</span>
+                             <span title={`Currently on ${sheetBaseLabel(m.sheet_id)}`} style={{ fontSize: 10.5, color: "var(--ink-muted)", padding: "1px 6px", border: "1px solid var(--ink-faint)", borderRadius: 4, background: "var(--paper-cream)", whiteSpace: "nowrap" }}>{sheetBaseLabel(m.sheet_id)}</span>
+                             {/* legacy/imported captures can predate created_at (see
+                                 imageProvenance's own guard on the same field) — a
+                                 blank relativeAge must not leave a dangling "·" */}
+                             {(() => {
+                               const age = relativeAge(m.created_at, Date.now());
+                               return age ? (
+                                 <>
+                                   <span style={{ color: "var(--ink-faint)" }}>·</span>
+                                   <span style={{ fontSize: 10.5, color: "var(--ink-muted)", whiteSpace: "nowrap" }} title={absoluteUtc(m.created_at)}>{age}</span>
+                                 </>
+                               ) : null;
+                             })()}
+                             <button onClick={(e) => { e.stopPropagation(); setPinSelectedId(m.id); setPinsOpen(true); }} title="Keep this capture beside your takeoff while changing sheets">Pin</button>
+                             {!m.reference_only && (<button onClick={(e) => { e.stopPropagation(); beginPlace(m); }} title={panelKeySet.has(m.sheet_id) ? "Reposition: centers the view on the image, then it follows the cursor — click the sheet to drop it" : "Place this image on the current sheet — it follows the cursor until you click to drop it"} style={{ border: "1px solid var(--ink-faint)", background: placingImageId === m.id ? "var(--cobalt)" : "transparent", color: placingImageId === m.id ? "#fff" : "var(--cobalt)", cursor: "pointer", fontSize: 11, padding: "1px 7px" }}>Place</button>)}
+
+                             {traceable && (
+                               <button onClick={(e) => { e.stopPropagation(); traceSource(m); }} title="Jump to the source sheet and flash the captured region" style={{ border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--cobalt)", cursor: "pointer", fontSize: 11, padding: "1px 7px", whiteSpace: "nowrap" }}>
+                                 {traceLabel(m.src_sheet_id, m.sheet_id, sheetBaseLabel(m.src_sheet_id))}
+                               </button>
+                             )}
+                             {traceable && (
+                               <button onClick={(e) => { e.stopPropagation(); updateMarkup(m.id, { source_label: !m.source_label }); }}
+                                 title="Show/Hide the source caption on the image"
+                                 style={{ padding: "2px 7px", border: `1px solid ${m.source_label ? "var(--cobalt)" : "var(--ink-faint)"}`, background: m.source_label ? "var(--cobalt)" : "transparent", color: m.source_label ? "var(--paper-bright)" : "var(--ink-muted)", cursor: "pointer", fontSize: 10.5, fontFamily: "var(--f-mono)", lineHeight: 1.4 }}>
+                                 caption
+                               </button>
+                             )}
+                             <button onClick={(e) => { e.stopPropagation(); deleteMarkup(m.id); }} title="Delete capture" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--c-danger)" }}>🗑</button>
+                           </div>
+                           {/* Condition link — identical block to the per-sheet row's
+                               (8211–8235 pre-slice-4); keys off `m` and works for any
+                               markup type, captures included. */}
+                           {(() => {
+                             const lc = m.condition_id ? condById[m.condition_id] : null;
+                             const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
+                             return (
+                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+                                 {lc ? (
+                                   <>
+                                     <span title={`Annotation is about ${lc.finish_tag}`}
+                                       style={{ display: "inline-flex", alignItems: "center", gap: 5, fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700 }}>
+                                       <span style={{ width: 9, height: 9, background: lc.color, border: "1px solid var(--ink-faint)" }} />
+                                       {lc.finish_tag}
+                                     </span>
+                                     <button onClick={() => { setActiveCond(lc.id); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Make this the active condition">Select</button>
+                                     <button onClick={() => unlinkCondition(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Detach this annotation from its condition">Detach</button>
+                                   </>
+                                 ) : conditions.length > 0 && (
+                                   <select name="link-condition" value="" onChange={(e) => { if (e.target.value) linkCondition(m, e.target.value); }}
+                                     title="Attach this annotation to a condition" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 170 }}>
+                                     <option value="">Attach to condition…</option>
+                                     {conditions.map((c) => <option key={c.id} value={c.id}>{c.finish_tag}</option>)}
+                                   </select>
+                                 )}
+                               </div>
+                             );
+                           })()}
+                           {/* RFI controls — identical block to the per-sheet row's
+                               (8237–8262 pre-slice-4). */}
+                           {(() => {
+                             const linked = m.rfi_id ? rfis.find((r) => r.id === m.rfi_id) : null;
+                             const ctrl = { padding: "2px 7px", border: "1px solid var(--ink-faint)", background: "transparent", cursor: "pointer", fontSize: 11 };
+                             return (
+                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 7, flexWrap: "wrap" }}>
+                                 {linked ? (
+                                   <>
+                                     <span style={{ fontFamily: "var(--f-mono)", fontSize: 11, fontWeight: 700, color: "var(--cobalt)" }}>⬢ {String(linked.number ?? "")}</span>
+                                     <button onClick={() => { setLeftTab("rfi"); }} style={{ ...ctrl, color: "var(--cobalt)" }} title="Open the RFI register">Open</button>
+                                     <button onClick={() => unlinkRfi(m)} style={{ ...ctrl, color: "var(--ink-muted)" }} title="Unlink this markup from its RFI">Unlink</button>
+                                   </>
+                                 ) : (
+                                   <>
+                                     <button onClick={() => raiseRfi(m)} style={{ ...ctrl, color: "var(--cobalt)", fontWeight: 600 }} title="Create a new RFI from this markup">Raise RFI</button>
+                                     {rfis.length > 0 && (
+                                       <select name="link-rfi" value="" onChange={(e) => { if (e.target.value) linkRfi(m, e.target.value); }}
+                                         title="Link this markup to an existing RFI" style={{ ...ctrl, background: "var(--paper-bright)", maxWidth: 150 }}>
+                                         <option value="">Link existing…</option>
+                                         {rfis.map((r) => <option key={r.id} value={r.id}>{r.number}{r.subject ? ` · ${r.subject}` : ""}</option>)}
+                                       </select>
+                                     )}
+                                   </>
+                                 )}
+                               </div>
+                             );
+                           })()}
+                         </div>
+                       );
+                     });
+                   })()}
+                 </div>
+               </div>
+             )}
+             {leftTab === "stamp" && (
+               <StampPanel
+                 docked
+                 library={stampLib} armedStamp={armedStamp}
+                 selectedMarkup={selectedMarkupId ? markups.find((m) => m.id === selectedMarkupId) : null}
+                 onArm={armStamp} onSaveSelected={saveMarkupAsStamp} onDelete={deleteStamp} onRename={renameStamp}
+                 onExport={exportStamps} onImport={importStamps} onImportSvg={importSvgStamp} onClose={() => setLeftTab(null)}
+               />
+             )}
+             {leftTab === "rfi" && (
+               <RfiPanel
+                 docked
+                 rfis={rfis} markups={markups}
+                 onUpdateRfi={updateRfi} onDeleteRfi={deleteRfi} onFlyTo={flyToMarkup}
+                 sheetLabel={(k) => tabLabel(k)} onClose={() => setLeftTab(null)}
+               />
+             )}
+           </div>
+         </div>
+       )}
+       {/* ALWAYS mounted — reference={null} is how "no split" renders (see
+           SplitLayout.jsx). This is what keeps primaryViewport's element type
+           and tree position stable across every split toggle, so the primary
+           canvas subtree never unmounts/remounts on enter/exit/flip/drag. */}
+       <SplitLayout
+         orientation={splitView?.orientation ?? "v"}
+         ratio={splitView?.ratio ?? 1}
+         onRatioChange={(r) => {
+           // hold the gesture window open for every drag tick, same idiom as
+           // wheel-zoom/panel-resize — the detail-tile resync effect depends
+           // on splitView (ratio changes its identity every tick) and would
+           // otherwise re-fire paintDetail worker requests on every pointermove;
+           // this defers the real resync to one shot on drag settle.
+           gestureUntilRef.current = performance.now() + GESTURE_MS;
+           setSplitView((s) => s && { ...s, ratio: r });
+         }}
+         onFlip={() => setSplitView((s) => s && { ...s, orientation: s.orientation === "v" ? "h" : "v" })}
+         onCollapse={() => setSplitView(null)}
+         primary={primaryViewport}
+         // Task 8: a persisted/live splitView that the device can't (or isn't
+         // overridden to) mount still renders the primary pane single —
+         // `reference` going null is what SplitLayout treats as "no split"
+         // (see its header comment); `splitView` itself stays in state
+         // untouched (the "Restore split" menu item above flips
+         // splitOverride, not this).
+         reference={splitView && splitMounted ? (
+           <ReferencePane refKey={effectiveRefKey} panelImg={refPanelImg} paintBase={paintReferenceBase} paintDetail={paintReferenceDetail} epoch={refEpoch}
+             shapes={refStackedShapes} conditions={conditions} condById={condById} darkMode={darkMode} patId={patId}
+             markups={refMarkups} rfis={rfis} noteQtyLabels={noteQtyLabels} sheetBaseLabel={sheetBaseLabel}
+             refSet={refSet} activeKey={rawRefKey} tabLabel={tabLabel} onSelectRef={selectRefTab} onRemoveRef={removeRefTab} onDropSheet={dropOntoReference} />
+         ) : null}
+       />
+        {/* Work and review panel — DOCKED right-rail sibling (reflows the canvas
+            like the Takeoffs panel). Its Agent tab is the chat window
+            (components/AgentChat): a connect state until the BYO-AI seam is
+            configured; otherwise the conversation, every tool step, and the
             per-proposal accept/reject desk. */}
           <WorkspacePanel dockSide={workspaceLayout ? workspaceArrangement.work : undefined} width={workspaceLayout ? workspaceArrangement.workWidth : undefined} dockHandle={workspaceDockHandle("work", "Work")} open={agentOpen} shapes={shapes} conditions={condById} selectedId={selectedId}
             sheetLabel={tabLabel} fmtArea={(sf) => fa(sf, 2)} fmtLength={(lf) => fl(lf, 2)}
@@ -11228,24 +11682,24 @@ export default function TakeoffCanvas() {
             proposalCount={agentProposals.length} onLocate={locateWork}
             onReview={(id) => dispatchShape({ type: "review", ids: [id] })}
             onClose={() => { setAgentOpen(false); workButtonRef.current?.focus(); }} onReport={() => setShowReport(true)}>
-          <AgentPanel
-            embedded
+          <AgentChat
             configured={isAiConfigured()}
+            modelLabel={aiConfig().model}
             running={agentRunning}
-            log={agentLog}
+            turns={agentChat.turns}
             proposals={agentProposals}
             condById={condById}
             sheetLabel={(k) => tabLabel(k)}
-            units={units}
             fmtArea={(sf) => fa(sf)}
-            onRun={runAgent}
+            onSend={runAgent}
             onStop={stopAgent}
             onAccept={acceptAgentProposal}
             onReject={rejectAgentProposal}
             onAcceptAll={acceptAllVisibleAgentProposals}
             onRejectAll={rejectAllAgentProposals}
             onOpenSettings={() => setShowAiSettings(true)}
-            onClose={() => setAgentOpen(false)}
+            onOpenConnect={() => setConnectOpen(true)}
+            onClear={agentChat.clear}
           />
           </WorkspacePanel>
 
@@ -11288,9 +11742,29 @@ export default function TakeoffCanvas() {
             exactly as it did as canvas state. Collapse/expand keeps the current
             transform — the stage is anchored top-left, so a re-fit would be a
             jarring jump. */}
+        {workspaceLayout && !focusMode && (
+          <ConditionsDock
+            open={condDockOpen && !fullTableOpen} onClose={() => setCondDockOpen(false)}
+            sheetLabel={(() => { const l = tabLabel(treeCurrent || sheetKey); const m = /^\s*([A-Z]{1,3}-?\d{1,4}(?:\.\d{1,3})?[A-Z]?)\b/i.exec(l); return m ? m[1] : l; })()}
+            conditions={conditions} activeCond={activeCond} hiddenConds={hiddenConds} tradeHidden={tradeHidden} palette={palette}
+            viewTrade={viewTrade} allTrades={ALL_TRADES}
+            tradeLabel={viewTrade !== ALL_TRADES ? (suiteById(viewTrade)?.label || "This trade") : (suiteById(conditionTrade(aCond || {}))?.label || "This trade")}
+            onTradeThis={() => pickViewTrade(viewTrade !== ALL_TRADES ? viewTrade : (conditionTrade(aCond || {}) || ALL_TRADES))}
+            onTradeAll={() => pickViewTrade(ALL_TRADES)}
+            rowById={projRowById} units={units} conditionColumns={conditionColumns} rollByCond={rollByCond}
+            matLib={matLib} matLibById={matLibById}
+            onActivate={panelHandlers.onActivate} onAddCondition={panelHandlers.onAddCondition} onDeleteCondition={panelHandlers.onDeleteCondition}
+            onDuplicateCondition={panelHandlers.onDuplicateCondition} onUpdateCond={panelHandlers.onUpdateCond} onSetCondParam={panelHandlers.onSetCondParam} onAssignAttr={panelHandlers.onAssignAttr}
+            onToggleHidden={panelHandlers.onToggleHidden} onTogglePin={panelHandlers.onTogglePin} onApplyAssembly={panelHandlers.onApplyAssembly}
+            onAddMaterial={panelHandlers.onAddMaterial} onUpdateMaterial={panelHandlers.onUpdateMaterial} onRemoveMaterial={panelHandlers.onRemoveMaterial}
+            matFieldOverridden={panelHandlers.matFieldOverridden} onRevertMatField={panelHandlers.onRevertMatField}
+            onAttachLibMaterial={panelHandlers.onAttachLibMaterial} onPromoteMaterial={panelHandlers.onPromoteMaterial}
+            onFollowFamilyRow={panelHandlers.onFollowFamilyRow} onRestoreDroppedRow={panelHandlers.onRestoreDroppedRow}
+          />
+        )}
         <TakeoffsPanel
           dockSide={workspaceLayout ? workspaceArrangement.takeoffs : undefined} layoutLocked={workspaceLayout && workspaceArrangement.locked} dockHandle={workspaceDockHandle("takeoffs", "Takeoffs")}
-          open={takeoffsOpen}
+          open={workspaceLayout ? fullTableOpen : takeoffsOpen}
           width={panelW}
           overlay={isNarrow}
           multiSheet={groupKeys.length > 1}
@@ -11305,6 +11779,7 @@ export default function TakeoffCanvas() {
           templates={templates}
           palette={palette}
           hiddenConds={hiddenConds}
+          tradeHidden={tradeHidden} viewTradeLabel={viewTrade !== ALL_TRADES ? suiteById(viewTrade)?.label : null} onShowAllTrades={() => setViewTrade(ALL_TRADES)}
           rollByCond={rollByCond}
           transitionSources={transitionSources}
           matLib={matLib}
@@ -11531,7 +12006,7 @@ export default function TakeoffCanvas() {
               {sweep.questions.length > 0 && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }}>
                   {sweep.questions.map((q, i) => (
-                    <button key={i} type="button" onClick={() => setSweep((s) => ({ ...s, qIndex: i }))}
+                    <button key={i} type="button" title="Show this spot on the sheet" onClick={() => { setSweep((s) => ({ ...s, qIndex: i })); centerOnSweepQuestion(sweep, i); }}
                       style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", fontFamily: "var(--f-body)", fontSize: "var(--fs-s)", textAlign: "left", background: i === sweep.qIndex ? "var(--tint-select)" : "transparent", border: `1px solid ${i === sweep.qIndex ? "var(--c-warning)" : "var(--ink-faint)"}`, color: q.state === "dismissed" ? "var(--text-faint)" : "var(--ink)", textDecoration: q.state === "dismissed" ? "line-through" : "none", cursor: "pointer" }}>
                       <span style={{ fontFamily: "var(--f-mono)", fontWeight: 700, color: q.state === "accepted" ? "var(--c-positive)" : q.state === "dismissed" ? "var(--text-faint)" : DS.symbol.question }}>{q.state === "accepted" ? "✓" : q.state === "dismissed" ? "×" : "?"}</span>
                       <span>{Math.round(q.score * 100)}%{q.label ? ` · ${q.label.label}` : ""}{q.readings > 1 ? ` · read ${q.readings} ways` : ""}</span>
@@ -11560,6 +12035,28 @@ export default function TakeoffCanvas() {
         <span ref={statusCoordRef} aria-hidden="true" style={{ minWidth: 150 }} />
         <span style={{ opacity: 0.25 }} aria-hidden="true">|</span>
         <span>{scaleFace}</span>
+        <span style={{ opacity: 0.25 }} aria-hidden="true">|</span>
+        <label data-trade-picker="" style={{ display: "flex", alignItems: "center", gap: 6 }}
+          title="The trade this canvas shows: other trades' conditions and shapes hide (the Report, estimate and exports keep everything), and new conditions are booked to it. Yours only; saved in this browser.">
+          <span style={{ opacity: 0.75 }}>Trade</span>
+          <select aria-label="Trade view" value={viewTrade} onChange={(e) => pickViewTrade(e.target.value)}
+            style={{ font: "inherit", color: "inherit", background: "transparent", border: "1px solid currentColor", borderRadius: 0, padding: "0 4px", cursor: "pointer" }}>
+            <option value={ALL_TRADES}>All trades ({conditions.length})</option>
+            {TRADE_SUITES.map((t) => <option key={t.id} value={t.id}>{t.label} ({tradeCountMap[t.id] || 0})</option>)}
+          </select>
+        </label>
+        {workspaceLayout && <>
+          <label data-label-picker="" style={{ display: "flex", alignItems: "center", gap: 6 }}
+            title="Phase/area label: new takeoffs get it; with a shape selected (Select tool) it re-labels that shape. Manage the list in the Takeoffs table's Columns tab.">
+            <span style={{ opacity: 0.75 }}>Label</span>
+            <select aria-label="Label" value={tool === "select" && selectedId ? shapeLabelValue(shapes.find((sh) => sh.id === selectedId)) : (activeLabel || "")} onChange={(e) => activateLabel(e.target.value || null)}
+              style={{ font: "inherit", color: "inherit", background: "transparent", border: "1px solid currentColor", borderRadius: 0, padding: "0 4px", cursor: "pointer" }}>
+              <option value="">No label</option>
+              {shapeLabels.map((v) => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </label>
+          <span data-status-draft="" style={{ display: "inline-flex" }}>{draftMenu}</span>
+        </>}
         {commitMsg && (
           <span title={commitMsg} style={{ marginLeft: 8, color: isDangerMsg(commitMsg) ? "var(--c-danger)" : "var(--c-positive)", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
             {commitMsg}
@@ -11595,6 +12092,8 @@ export default function TakeoffCanvas() {
       {/* the manual, last in the tree so it sits above every panel and dock */}
       {guideOpen && <UserGuide onClose={() => setGuideOpen(false)} onTour={startTour} onConnect={() => { setGuideOpen(false); setConnectOpen(true); }} />}
       {connectOpen && <ConnectAI onClose={() => setConnectOpen(false)} />}
+      <AssistantWindow open={assistantOpen} onOpen={openAssistant} onClose={() => setAssistantOpen(false)}
+        launcher={view === "canvas" && !showReport && !focusMode && !workspaceLayout} onConnectHelp={() => setConnectOpen(true)} />
       {companySetupOpen && <CompanySetup onClose={() => setCompanySetupOpen(false)} onSaved={() => setCompanyRev((r) => r + 1)} />}
       {tour && view === "canvas" && !focusMode && !guideOpen && !connectOpen && (
         <FirstTakeoffTour done={tour.done} step={currentStep(tour.done)} sheetOpen={tourSheetOpen}

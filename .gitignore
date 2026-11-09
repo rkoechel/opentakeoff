@@ -24,12 +24,14 @@ server/.venv/
 
 # Editor / OS
 .DS_Store
-.vscode/
+.vscode/*
+!.vscode/mcp.json
 .idea/
 *.log
 
 # Agent/browser session artifacts (Playwright MCP traces, verification screenshots)
 .playwright-mcp/
+.playwright-smoke/
 /*.png
 .claude/
 

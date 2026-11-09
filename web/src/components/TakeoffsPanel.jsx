@@ -36,11 +36,15 @@ import { LINE_STYLES, LINE_STYLE_IDS } from "../lib/lineStyles.js";
 import { baseTagOf, localCount } from "../lib/variants.ts";
 import { materialKind, MATERIAL_PRESETS, GROUT_DEFAULTS, groutDerivedFields, showsGroutCalc, showsGroutDeriveAffordance, isLinearGrout, baseGroutParams, baseCourses, groutRateStale, inFrac } from "../lib/coverage.js";
 import { draftCommitValue, blurCommitValue, blurCommitNonNegative } from "../lib/draftInput.js";
+import { itemRule, itemWastePct, coverageLabel } from "../lib/totals.js";
+import { loadAssemblies, saveAssemblies, conditionToAssembly, ASSEMBLY_EVENT, ASSEMBLY_STORAGE_KEY } from "../lib/assemblies.js";
+import { mintUuid } from "../lib/provenance.js";
 import { ROLL_FLOORING_TYPES } from "../lib/rollgoods.js";
 import { hasRollSetup, mintRollSetup } from "../lib/rollTakeoff.js";
 import { Z } from "../lib/ui.js";
 import { ftIn } from "../lib/units";
 import { describeConditionEdit } from "../lib/proposals.js";
+import { TRADE_SUITES, suiteById, conditionTrade } from "../lib/tradeSuites.ts";
 
 export const PANEL_MIN_W = 240;
 export const PANEL_MAX_W = 560;
@@ -184,7 +188,7 @@ function CoveragePresetSelect({ material: m, onPick }) {
 }
 
 // Editable supporting-materials rows for a condition (coverage-derived order qty).
-function MaterialsEditor({ materials, onAdd, onUpdate, onRemove, library, libById, overridden, onRevert, onAttach, onPromote,
+export function MaterialsEditor({ materials, onAdd, onUpdate, onRemove, library, libById, overridden, onRevert, onAttach, onPromote,
     twin = false, parentTag = "", dropped = [], parentRows = [], onFollowFamilyRow, onRestoreDroppedRow,
     heightFt = 0 }) {
   // library link affordances (#47, all optional so the editor works standalone):
@@ -214,6 +218,9 @@ function MaterialsEditor({ materials, onAdd, onUpdate, onRemove, library, libByI
           const grout = { ...g, ...patch };
           onUpdate(m.id, { grout, ...(groutDerivedFields(grout, m.basis, heightFt) || {}) });
         };
+        const perInput = (row) => (
+          <input name="material-per" type="number" min="0" step="any" value={row.per || ""} onChange={(e) => onUpdate(row.id, { per: Math.max(0, parseFloat(e.target.value) || 0) })} placeholder="0" style={{ ...ip, width: 66, ...(ov("per") ? { border: OV } : {}) }} />
+        );
         const gi = (key, title, extra) => (
           <GroutParamInput name={`grout-${key}`} value={g[key]} title={title} override={ov("grout")}
             onCommit={(v) => setGrout({ [key]: v })} {...extra} />
@@ -236,11 +243,18 @@ function MaterialsEditor({ materials, onAdd, onUpdate, onRemove, library, libByI
             {lm && <span title={`Linked to “${lm.name}” in the material library — amber fields differ from the library values`} style={{ color: "var(--ink-muted)", fontSize: 11, cursor: "default" }}>⛓</span>}
             <input name="material-name" value={m.name} onChange={(e) => onUpdate(m.id, { name: e.target.value })} placeholder="Material (e.g. Adhesive)" style={{ ...ip, width: 160, ...(ov("name") ? { border: OV } : {}) }} />
             {ov("name") && rv(m, "name")}
-            <span style={{ color: "var(--ink-muted)" }}>1</span>
+            {/* quantity rule (lib/totals.js itemRule): "1 gal per 150 SF" (coverage) or "2 ea per 1 EA" (each — per piece) */}
+            <select name="material-rule" value={itemRule(m)} onChange={(e) => onUpdate(m.id, { rule: e.target.value === "each" ? "each" : undefined })}
+              title="Quantity rule — coverage: 1 unit per N measured (1 gal per 150 SF); each: N units per 1 measured (2 anchors per EA, 1 plate per piece)"
+              style={{ ...ip, background: "var(--paper-bright)" }}>
+              <option value="coverage">1 per N</option>
+              <option value="each">N per 1</option>
+            </select>
+            {itemRule(m) === "each" ? perInput(m) : <span style={{ color: "var(--ink-muted)" }}>1</span>}
             <input name="material-unit" value={m.unit} onChange={(e) => onUpdate(m.id, { unit: e.target.value })} placeholder="unit" style={{ ...ip, width: 60, ...(ov("unit") ? { border: OV } : {}) }} />
             {ov("unit") && rv(m, "unit")}
             <span style={{ color: "var(--ink-muted)" }}>per</span>
-            <input name="material-per" type="number" min="0" step="any" value={m.per || ""} onChange={(e) => onUpdate(m.id, { per: Math.max(0, parseFloat(e.target.value) || 0) })} placeholder="0" style={{ ...ip, width: 66, ...(ov("per") ? { border: OV } : {}) }} />
+            {itemRule(m) === "each" ? <span style={{ color: "var(--ink-muted)" }}>1</span> : perInput(m)}
             {ov("per") && rv(m, "per")}
             <select name="material-basis" value={m.basis || "area"} onChange={(e) => onUpdate(m.id, { basis: e.target.value })} style={{ ...ip, background: "var(--paper-bright)", ...(ov("basis") ? { border: OV } : {}) }}>
               <option value="area">floor SF</option>
@@ -253,6 +267,11 @@ function MaterialsEditor({ materials, onAdd, onUpdate, onRemove, library, libByI
               <input name="material-round" type="checkbox" checked={m.round !== false} onChange={(e) => onUpdate(m.id, { round: e.target.checked })} />round up
             </label>
             {ov("round") && rv(m, "round")}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--ink-muted)" }} title="This item's own waste % — applied to its order quantity before the round-up (the condition's waste is separate)">
+              +<input name="material-waste" type="number" min="0" step="any" value={itemWastePct(m) || ""} placeholder="0"
+                onChange={(e) => { const w = Math.max(0, parseFloat(e.target.value) || 0); onUpdate(m.id, { waste_pct: w > 0 ? w : undefined }); }}
+                style={{ ...ip, width: 44 }} />% waste
+            </label>
             <CoveragePresetSelect material={m} onPick={(patch) => onUpdate(m.id, patch)} />
             <input name="material-note" value={m.note || ""} onChange={(e) => onUpdate(m.id, { note: e.target.value })} placeholder="note (coats, trowel…)" style={{ ...ip, width: 150, ...(ov("note") ? { border: OV } : {}) }} />
             {ov("note") && rv(m, "note")}
@@ -444,6 +463,15 @@ export function ConditionAppearanceEditor({ cond: c, onUpdateCond, onSetCondPara
             style={{ width: 50, padding: "3px 5px", borderRadius: 0, border: "1px solid var(--ink-faint)", fontSize: 12 }} />
           <span style={{ color: "var(--ink-muted)" }}>%</span>
         </span>
+        <label style={{ display: "flex", alignItems: "center", gap: 4 }} title="The trade this condition belongs to — what the status bar's Trade view filters on. Auto reads the tag prefix (RF-, SD-, GL-, P-, E- …), else Finishes.">
+          <span style={{ color: "var(--ink-muted)" }}>Trade</span>
+          <select name="condition-trade" value={typeof c.trade === "string" && suiteById(c.trade) ? c.trade : ""}
+            onChange={(e) => onUpdateCond({ trade: e.target.value || undefined })}
+            style={{ padding: "2px 4px", borderRadius: 0, border: "1px solid var(--ink-faint)", fontSize: 12 }}>
+            <option value="">Auto ({suiteById(conditionTrade({ finish_tag: c.finish_tag }))?.label})</option>
+            {TRADE_SUITES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+          </select>
+        </label>
       </div>
       {isRow && rule()}
       {isRow ? (
@@ -817,6 +845,75 @@ export function HiddenConditionsBar({ hidden, total, onShowAll }) {
 // stable empty default — a fresh Set per render would defeat React.memo
 const NO_HIDDEN = new Set();
 
+// The saved-assembly library (lib/assemblies.js, localStorage + .otprofile).
+// Read here rather than threaded through the canvas: a save from this panel,
+// a profile import and another tab all announce themselves, so the list stays
+// current without a canvas-level copy.
+export function useAssemblyLibrary() {
+  const [list, setList] = useState(() => loadAssemblies());
+  useEffect(() => {
+    const reload = () => setList(loadAssemblies());
+    const onStorage = (e) => { if (!e.key || e.key === ASSEMBLY_STORAGE_KEY) reload(); };
+    window.addEventListener(ASSEMBLY_EVENT, reload);
+    window.addEventListener("storage", onStorage);
+    return () => { window.removeEventListener(ASSEMBLY_EVENT, reload); window.removeEventListener("storage", onStorage); };
+  }, []);
+  return list;
+}
+
+// Save the active condition's items as an assembly, or apply a saved one to it.
+// Inline name input, never a window.prompt (prompts freeze scripted sessions).
+function AssemblyBar({ cond, assemblies, onApply }) {
+  const [draft, setDraft] = useState(null);   // null = closed; string = the name being typed
+  const [msg, setMsg] = useState("");
+  const named = (cond?.materials || []).filter((m) => m && m.name).length;
+  const save = () => {
+    const a = conditionToAssembly(cond, draft, `asm-${mintUuid()}`);
+    if (!a) return;
+    const others = assemblies.filter((x) => x.name.toLowerCase() !== a.name.toLowerCase());
+    const replaced = others.length !== assemblies.length;
+    setMsg(saveAssemblies([...others, a])
+      ? `${replaced ? "Replaced" : "Saved"} assembly “${a.name}” — ${a.items.length} item${a.items.length === 1 ? "" : "s"}, no prices.`
+      : "Couldn't save the assembly (browser storage is full or blocked).");
+    setDraft(null);
+  };
+  const apply = (id) => {
+    const a = assemblies.find((x) => x.id === id);
+    if (!a || !onApply) return;
+    const have = new Set((cond?.materials || []).filter((m) => m && m.name).map((m) => String(m.name).trim().toLowerCase()));
+    const skipped = a.items.filter((it) => have.has(it.name.trim().toLowerCase())).map((it) => it.name);
+    onApply(a);
+    const added = a.items.length - skipped.length;
+    setMsg(`Applied “${a.name}”: ${added} item${added === 1 ? "" : "s"} added${skipped.length ? `, ${skipped.join(", ")} already on ${cond.finish_tag}` : ""}. Price them in Estimate.`);
+  };
+  const btn = { padding: "2px 8px", borderRadius: 0, border: "1px dashed var(--ink-faint)", background: "transparent", color: "var(--ink-muted)", cursor: "pointer", fontSize: 11 };
+  return (
+    <div data-assembly-bar style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, flexWrap: "wrap", fontSize: 11 }}>
+      <span style={{ color: "var(--ink-muted)" }}>Assembly</span>
+      {draft === null ? (
+        <button onClick={() => { setDraft(cond?.finish_tag || ""); setMsg(""); }} disabled={!named} style={{ ...btn, cursor: named ? "pointer" : "default", color: named ? "var(--ink-muted)" : "var(--ink-faint)" }}
+          title={named ? "Save these items (rules and waste, never prices) as an assembly you can apply to any condition" : "Add a named material first"}>save as…</button>
+      ) : (
+        <>
+          <input name="assembly-name" autoFocus value={draft} placeholder="Assembly name" onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && draft.trim()) save(); if (e.key === "Escape") setDraft(null); }}
+            style={{ ...ip, width: 140 }} />
+          <button onClick={save} disabled={!draft.trim()} style={{ ...btn, border: "1px solid var(--ink-faint)", color: draft.trim() ? "var(--ink)" : "var(--ink-faint)" }}>Save</button>
+        </>
+      )}
+      {onApply && assemblies.length > 0 && (
+        <select name="apply-assembly" value="" onChange={(e) => { if (e.target.value) apply(e.target.value); }}
+          title="Add a saved assembly's items to this condition (items it already has are skipped)"
+          style={{ ...ip, background: "var(--paper-bright)", color: "var(--ink-muted)" }}>
+          <option value="">+ apply assembly…</option>
+          {assemblies.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.items.length} item{a.items.length === 1 ? "" : "s"}</option>)}
+        </select>
+      )}
+      {msg && <span role="status" style={{ flexBasis: "100%", color: "var(--ink-muted)" }}>{msg}</span>}
+    </div>
+  );
+}
+
 function TakeoffsPanel({
   open, width, overlay = false, multiSheet, dockSide, layoutLocked = false, dockHandle, units = "imperial",
   conditions, activeCond, visRowById, projRowById = new Map(), conditionColumns, shapeLabels = [], templates, palette = [], rollByCond = null,
@@ -827,7 +924,7 @@ function TakeoffsPanel({
   onAddCondition, onDeleteCondition, onUpdateCond, onSetCondParam, onAssignAttr,
   conditionEditProposals = [], onAcceptConditionEdit, onRejectConditionEdit,
   collisionsByCond = null, onLookAtCollision,
-  onAddMaterial, onUpdateMaterial, onRemoveMaterial,
+  onAddMaterial, onUpdateMaterial, onRemoveMaterial, onApplyAssembly,
   onDuplicateCondition, onSplitCondition, onFollowFamilyRow, onRestoreDroppedRow,
   onDeriveTransitions, onLocateTransition,
   onBulkWaste, onBulkColor, onBulkDelete,
@@ -838,8 +935,10 @@ function TakeoffsPanel({
   onAddLabel, onRenameLabel, onRemoveLabel,
   onToggleCollapse, onHoldGesture, onTogglePin,
   hiddenConds = NO_HIDDEN, onToggleHidden,
+  tradeHidden = NO_HIDDEN, viewTradeLabel = null, onShowAllTrades,
 }) {
   const [panelTab, setPanelTab] = useState("takeoffs");       // "takeoffs" | "library" | "materials" | "columns"
+  const assemblies = useAssemblyLibrary();
   const [condQuery, setCondQuery] = useState("");             // live filter over the condition list (transient, never persisted)
   const [matLibQuery, setMatLibQuery] = useState("");         // Materials tab search (transient; describes the browser-global library, so hydrate/epoch leaves it alone)
   const [closedGroups, setClosedGroups] = useState(() => new Set()); // collapsed tag-family groups in the grouped view
@@ -897,9 +996,11 @@ function TakeoffsPanel({
     // strip, and applyTemplate can activate a row the query hides, and the
     // properties editor lives only in the active row — it must stay reachable
     if (condQ) v = v.filter(({ c }) => matchesQuery(c) || c.id === activeCond);
+    // the status bar's Trade view (lib/tradeSuites.ts) — same active-row exemption as the query
+    if (tradeHidden.size) v = v.filter(({ c }) => !tradeHidden.has(c.id) || c.id === activeCond);
     if (panelPrefs.az) v = [...v].sort((a, b) => natCompare(a.c.finish_tag, b.c.finish_tag));
     return v;
-  }, [conditions, condQ, matchesQuery, activeCond, panelPrefs.az]);
+  }, [conditions, condQ, matchesQuery, activeCond, panelPrefs.az, tradeHidden]);
   const condGroups = useMemo(() => {
     if (!panelPrefs.group) return [{ name: null, items: condView }];
     const by = new Map();
@@ -1180,6 +1281,7 @@ function TakeoffsPanel({
               dropped={c.materials_dropped || []} parentRows={(conditions.find((x) => x.id === c.variant_of) || {}).materials || []}
               onFollowFamilyRow={onFollowFamilyRow} onRestoreDroppedRow={onRestoreDroppedRow}
               heightFt={c.height_ft} />
+            <AssemblyBar cond={c} assemblies={assemblies} onApply={onApplyAssembly} />
             {/* Duplicate, inline — deliberately NOT a window.prompt: those freeze a
                 CDP/automation-driven session dead, and this panel is scripted in demos. */}
             {onDuplicateCondition && (twinDraft.id === c.id ? (
@@ -1255,6 +1357,15 @@ function TakeoffsPanel({
             title="Group by tag family (the text before the dash: CPT, LVT, CT…)"
             style={{ padding: "3px 7px", borderRadius: 0, border: `1px solid ${panelPrefs.group ? "var(--cobalt)" : "var(--ink-faint)"}`, background: panelPrefs.group ? "var(--cobalt)" : "transparent", color: panelPrefs.group ? "var(--paper-bright)" : "var(--ink-muted)", cursor: "pointer", fontSize: 10.5, fontFamily: "var(--f-mono)", lineHeight: 1.4 }}>≡ grp</button>
         </div>
+        {viewTradeLabel && tradeHidden.size > 0 && (
+          <div style={{ padding: "5px 10px", borderBottom: "1px solid var(--ink-faint)", flexShrink: 0 }}>
+            <button type="button" data-trade-view-note="" onClick={onShowAllTrades}
+              title={`The canvas shows ${viewTradeLabel} only; ${tradeHidden.size} other condition(s) are hidden from view (the Report, estimate and exports keep them). Click to show all trades.`}
+              style={{ padding: "3px 7px", borderRadius: 0, border: "1px solid var(--cobalt)", background: "transparent", color: "var(--cobalt)", cursor: "pointer", fontSize: 10.5, fontFamily: "var(--f-mono)", lineHeight: 1.4, whiteSpace: "nowrap" }}>
+              {viewTradeLabel} · {tradeHidden.size} hidden ×
+            </button>
+          </div>
+        )}
         {/* bulk actions — appear while a ⌘/⇧ multi-selection is live
             (liveChecked: the count never claims ids the list lost) */}
         {liveChecked.length > 0 && (
@@ -1333,6 +1444,30 @@ function TakeoffsPanel({
                 <button onClick={() => onRenameTemplate(idx)} title="Rename this template"
                   style={{ flexShrink: 0, padding: "3px 6px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink-muted)", cursor: "pointer", fontSize: 11 }}>✎</button>
                 <button onClick={() => onDeleteTemplate(idx)} title="Remove this template from the library"
+                  style={{ flexShrink: 0, padding: "3px 6px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--c-danger)", cursor: "pointer", fontSize: 11 }}>✕</button>
+              </div>
+            ))}
+            {/* Assemblies — saved item recipes (lib/assemblies.js). Saved from a condition's
+                Materials editor; applied here or there to the ACTIVE condition. */}
+            <div data-assembly-library style={{ padding: "12px 12px 4px", borderTop: "1px solid var(--ink)", color: "var(--ink-muted)", fontSize: 11 }}>
+              <strong style={{ color: "var(--ink)", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10.5 }}>Assemblies</strong>
+              {" "}— a condition's items (quantity rule, waste %) saved to apply to another. Recipes only: prices stay with each project. Travels in your .otprofile.
+            </div>
+            {assemblies.length === 0 && <div style={{ padding: "2px 12px 12px", color: "var(--ink-muted)" }}>No assemblies yet — open a condition's Materials and use “Assembly: save as…”.</div>}
+            {assemblies.map((a) => (
+              <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderTop: "1px solid var(--ink-faint)" }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: "var(--ink)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+                  <div style={{ fontFamily: "var(--f-mono,monospace)", fontSize: 10.5, color: "var(--ink-muted)" }}>
+                    {a.items.map((it) => `${it.name} (${coverageLabel(it)})`).join(" · ")}
+                  </div>
+                </div>
+                <button onClick={() => { if (aCond && onApplyAssembly) onApplyAssembly(a); }} disabled={!aCond || !onApplyAssembly}
+                  title={aCond ? `Add these items to ${aCond.finish_tag} (items it already has are skipped)` : "Pick a condition first"}
+                  style={{ flexShrink: 0, padding: "3px 8px", borderRadius: 0, border: "1px solid var(--ink)", background: "var(--ink)", color: "var(--paper-bright)", cursor: aCond ? "pointer" : "default", fontSize: 11, fontWeight: 600 }}>
+                  Apply{aCond ? ` to ${aCond.finish_tag}` : ""}
+                </button>
+                <button onClick={() => saveAssemblies(assemblies.filter((x) => x.id !== a.id))} title="Remove this assembly from the library (conditions that used it keep their items)"
                   style={{ flexShrink: 0, padding: "3px 6px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--c-danger)", cursor: "pointer", fontSize: 11 }}>✕</button>
               </div>
             ))}

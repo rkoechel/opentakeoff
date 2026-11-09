@@ -4,19 +4,40 @@
 // rule: a pasted "=..." finish tag stays inert text). A rate that was never
 // entered is an EMPTY cell, not 0, and the line's Status says so.
 //
-// Every tab opens with the project line. The closing watermark rows come from
-// xlsxWatermarkFooter() and are empty unless the watermark flag is on.
+// Every tab opens with the project line. The closing watermark rows and the
+// printed page footer come from stampWorkbook, which runs last on every
+// workbook this module returns and adds nothing unless the watermark flag is on.
 
-import { xlsxWatermarkFooter } from "./branding.js";
+import { OT_WATERMARK, xlsxWatermarkFooter } from "./branding.js";
+import { lineLabel } from "./estimate.js";
 
 const MODE = { markup: "markup on cost", margin: "margin of price" };
-const STATUS = { priced: "priced", partial: "partly priced", unpriced: "unpriced" };
+// "optional": a bordered run's derived line nobody priced — it is carried in
+// the condition's main line, so it is never on the Unpriced tab (estimate.js).
+const STATUS = { priced: "priced", partial: "partly priced", unpriced: "unpriced", optional: "optional (in main line)" };
 const rate = (v) => (v === null || v === undefined ? "" : v);
+
+/**
+ * Put the OpenTakeoff line on every tab, the last row and the print footer,
+ * when the watermark flag is on; otherwise return the tabs unchanged.
+ * Idempotent; exported so both cases are testable on their own.
+ * @param {Array<{name: string, rows: any[][], footer?: string}>} sheets
+ */
+export function stampWorkbook(sheets) {
+  const foot = xlsxWatermarkFooter();
+  if (!foot.length) return sheets.map((s) => ({ ...s, rows: [...s.rows] }));
+  return sheets.map((s) => {
+    const rows = [...s.rows];
+    const last = rows[rows.length - 1];
+    if (!(Array.isArray(last) && last.length === 1 && last[0] === OT_WATERMARK)) rows.push(...foot);
+    return { ...s, rows, footer: OT_WATERMARK };
+  });
+}
 
 /**
  * @param {{ est: ReturnType<typeof import("./estimate.js").priceEstimate>,
  *   projectName?: string, companyName?: string, clientName?: string, date?: string }} args
- * @returns {Array<{name: string, rows: any[][]}>}
+ * @returns {Array<{name: string, rows: any[][], footer?: string}>}
  */
 export function estimateWorkbook({ est, projectName = "", companyName = "", clientName = "", date = "" }) {
   const firm = String(companyName || "").trim();
@@ -27,12 +48,11 @@ export function estimateWorkbook({ est, projectName = "", companyName = "", clie
     ...(date ? [["Date", date]] : []),
     [],
   ];
-  const foot = xlsxWatermarkFooter();
   const st = est.settings;
 
-  const lines = [["Finish", "Status", "Unit", "Material qty", "Material $/unit", "Material $", "Labor qty", "Labor $/unit", "Labor $", "Material rows $", "Line total $"]];
+  const lines = [["Finish", "Status", "Unit", "Material qty", "Material $/unit", "Material $", "Labor qty", "Labor $/unit", "Labor $", "Assembly material $", "Assembly labor $", "Line total $"]];
   for (const l of est.lines) {
-    lines.push([l.finish_tag, STATUS[l.status], l.unit, l.material_qty, rate(l.material_rate), l.material_cost, l.labor_qty, rate(l.labor_rate), l.labor_cost, l.materials_cost, l.total]);
+    lines.push([l.finish_tag, STATUS[l.status], l.unit, l.material_qty, rate(l.material_rate), l.material_cost, l.labor_qty, rate(l.labor_rate), l.labor_cost, l.materials_cost, l.materials_labor_cost || 0, l.total]);
   }
   const summary = [
     [],
@@ -42,26 +62,28 @@ export function estimateWorkbook({ est, projectName = "", companyName = "", clie
     ["Cost", est.cost],
     [`Overhead (${st.overhead_pct}%)`, est.overhead],
     [`Profit (${st.profit_pct}% ${MODE[st.profit_mode]})`, est.profit],
-    ["Base bid", est.total],
+    [est.complete ? "Base bid" : "Base bid (priced so far)", est.total],
   ];
-  if (!est.complete) summary.push([], [`Not fully priced: ${est.unpriced.length} condition${est.unpriced.length === 1 ? "" : "s"} count at $0 for what is missing (see the Unpriced tab).`]);
+  if (!est.complete) summary.push([], [`Not fully priced: ${est.unpriced.length} line${est.unpriced.length === 1 ? "" : "s"} count at $0 for what is missing (see the Unpriced tab).`]);
   for (const w of est.warnings) summary.push([w]);
 
-  const materials = [["Finish", "Material", "Qty", "Unit", "$/unit", "Cost $", "Status"]];
+  const materials = [["Finish", "Assembly item", "Order qty", "Unit", "Material $/unit", "Material $", "Labor qty", "Labor $/unit", "Labor $", "Status"]];
   for (const l of est.lines) {
-    for (const m of l.materials) materials.push([l.finish_tag, m.name, m.qty, m.unit, rate(m.price), m.cost, m.priced ? "priced" : "unpriced"]);
+    for (const m of l.materials) {
+      materials.push([l.finish_tag, m.name, m.qty, m.unit, rate(m.price), m.cost, m.labor_qty ?? "", rate(m.labor_rate), m.labor_cost ?? 0, m.priced ? "priced" : "unpriced"]);
+    }
   }
 
   const sheets = [
-    { name: "Estimate", rows: [...head, ...lines, ...summary, ...foot] },
-    { name: "Materials", rows: [...head, ...materials, ...foot] },
+    { name: "Estimate", rows: [...head, ...lines, ...summary] },
+    { name: "Materials", rows: [...head, ...materials] },
   ];
   if (!est.complete) {
     const unpriced = [["Finish", "Status", "Missing"]];
-    for (const u of est.unpriced) unpriced.push([u.finish_tag, STATUS[u.status], u.missing.join("; ")]);
-    sheets.push({ name: "Unpriced", rows: [...head, ...unpriced, ...foot] });
+    for (const u of est.unpriced) unpriced.push([lineLabel(est, u), STATUS[u.status], u.missing.join("; ")]);
+    sheets.push({ name: "Unpriced", rows: [...head, ...unpriced] });
   }
-  return sheets;
+  return stampWorkbook(sheets);
 }
 
 export function estimateFileName(projectName) {

@@ -1161,11 +1161,15 @@ export const countMarksOutput = {
 // ── estimate (lib/estimate.js) ──────────────────────────────────────────────
 const unpricedRow = z.object({
   id: z.string(), finish_tag: z.string(),
+  unit: z.enum(["SF", "SY", "LF", "EA"]).optional().describe("Which of the condition's lines is unpriced"),
   status: z.enum(["partial", "unpriced"]),
   missing: z.array(z.string()).describe('What was never entered: "material", "labor", or "material row: <name>"'),
 }).passthrough();
 const estimateLine = z.object({
   id: z.string(), finish_tag: z.string(), unit: z.enum(["SF", "SY", "LF", "EA"]),
+  key: z.string().optional().describe('"<condition id>:<unit>" — one line per quantity kind the condition carries'),
+  main: z.boolean().optional().describe("The condition's first line: priced by pricing.unit / material / labor and carrying its assembly items; the others price from pricing.by_unit[unit]"),
+  optional: z.boolean().optional().describe("A bordered linear run's derived line: priceable, but an empty rate is carried in the main line, never missing"),
   material_qty: z.number().describe("Order quantity in the unit — waste applied (EA never carries waste)"),
   labor_qty: z.number().describe("Measured quantity in the unit — no waste"),
   material_rate: z.number().nullable().describe("$ per unit; null = never entered"),
@@ -1173,16 +1177,20 @@ const estimateLine = z.object({
   material_cost: z.number(), labor_cost: z.number(),
   materials: z.array(z.object({ name: z.string(), unit: z.string(), qty: z.number(), price: z.number().nullable(), cost: z.number(), priced: z.boolean() }).passthrough()),
   materials_cost: z.number(), total: z.number(),
-  status: z.enum(["priced", "partial", "unpriced"]),
+  status: z.enum(["priced", "partial", "unpriced", "optional"]).describe('optional = an optional line nobody priced (not in unpriced)'),
   missing: z.array(z.string()),
 }).passthrough();
 const estimateSettings = z.object({ tax_pct: z.number(), overhead_pct: z.number(), profit_pct: z.number(), profit_mode: z.enum(["markup", "margin"]) }).passthrough();
 
 export const setPricingOutput = {
   condition: z.string(), condition_id: z.string(),
-  pricing: z.object({ unit: z.enum(["SF", "SY", "LF", "EA"]).optional(), material: z.number().optional(), labor: z.number().optional() }).passthrough().describe("The condition's prices after this write; an absent field is not entered"),
+  pricing: z.object({
+    unit: z.enum(["SF", "SY", "LF", "EA"]).optional(), material: z.number().optional(), labor: z.number().optional(),
+    by_unit: z.record(z.string(), z.object({ material: z.number().optional(), labor: z.number().optional() }).passthrough()).optional().describe("The other lines' rates, keyed by their unit"),
+  }).passthrough().describe("The condition's prices after this write; an absent field is not entered"),
   material_prices: z.array(z.object({ name: z.string(), unit: z.string(), price: z.number().nullable() }).passthrough()),
-  line: estimateLine.nullable().describe("The condition's estimate line after this write; null while it has no committed shapes"),
+  line: estimateLine.nullable().describe("The line this call priced (the main line unless `line` named another), after the write; null while it has no committed quantity of that kind"),
+  lines: z.array(estimateLine).describe("Every estimate line of the condition, main first"),
   note: z.string().optional(),
 };
 export const setEstimateSettingsOutput = {
@@ -1209,4 +1217,23 @@ export const exportEstimateOutput = {
 export const exportProposalOutput = {
   path: z.string(), pages: z.number().int(), base_bid: z.number(), itemized: z.boolean(), complete: z.boolean(), unpriced: z.array(unpricedRow),
   note: z.string().optional(),
+};
+
+// ── the Assistant window (assistantBridge.ts) ──
+const poweredBy = z.object({ name: z.string().describe("The AI app driving this server, as it announced itself (e.g. claude-ai, claude-code, codex-mcp-client)"), version: z.string() });
+export const assistantOpenOutput = {
+  port: z.number().int().describe("127.0.0.1 port the window connects to"),
+  code: z.string().describe("One-time pairing code the person types into the canvas's Assistant window (empty when already paired)"),
+  link: z.string().describe("Opens the canvas and pairs automatically — give this to the person"),
+  powered_by: poweredBy,
+  already_paired: z.boolean(),
+  next: z.string().describe("What to tell the person, then what to call"),
+};
+export const assistantListenOutput = {
+  status: z.enum(["message", "timeout", "sleep"]).describe("message = the person wrote; timeout = call again; sleep = stop, they are away"),
+  message: z.string().nullable().describe("What the person typed (several messages joined), or null"),
+  idle_s: z.number().int().describe("Seconds since the person last wrote"),
+};
+export const assistantSayOutput = {
+  delivered_to: z.number().int().describe("Open windows that received the reply (0 = the person closed the window; it shows when they reopen)"),
 };
