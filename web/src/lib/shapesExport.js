@@ -53,7 +53,7 @@ export function shapesDetail(conditions, shapes, sheetLabel) {
   });
 }
 
-export function shapesToCsv(rows, projectName = "", brandName = "OpenTakeoff", units = "imperial") {
+export function shapesToCsv(rows, projectName = "", brandName = "FLOOR360 Takeoff", units = "imperial") {
   const M = units === "metric";
   const areaUnit = M ? "m2" : "SF";
   const lengthUnit = M ? "m" : "LF";
@@ -82,7 +82,7 @@ export function shapesToJson(rows, projectName) {
   return {
     schema: "opentakeoff.shapes.v1",
     project_name: projectName || null,
-    generated_with: "OpenTakeoff",
+    generated_with: "FLOOR360 Takeoff",
     shapes: rows,
   };
 }

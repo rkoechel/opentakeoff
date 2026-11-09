@@ -38,7 +38,8 @@ export function authorTallyLine(shapes) {
     .map(([a, n]) => `${a || "unattributed"} (${n})`);
   return `Marks by: ${parts.join(" · ")}`;
 }
-import { pointInPoly, starPath, arrowheadPath, cloudBezier, chiselRibbon } from "./geometry.js";
+import { pointInPoly, arrowheadPath, cloudBezier, chiselRibbon } from "./geometry.js";
+import { PDF_PRODUCER } from "./pdfProducer.js";
 import { transformPath, svgPlacedBox } from "./svgpath.js";
 import { imagePlacedBox, pickEmbedFormat, imageDrawParams, sourceCaption } from "./markupImage";
 import { rfiStatus, liveRfis } from "./rfi.js";
@@ -280,8 +281,8 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
   // emailed around, so it should say what produced it. It also lets the MCP
   // export recognize its own prior output and overwrite that without ceremony,
   // while still refusing to clobber a file it didn't write (mcp/src/safewrite.ts).
-  doc.setProducer("OpenTakeoff");
-  doc.setCreator("OpenTakeoff");
+  doc.setProducer(PDF_PRODUCER);
+  doc.setCreator(PDF_PRODUCER);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const ink = dark ? rgb(0.93, 0.92, 0.89) : rgb(0.13, 0.12, 0.1);
@@ -306,15 +307,13 @@ export async function buildMarkedSetPdf({ projectName, dark, sheets, shapes, mar
     // the single choke point for cover text — every string WinAnsi-sanitized
     const draw = (t, opts) => pg.drawText(winAnsiSafe(t), opts);
     if (dark) pg.drawRectangle({ x: 0, y: 0, width: 612, height: 792, color: rgb(...DARK_BG) });
-    // the star is the canvas vertex mark — same 4-point / 0.38-inner geometry
-    pg.drawSvgPath(starPath(0, 0, 11), { x: 52, y: 738, color: cobalt });
     // cover wordmark: "Marked Set", or "OpenTakeoff · Marked Set" only when the
     // watermark flag is on and no trade name brands the doc (the resolver decides)
     const coverTitleSafe = winAnsiSafe(coverTitle);
-    draw(coverTitleSafe, { x: 70, y: 731, size: 17, font: bold, color: ink });
+    draw(coverTitleSafe, { x: 52, y: 731, size: 17, font: bold, color: ink });
     // the identity column's clamp wall: the title's right edge plus breathing
     // room, so a long company name in the no-logo case can't overprint the title
-    const wordmarkRight = 70 + bold.widthOfTextAtSize(coverTitleSafe, 17) + 12;
+    const wordmarkRight = 52 + bold.widthOfTextAtSize(coverTitleSafe, 17) + 12;
     // company identity — a right-aligned column ending at x=560, clear of the
     // wordmark and the 22pt project name at x=52: logo top pinned to 748
     // (bottom lands at 700 when full 48pt height), name + address stacked

@@ -441,7 +441,7 @@ export function grandTotals(rows) {
  *   (SF/LF-based). "imperial" (default) is byte-identical to the frozen export.
  * @returns {string}
  */
-export function totalsToCsv(rows, projectName = "", bySheet = null, sheetLabel = null, cols = null, ctx = null, byLabel = null, brandName = "OpenTakeoff", units = "imperial") {
+export function totalsToCsv(rows, projectName = "", bySheet = null, sheetLabel = null, cols = null, ctx = null, byLabel = null, brandName = "FLOOR360 Takeoff", units = "imperial") {
   // the caller passes RAW descriptors; conversion happens here (one site per
   // output) through the same applyUnits seam the report table uses
   const columns = applyUnits(cols || CSV_PROFILE.filter((c) => c.defaultVisible), units, METRIC_CSV_LABELS);
@@ -546,7 +546,7 @@ export function reportJson({ projectName = "", rows = [], bySheet = [], scaleInf
   return {
     schema: REPORT_SCHEMA,
     project_name: projectName || null,
-    generated_with: "OpenTakeoff",
+    generated_with: "FLOOR360 Takeoff",
     // scale_confirmed (scale gate): false = an agent set this sheet's scale and
     // no human confirmed it — the report's consumer should treat those sheets'
     // quantities as standing on an unverified number. Absent input = true

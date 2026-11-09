@@ -6,6 +6,7 @@
 
 import { winAnsiSafe } from "./markedset.js";
 import { stampWatermark } from "./pdfWatermark.js";
+import { PDF_PRODUCER } from "./pdfProducer.js";
 
 const PAGE = [612, 792];
 const M = 54;                       // margin
@@ -49,8 +50,8 @@ export async function buildBidProposalPdf(model) {
   const { PDFDocument, StandardFonts, rgb, degrees } = await import("pdf-lib");
   const doc = await PDFDocument.create();
   doc.setTitle(winAnsiSafe(`Proposal${model.project ? ` — ${model.project}` : ""}`));
-  doc.setCreator("OpenTakeoff");
-  doc.setProducer("OpenTakeoff");
+  doc.setCreator(PDF_PRODUCER);
+  doc.setProducer(PDF_PRODUCER);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const ink = rgb(0.1, 0.11, 0.12), muted = rgb(0.42, 0.44, 0.47), rule = rgb(0.8, 0.82, 0.84);

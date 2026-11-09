@@ -203,7 +203,8 @@ engines—OpenTakeoff is a takeoff tool, not an ERP.
 
 ## Ground rules
 
-- Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and builds only — do not add a schedule or cron workflow.
+- Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and builds only — do not add a schedule or cron workflow. FLOOR360 scheduled jobs run from Azure only.
+- The web test job includes `web/test/floor360Branding.test.ts`. It fails if user-facing web source or assets, including the privacy and terms pages, show "OpenTakeoff", "Kentucky AI", "Michael Edlin", a Kentucky AI URL, the split open/takeoff wordmark, or the marked-set cover star. The commented allowlist in that test is only for internal ids: package names, imports, protocol and MCP ids, the registry id `io.github.Kentucky-ai/opentakeoff`, env vars, the SharePoint folder "OpenTakeoff Projects", the DXF stamp, and the default-off watermark strings in `web/src/lib/branding.js`.
 - Don't break the canvas feel: pan/zoom and One-Click are the heart of the tool.
 - Keep the geometry libs pure and typed; add a test when you touch them.
 - Never commit real plan PDFs or any private/customer data.

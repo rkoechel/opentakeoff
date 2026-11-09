@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AssistantBridge, originAllowed, IDLE_SLEEP_MS } from "../src/assistantBridge.ts";
 
-const APP = "https://opentakeoff.kentucky-ai.com";
+const APP = "https://takeoff.floor360.com";
 const call = (port: number, path: string, init: RequestInit & { origin?: string } = {}) =>
   fetch(`http://127.0.0.1:${port}${path}`, { ...init, headers: { origin: init.origin ?? APP, "content-type": "application/json", ...(init.headers || {}) } });
 
@@ -14,7 +14,8 @@ test("only the app, local dev servers and deploy previews may reach the bridge",
   assert.equal(originAllowed("http://localhost:5199"), true);
   assert.equal(originAllowed("https://deploy-preview-12--opentakeoff.netlify.app"), true);
   assert.equal(originAllowed("https://evil.example"), false);
-  assert.equal(originAllowed("https://opentakeoff.kentucky-ai.com.evil.example"), false);
+  assert.equal(originAllowed("https://takeoff.floor360.com.evil.example"), false);
+  assert.equal(originAllowed("https://opentakeoff.kentucky-ai.com"), false);
   assert.equal(originAllowed(undefined), false);
 });
 

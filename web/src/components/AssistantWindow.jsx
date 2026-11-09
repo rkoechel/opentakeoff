@@ -107,7 +107,7 @@ export default function AssistantWindow({ open, onOpen, onClose, onConnectHelp, 
         <span title={working ? `${name} is working` : undefined}><Icon name="target" size={20} /></span>
         <div className="ot-asst-title">
           <strong>Assistant</strong>
-          <small>{paired ? <>Powered by <b>{name}</b>{client?.version ? <span className="ot-asst-ver"> {client.version}</span> : null}</> : "Your own AI, inside OpenTakeoff"}</small>
+          <small>{paired ? <>Powered by <b>{name}</b>{client?.version ? <span className="ot-asst-ver"> {client.version}</span> : null}</> : "Your own AI, inside FLOOR360 Takeoff"}</small>
         </div>
         {paired && <span className={`ot-asst-dot is-${conn === "live" ? bridgeState : conn}`} title={conn === "live" ? bridgeState : conn} />}
         <button type="button" className="ot-asst-x" onClick={onClose} aria-label="Close the Assistant">×</button>
@@ -117,7 +117,7 @@ export default function AssistantWindow({ open, onOpen, onClose, onConnectHelp, 
         <div className="ot-asst-setup">
           <p>Talk to the AI you already use — Claude, Codex, Cursor and others — right here, on its own subscription. No API key.</p>
           <ol>
-            <li>Add OpenTakeoff to your AI app once. <button type="button" className="ot-asst-linkbtn" onClick={onConnectHelp}>How to connect</button></li>
+            <li>Add FLOOR360 Takeoff to your AI app once. <button type="button" className="ot-asst-linkbtn" onClick={onConnectHelp}>How to connect</button></li>
             <li>In your AI, say: <span className="ot-asst-say">{ASSISTANT_PROMPT}</span> <CopyChip text={ASSISTANT_PROMPT} /></li>
             <li>Open the link it gives you — or type its code here:</li>
           </ol>

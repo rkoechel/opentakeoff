@@ -168,7 +168,7 @@ test("export_proposal writes the PDF; the watermark follows OT_WATERMARK; an inc
   assert.equal(r.complete, false);   // RB-1 unpriced
   assert.equal(r.unpriced[0].finish_tag, "RB-1");
   const pdf = await PDFDocument.load(await readFile(out), { updateMetadata: false });   // load() rewrites Producer otherwise
-  assert.equal(pdf.getProducer(), "OpenTakeoff");
+  assert.equal(pdf.getProducer(), "FLOOR360");
   let text = "";
   for (const ref of (pdf.getPages()[0] as any).node.Contents().asArray()) {
     const st: any = pdf.context.lookup(ref), f = st.dict.lookup(PDFName.of("Filter"));

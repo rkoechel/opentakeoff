@@ -70,7 +70,7 @@ test("margin and an impossible margin are labeled; the warning rides the summary
   assert.ok(rows.some((r) => typeof r[0] === "string" && r[0].includes("must be under 100%")));
 });
 
-test("file name: project name, unsafe characters dropped, OpenTakeoff fallback", () => {
+test("file name: project name, unsafe characters dropped, FLOOR360 Takeoff fallback", () => {
   assert.equal(estimateFileName("Clinic: Phase 2"), "Clinic Phase 2 - estimate.xlsx");
-  assert.equal(estimateFileName(""), "OpenTakeoff - estimate.xlsx");
+  assert.equal(estimateFileName(""), "FLOOR360 Takeoff - estimate.xlsx");
 });

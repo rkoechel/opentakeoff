@@ -13,13 +13,13 @@ import "./premiumChrome.css";
 export function PremiumRail({ onSearch, onSheets, sheetsOpen, onOpenPlans, helpItems, onMenuDepth, onCollapse, onLayout, running }) {
   return (
     <nav className="pc-rail" aria-label="Workspace">
-      <span className="pc-rail-brand" title={running ? "The agent is working" : "OpenTakeoff"}><Icon name={running ? "target" : "logo"} size={22} /></span>
+      <span className="pc-rail-brand" title={running ? "The agent is working" : "FLOOR360 Takeoff"}><Icon name={running ? "target" : "logo"} size={22} /></span>
       <span className="pc-rail-sep" />
       <button type="button" className="pc-rail-btn" onClick={onSearch} title={`Find a tool, sheet, or action (${keyText("⌘K")})`} aria-label="Find an action"><Icon name="search" size={19} /></button>
       <button type="button" className="pc-rail-btn" aria-pressed={!!sheetsOpen} onClick={onSheets} title="Sheets" aria-label="Sheets"><Icon name="sheets" size={19} /></button>
       <button type="button" className="pc-rail-btn" onClick={onOpenPlans} title="Open plans: PDF, image, or a .zip plan set" aria-label="Open plans"><Icon name="folder" size={19} /></button>
       <span className="pc-rail-sep" />
-      <span className="pc-rail-menu"><ToolMenu title="Learn OpenTakeoff, or connect an AI agent" flyout="right" onOpenChange={onMenuDepth} items={helpItems}
+      <span className="pc-rail-menu"><ToolMenu title="Learn FLOOR360 Takeoff, or connect an AI agent" flyout="right" onOpenChange={onMenuDepth} items={helpItems}
         face={<Icon name="help" size={19} />} faceStyle={{ border: 0, background: "transparent", padding: 0, width: 38, height: 38, justifyContent: "center", color: "var(--ink-muted)" }} /></span>
       <span className="pc-rail-grow" />
       <button type="button" className="pc-rail-btn" onClick={onCollapse} title="Focus: hide the chrome, keep measuring (F)" aria-label="Focus mode"><Icon name="chevronLeft" size={18} /></button>

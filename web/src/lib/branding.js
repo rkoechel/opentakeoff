@@ -16,6 +16,9 @@ import { activeProfile } from "./identity.js";
 
 export const OT_NAME = "OpenTakeoff";
 export const OT_CREDIT = "Measured with OpenTakeoff";
+// User-visible product name. The watermark strings above stay "OpenTakeoff"
+// and are drawn only when the watermark flag is on (default off).
+export const APP_NAME = "FLOOR360 Takeoff";
 // The line every estimate and bid proposal carries when the watermark is on.
 // Clear-label puts the firm's name on the document; it does not draw this by
 // itself. The flag defaults off (see watermarkEnabled).
@@ -88,8 +91,8 @@ export function resolveBranding(sel) {
     // a blank-after-trim name or address is omitted, same as the saved company.
     company: clear ? { name: name || undefined, address: address || undefined, logo: profile.logo } : null,
     // firm text / "Prepared by" cell / export title tag — the trade name when
-    // clear-labelling (a logo-only profile has no name → keep OpenTakeoff)
-    brandName: (clear && name) ? name : OT_NAME,
+    // clear-labelling (a logo-only profile has no name → keep the product name)
+    brandName: (clear && name) ? name : APP_NAME,
     // subtle parent credit — shown only when clear-labelling (default mode is
     // already OpenTakeoff-branded throughout, so a separate credit is redundant)
     credit: clear ? OT_CREDIT : null,

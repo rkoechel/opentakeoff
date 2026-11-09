@@ -1203,8 +1203,6 @@ export default function PlanNavigator({
                 )}
                 <div style={{ marginTop: 30, fontFamily: "var(--f-mono)", fontSize: 10.5, letterSpacing: "0.1em", color: "var(--text-faint)" }}>
                   AGPL-3.0 · <a href={sourceHref()} target="_blank" rel="noreferrer" style={{ color: "var(--ink-muted)" }}>{sourceLabel()}</a>
-                  {" · "}
-                  <a href="https://opentakeoff.kentucky-ai.com" target="_blank" rel="noopener noreferrer" style={{ color: "var(--ink-muted)" }}>{"OpenTakeoff, an open project by Kentucky AI"}</a>
                 </div>
               </div>
             ) : enumerated ? (

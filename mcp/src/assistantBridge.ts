@@ -21,7 +21,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 
-export const ASSISTANT_APP_URL = "https://opentakeoff.kentucky-ai.com/";
+export const ASSISTANT_APP_URL = "https://takeoff.floor360.com/";
 export const PORTS = [47615, 47616, 47617, 47618, 47619];
 /** After this long with nothing typed in the window, assistant_listen tells the agent to stop. */
 export const IDLE_SLEEP_MS = 10 * 60 * 1000;
@@ -29,7 +29,7 @@ export const LISTEN_DEFAULT_S = 45;
 export const LISTEN_MAX_S = 240;
 const MAX_TEXT = 20_000;
 
-const DEFAULT_ORIGINS = ["https://opentakeoff.kentucky-ai.com"];
+const DEFAULT_ORIGINS = ["https://takeoff.floor360.com"];
 export function originAllowed(origin: string | undefined, extra: string[] = []): boolean {
   if (!origin) return false;
   if (DEFAULT_ORIGINS.includes(origin) || extra.includes(origin)) return true;
@@ -78,7 +78,7 @@ export class AssistantBridge {
   private listen(): Promise<void> {
     return new Promise((resolve, reject) => {
       const tryPort = (i: number) => {
-        if (i >= PORTS.length) { reject(new Error(`ports ${PORTS[0]}–${PORTS.at(-1)} on 127.0.0.1 are all in use — close another OpenTakeoff assistant and retry`)); return; }
+        if (i >= PORTS.length) { reject(new Error(`ports ${PORTS[0]}–${PORTS.at(-1)} on 127.0.0.1 are all in use — close another FLOOR360 Takeoff assistant and retry`)); return; }
         const srv = createServer((req, res) => this.handle(req, res));
         srv.once("error", () => tryPort(i + 1));
         srv.listen(PORTS[i], "127.0.0.1", () => { this.server = srv; this.port = PORTS[i]; srv.unref(); resolve(); });

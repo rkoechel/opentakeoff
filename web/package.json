@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "OpenTakeoff — a free, open-source PDF takeoff canvas for flooring contractors.",
+  "description": "FLOOR360 Takeoff — a PDF takeoff canvas for flooring contractors.",
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",

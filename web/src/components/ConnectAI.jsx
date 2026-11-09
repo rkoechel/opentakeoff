@@ -26,8 +26,8 @@ const MCP_JSON = `{
   }
 }`;
 
-const FIRST_ASK = `Using OpenTakeoff, load ${SAMPLE_PLAN_NAME} and tell me how many sheets it has, each sheet's number, and the detected scale.`;
-const FIRST_ASK_DESKTOP = `Using OpenTakeoff, load /full/path/to/${SAMPLE_PLAN_NAME} and tell me how many sheets it has, each sheet's number, and the detected scale.`;
+const FIRST_ASK = `Using FLOOR360 Takeoff, load ${SAMPLE_PLAN_NAME} and tell me how many sheets it has, each sheet's number, and the detected scale.`;
+const FIRST_ASK_DESKTOP = `Using FLOOR360 Takeoff, load /full/path/to/${SAMPLE_PLAN_NAME} and tell me how many sheets it has, each sheet's number, and the detected scale.`;
 
 function Code({ text, label }) {
   const [copied, setCopied] = useState(false);
@@ -75,7 +75,7 @@ const TABS = [
     body: () => (
       <>
         <Code label="Codex command" text={"codex mcp add opentakeoff -- npx -y opentakeoff-mcp\ncodex mcp list"} />
-        <P>Codex asks before it runs OpenTakeoff's tools; approve them as they come up.</P>
+        <P>Codex asks before it runs FLOOR360 Takeoff's tools; approve them as they come up.</P>
       </>
     ),
   },
@@ -92,7 +92,7 @@ const TABS = [
     id: "web", label: "claude.ai · ChatGPT", needs: "Not supported yet",
     body: () => (
       <>
-        <P>claude.ai in a browser, the Claude mobile app and ChatGPT run in the cloud, not on your computer. They can only reach an MCP server at a public web address, and OpenTakeoff's server runs on your machine and reads your plan files from your disk.</P>
+        <P>claude.ai in a browser, the Claude mobile app and ChatGPT run in the cloud, not on your computer. They can only reach an MCP server at a public web address, and FLOOR360 Takeoff's server runs on your machine and reads your plan files from your disk.</P>
         <P>A hosted server isn't shipped yet. Until it is, use Claude Desktop or a terminal agent — the other tabs.</P>
       </>
     ),

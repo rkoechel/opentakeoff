@@ -56,7 +56,7 @@ test("rfisToCsv: title, semantics line, exact header, derived counts + sheets", 
   ];
   const csv = rfisToCsv(rfis, markups, "Job 42", (id: string) => `Sheet ${id}`);
   const lines = csv.split("\n");
-  assert.equal(lines[0], "# Job 42 — OpenTakeoff RFI log");
+  assert.equal(lines[0], "# Job 42 — FLOOR360 Takeoff RFI log");
   assert.equal(lines[1], "# RFI log — one row per RFI; linked markups/sheets derived from markup.rfi_id");
   assert.equal(lines[2], "Number,Subject,Status,Ball in court,Priority,Cost impact,Schedule impact,Date,Question,Response,Response date,Linked markups,Linked sheets");
   // Status renders the label, cost flag "yes"/blank, 2 linked markups, both sheets joined
@@ -85,7 +85,7 @@ test("rfisToJson: schema envelope wraps the records", () => {
   const j = rfisToJson(rfis, "Job 42");
   assert.equal(j.schema, "opentakeoff.rfis.v1");
   assert.equal(j.project_name, "Job 42");
-  assert.equal(j.generated_with, "OpenTakeoff");
+  assert.equal(j.generated_with, "FLOOR360 Takeoff");
   assert.deepEqual(j.rfis, rfis);
   assert.equal(rfisToJson(rfis, "").project_name, null);
 });
