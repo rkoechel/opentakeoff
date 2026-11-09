@@ -6,12 +6,15 @@ Refresh with `npm run check:tool-count --prefix mcp -- --write`; CI fails on sta
 For the operating workflow, read [the agent guide](AGENT_GUIDE.md) and [geometry workflow](GEOMETRY_WORKFLOW.md).
 For behavior and optional arguments, use the [tool reference](../mcp/README.md#tools) and the discovered input schema.
 
-Default build: **58 tools**. Coordinates, where present, are full-sheet image pixels at PDF render scale 2.0, top-left origin, y down.
+Default build: **62 tools**. Coordinates, where present, are full-sheet image pixels at PDF render scale 2.0, top-left origin, y down.
 
 | Tool | Stage | Availability | Required arguments |
 |---|---|---|---|
 | `annotate` | revise | Default | `sheet`, `type` |
 | `apply_rules` | handoff | Default | None |
+| `assistant_listen` | setup | Default | None |
+| `assistant_open` | setup | Default | None |
+| `assistant_say` | setup | Default | `text` |
 | `count_marks` | measure | Default | None |
 | `create_rfi` | revise | Default | `title`, `question`, `sheet` |
 | `cut_out` | measure | Default | `parent_shape_id`, `verts` |
@@ -47,6 +50,7 @@ Default build: **58 tools**. Coordinates, where present, are full-sheet image pi
 | `measure_polygon` | measure | Default | `sheet`, `verts` |
 | `measure_surface` | measure | Default | `sheet`, `pts`, `condition` |
 | `one_click` | measure | One-Click gate lifted | `sheet`, `x`, `y` |
+| `open_suite` | setup | Default | None |
 | `place_count` | measure | Default | `sheet`, `points`, `condition` |
 | `propose_condition_edit` | revise | Default | `condition`, `rationale` |
 | `propose_takeoff` | measure | Default | `label`, `rationale` |
@@ -72,6 +76,8 @@ Default build: **58 tools**. Coordinates, where present, are full-sheet image pi
 | `withdraw_proposal` | revise | Default | `proposal_id` |
 
 `open_tool_stage {stage}` exists only when staged exposure is enabled. Setup starts open; measure, revise and handoff open on demand. This opener is not part of the default flat count.
+
+Trade-suite tools are not in the default list or count: `open_suite {suite}` enables them (or `OPENTAKEOFF_MCP_SUITES` pre-opens them). roofing: `roof_takeoff`; siding: `siding_takeoff`; soffit_fascia: `soffit_takeoff`; glazing: `glazing_takeoff`; plumbing: `plumbing_rollup`; electrical: `electrical_rollup`. See [trade suites](wiki/suites.md).
 
 Schema-required fields are only the first validation layer: conditional requirements (such as annotation coordinates by type or exactly one calibration method) are explained by each tool and validated by its handler.
 

@@ -7,7 +7,8 @@ import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server
 import { ok, okImage, fail, UserError, type ToolReply } from "./format.ts";
 import { oneClickEnabled, GATE_HINT } from "./gate.ts";
 import { UNDO_CAP, CONTEXT_MIN_LEN_PX, CONTEXT_MAX_SEGMENTS, CONTEXT_MAX_SEGMENTS_CEIL, VECTORS_DEFAULT_LIMIT, VECTORS_LIMIT_CEIL, type Session } from "./session.ts";
-import { traceToolCall } from "./trace.ts";
+import { traceToolCall, toolCallSinks } from "./trace.ts";
+import { AssistantBridge, LISTEN_DEFAULT_S, LISTEN_MAX_S, IDLE_SLEEP_MS } from "./assistantBridge.ts";
 import {
   loadPlanOutput, sheetInfoOutput, setScaleOutput, oneClickOutput, detectRoomsOutput,
   measurePolygonOutput, measureLineOutput, measureSurfaceOutput, placeCountOutput, symbolSweepOutput, takeoffSummaryOutput,
@@ -25,11 +26,13 @@ import {
   proposeConditionEditOutput, withdrawConditionEditOutput,
   scopeDuplicatesOutput, scopeMergeOutput,
   setPricingOutput, setEstimateSettingsOutput, estimateSummaryOutput, exportEstimateOutput, exportProposalOutput,
+  assistantOpenOutput, assistantListenOutput, assistantSayOutput,
 } from "./outputs.ts";
 import { exportMarkedPdf } from "./marked.ts";
 import { exportEstimateFile, exportProposalFile } from "./estimateFiles.ts";
 import { assertWritable, OVERWRITE_DESC } from "./safewrite.ts";
 import { importTakeoff } from "./importing.ts";
+import { registerSuites } from "./suites.ts";
 
 // The coordinate contract, stated on every tool so any agent reading any one
 // description knows the space it is working in.
@@ -62,7 +65,7 @@ const run = (tool: string, fn: (args: any) => unknown | Promise<unknown>) =>
 // Returns every RegisteredTool by name so staged exposure (#230) can disable
 // and re-enable groups after the fact. The wrapper keeps all forty call sites
 // below byte-identical: `server` here is a recording facade over the real one.
-export function registerTools(realServer: McpServer, session: Session, opts: { oneClick?: boolean } = {}): Map<string, RegisteredTool> {
+export function registerTools(realServer: McpServer, session: Session, opts: { oneClick?: boolean; suites?: string[] | "all" } = {}): Map<string, RegisteredTool> {
   // The TEMPORARY One-Click gate (src/gate.ts): on a default build one_click and
   // detect_rooms are not registered at all, and every description that used to
   // point an agent at them points at measure_polygon instead.
@@ -76,6 +79,48 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
     },
     sendResourceListChanged: () => realServer.sendResourceListChanged(),
   };
+  // ── the Assistant window (assistantBridge.ts): talk to this AI from inside the OpenTakeoff canvas ──
+  const bridge = new AssistantBridge(() => {
+    const v = (realServer as unknown as { server?: { getClientVersion?: () => { name?: string; version?: string } | undefined } }).server?.getClientVersion?.();
+    return { name: v?.name || "your AI app", version: v?.version || "" };
+  });
+  toolCallSinks.push((tool, okd, ms) => bridge.activity(tool, okd, ms));
+  server.registerTool("assistant_open", {
+    description: "Open the OpenTakeoff Assistant window: the person can then talk to YOU from inside the OpenTakeoff canvas (opentakeoff.kentucky-ai.com) instead of only here. Starts a private link on 127.0.0.1 and returns a one-time pairing `code` and a `link`. Give the person the link (or the 6-letter code to type into the canvas's Assistant window), then call assistant_listen and keep calling it: each message they type arrives as its result; do the work with the other tools, answer with assistant_say, then listen again. Call it when the person asks for the OpenTakeoff assistant/window, or says \"listen\" after a pause.",
+    inputSchema: {},
+    outputSchema: assistantOpenOutput,
+  }, run("assistant_open", async () => {
+    const o = await bridge.open();
+    return { ...o, next: o.already_paired
+      ? "Already paired — the window is live. Call assistant_listen now."
+      : `Tell the person: open ${o.link} (or, in the canvas, Assistant → enter code ${o.code}). Then call assistant_listen.` };
+  }));
+  server.registerTool("assistant_listen", {
+    description: `Wait for the person's next message in the OpenTakeoff Assistant window (after assistant_open). Returns status "message" with their text — do what they ask (with the other tools), reply with assistant_say, then call assistant_listen again. Status "timeout" = nothing typed yet: call assistant_listen again right away, saying nothing to the person. Status "sleep" = ${IDLE_SLEEP_MS / 60000} quiet minutes: stop listening and tell the person in one line to say "listen" when they want you back (then call assistant_open, which reconnects without a new code).`,
+    inputSchema: {
+      wait_s: z.number().int().min(1).max(LISTEN_MAX_S).optional().describe(`Seconds to wait (default ${LISTEN_DEFAULT_S}, max ${LISTEN_MAX_S}). Keep it under your client's tool timeout.`),
+    },
+    outputSchema: assistantListenOutput,
+  }, async (args: { wait_s?: number }, extra: { _meta?: { progressToken?: string | number }; sendNotification?: (n: unknown) => Promise<void> }) => {
+    const startedAt = process.hrtime.bigint();
+    let reply: ToolReply;
+    try {
+      const token = extra?._meta?.progressToken;
+      // progress pings keep clients that reset their timeout on progress from cutting a long wait short
+      const onTick = token !== undefined && extra.sendNotification
+        ? (s: number) => { extra.sendNotification!({ method: "notifications/progress", params: { progressToken: token, progress: s, message: "waiting for the person in the OpenTakeoff window" } }).catch(() => {}); }
+        : undefined;
+      reply = ok(await bridge.waitForMessage(args.wait_s ?? LISTEN_DEFAULT_S, onTick));
+    } catch (e) { reply = fail(e); }
+    traceToolCall("assistant_listen", args, startedAt, reply);
+    return reply;
+  });
+  server.registerTool("assistant_say", {
+    description: "Show your reply in the OpenTakeoff Assistant window (Markdown). Use it for every answer to a message that came through assistant_listen — the person is reading the window, not this chat. Then call assistant_listen again.",
+    inputSchema: { text: z.string().min(1).describe("Your reply, Markdown") },
+    outputSchema: assistantSayOutput,
+  }, run("assistant_say", ({ text }) => bridge.say(text)));
+
   server.registerTool("load_plan", {
     description: `Open a plan PDF from disk. Default: replace the whole session (previous documents, scales, conditions, and shapes are cleared). merge: true ADDS the document to the working set instead (#152) — a bid set is plans + schedule + addenda, not one PDF — keeping every scale, condition, and shape; sheet keys carry file names so documents never collide, the sheet graph spans the whole set (resolve_tag can chain a plan tag on one file to a schedule row in another), and the marked set covers every worked sheet. Re-loading an already-merged file is refused — reload = replace, deliberately. Returns file, files, page_count, and one entry per sheet. The loaded sheets also become browsable resources (takeoff://sheets). ${COORDS}`,
     inputSchema: {
@@ -374,10 +419,11 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
   // ── estimate (lib/estimate.js) — the prices are the estimator's ──────────
   const NO_INVENTED_PRICES = "Every price comes from the estimator or a document they gave you — never invent, estimate or 'typical' one; a price nobody entered stays unentered and estimate_summary names it.";
   server.registerTool("set_pricing", {
-    description: `Price one condition for the estimate — the canvas Estimate panel's row. unit is what the condition is bought in (SF, SY, LF, EA); material and labor are $ per that unit: material is priced on the ORDER quantity (waste applied — SY is the waste-adjusted SY), labor on the MEASURED quantity (no waste); EA carries no waste on either. materials prices the condition's supporting-material rows (from edit_materials) per THEIR unit (bag, pail, roll) — quantities are already whole packages. null clears a price back to "not entered"; 0 is an explicit $0 (owner-furnished material, labor-only scope). ${NO_INVENTED_PRICES} The reply carries the condition's estimate line. Rides export_takeoff into the app; undo_last reverses the call.`,
+    description: `Price one condition for the estimate — the canvas Estimate panel's rows. A condition has one estimate line per quantity kind it carries (its area, LF and EA — see estimate_summary); the first is its MAIN line. unit is what the main line is bought in (SF, SY, LF, EA). line picks WHICH line material and labor price: leave it out (or pass the main line's unit) for the main line; pass "LF", "EA" or "SF" (a second area line prices in SF) to price that other line — one call per line. material and labor are $ per that line's unit: material is priced on the ORDER quantity (waste applied — SY is the waste-adjusted SY), labor on the MEASURED quantity (no waste); EA carries no waste on either. materials prices the condition's supporting-material rows (from edit_materials) per THEIR unit (bag, pail, roll) — quantities are already whole packages. null clears a price back to "not entered"; 0 is an explicit $0 (owner-furnished material, labor-only scope). A bordered linear run's derived second line (its LF when the border SF is the main line, or the reverse) is OPTIONAL: it shows and can be priced, but left empty it is carried in the main line, never missing. ${NO_INVENTED_PRICES} The reply carries the line this call priced (line) and all of the condition's lines (lines), with a note naming any line still unpriced. Rides export_takeoff into the app; undo_last reverses the call.`,
     inputSchema: {
       condition: z.string().describe("Finish tag of an existing condition, e.g. 'CPT-1'"),
-      unit: z.enum(["SF", "SY", "LF", "EA"]).optional().describe("Pricing unit (default: what was measured — area, then length, then count)"),
+      unit: z.enum(["SF", "SY", "LF", "EA"]).optional().describe("The MAIN line's pricing unit (default: what was measured — area, then length, then count)"),
+      line: z.enum(["SF", "SY", "LF", "EA"]).optional().describe("Which line material / labor price: omitted or the main line's unit = the main line; LF / EA / SF = the condition's other line of that kind (stored in pricing.by_unit)"),
       material: z.number().min(0).nullable().optional().describe("Material $ per unit, on the order quantity; null clears"),
       labor: z.number().min(0).nullable().optional().describe("Labor $ per unit, on the measured quantity; null clears"),
       materials: z.array(z.object({
@@ -386,7 +432,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
       })).optional().describe("Prices for the condition's supporting-material rows"),
     },
     outputSchema: setPricingOutput,
-  }, run("set_pricing", (a) => session.setPricing(a.condition, { unit: a.unit, material: a.material, labor: a.labor, materials: a.materials })));
+  }, run("set_pricing", (a) => session.setPricing(a.condition, { unit: a.unit, line: a.line, material: a.material, labor: a.labor, materials: a.materials })));
 
   server.registerTool("set_estimate_settings", {
     description: `The project's markups, proposal text and client — the canvas's estimate_settings, bid_proposal and client_info. Markups: tax_pct (sales tax on material), overhead_pct (on material + labor + tax), profit_pct with profit_mode markup (× (1 + p)) or margin (÷ (1 − p); 33.33% margin is ×1.5). proposal: itemized (a sell price on each scope line, the base bid allocated to the cent) or lump sum, scope_note, inclusions / exclusions (one per line), terms, valid_days. client: who the proposal is for. Only what you pass changes; an empty client string clears that field. Until markups are set the estimate prices at 0% — say so rather than assume a number. ${NO_INVENTED_PRICES} Rides export_takeoff; undo_last reverses the call.`,
@@ -409,7 +455,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
   }, run("set_estimate_settings", (a) => session.setEstimateSettings(a)));
 
   server.registerTool("estimate_summary", {
-    description: `The priced estimate — the canvas Estimate panel as data: one line per measured condition (unit, order and measured quantities, rates, material / labor / supply cost, status priced | partial | unpriced with what is missing), then material, labor, sales tax, cost, overhead, profit and the base bid. complete is false while anything is unentered: the total then counts the missing pieces at $0 and is "priced so far", and unpriced lists every hole — report it to the estimator, never fill it. Read-only.`,
+    description: `The priced estimate — the canvas Estimate panel as data: one line per quantity kind each measured condition carries — its area, LF and EA are separate lines (unit, order and measured quantities, rates, material / labor / supply cost, main marks each condition's first line; status priced | partial | unpriced with what is missing, or optional — a bordered linear run's derived line nobody priced, carried in its main line and never missing; set_pricing prices any line: the main one by default, the others with line "LF" / "EA" / "SF"), then material, labor, sales tax, cost, overhead, profit and the base bid. complete is false while anything is unentered: the total then counts the missing pieces at $0 and is "priced so far", and unpriced lists every hole — report it to the estimator, never fill it. Read-only.`,
     inputSchema: {},
     outputSchema: estimateSummaryOutput,
   }, run("estimate_summary", () => session.estimateSummary()));
@@ -844,6 +890,10 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
     },
     outputSchema: deleteRfiOutput,
   }, run("delete_rfi", ({ rfi_id }) => session.deleteRfi(rfi_id)));
+
+  // ── trade suites (suites.ts): open_suite is a setup tool; the trade tools
+  // register on the real server, disabled until a suite is opened ──
+  registerSuites(server, realServer, session, { suites: opts.suites });
 
   return registered;
 }

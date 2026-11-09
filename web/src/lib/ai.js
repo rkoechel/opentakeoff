@@ -21,11 +21,15 @@
 
 import { floor360PrivateBuild } from "./privateBuild.js";
 
+import { clampHistoryTurns } from "./agentChat.js";
+import { looksLikeSse, parseChatStreamText, readChatStream } from "./chatStream.js";
+
 const KEYS = {
   endpoint: "opentakeoff_ai_endpoint",
   apiKey: "opentakeoff_ai_key",
   model: "opentakeoff_ai_model",
   provider: "opentakeoff_ai_provider",
+  historyTurns: "opentakeoff_ai_history_turns",
 };
 
 // Build-time VITE_AI_* values are ignored on the private build so a key in
@@ -50,7 +54,9 @@ export const PRIVATE_AI_CONFIG = Object.freeze({ endpoint: "/api/ai", apiKey: ""
 export const PRIVATE_AI_STATUS_URL = "/api/ai/status";
 
 /** Current config. provider: "openai" (OpenAI-style — the default; local
- *  runtimes speak it) | "anthropic" (Anthropic-style). */
+ *  runtimes speak it) | "anthropic" (Anthropic-style). historyTurns: how many
+ *  earlier chat turns ride along with each new message (0–20, default 8 —
+ *  "Conversation memory" in AI settings). */
 export function aiConfig() {
   if (floor360PrivateBuild()) return { ...PRIVATE_AI_CONFIG };
   return {
@@ -58,6 +64,7 @@ export function aiConfig() {
     apiKey: readKey("apiKey", "VITE_AI_KEY"),
     model: readKey("model", "VITE_AI_MODEL"),
     provider: readKey("provider", "VITE_AI_PROVIDER") || "openai",
+    historyTurns: clampHistoryTurns(readKey("historyTurns", "VITE_AI_HISTORY_TURNS")),
   };
 }
 
@@ -67,13 +74,18 @@ export function isAiConfigured() {
   return !!(c.endpoint && c.model);
 }
 
-export function saveAiConfig({ endpoint, apiKey, model, provider }) {
+/** @param {{ endpoint?: string, apiKey?: string, model?: string, provider?: string, historyTurns?: number | string | null }} cfg */
+export function saveAiConfig({ endpoint, apiKey, model, provider, historyTurns }) {
   if (floor360PrivateBuild()) return;   // locked to /api/ai
   try {
     for (const [k, v] of [["endpoint", endpoint], ["apiKey", apiKey], ["model", model], ["provider", provider]]) {
       if (v) localStorage.setItem(KEYS[k], v);
       else localStorage.removeItem(KEYS[k]);
     }
+    // 0 is a real choice (no memory), so this one is stored whenever it's set;
+    // blank / missing goes back to the default
+    if (historyTurns === "" || historyTurns == null) localStorage.removeItem(KEYS.historyTurns);
+    else localStorage.setItem(KEYS.historyTurns, String(clampHistoryTurns(historyTurns)));
   } catch { /* private mode */ }
 }
 
@@ -156,7 +168,8 @@ export function scaleReadPrompt(labels) {
  *  are already in the PROVIDER's own shape (agentLoop owns that translation —
  *  Anthropic-style tools/tool_use/tool_result vs OpenAI-style function
  *  calling), so this stays pure request plumbing. */
-export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 4096 }) {
+export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 4096, stream = false }) {
+  const streamFlag = stream ? { stream: true } : {};
   const url = aiRequestUrl(cfg.endpoint, cfg.provider);
   if (cfg.provider === "anthropic") {
     const headers = {
@@ -165,7 +178,7 @@ export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 409
       "anthropic-dangerous-direct-browser-access": "true",
     };
     if (cfg.apiKey) headers["x-api-key"] = cfg.apiKey;
-    return { url, headers, body: { model: cfg.model, max_tokens: maxTokens, ...(system ? { system } : {}), messages, ...(tools?.length ? { tools } : {}) } };
+    return { url, headers, body: { model: cfg.model, max_tokens: maxTokens, ...(system ? { system } : {}), messages, ...(tools?.length ? { tools } : {}), ...streamFlag } };
   }
   const headers = { "Content-Type": "application/json" };
   if (cfg.apiKey) headers["Authorization"] = `Bearer ${cfg.apiKey}`;
@@ -175,6 +188,7 @@ export function buildChatRequest(cfg, { system, messages, tools, maxTokens = 409
       model: cfg.model, max_tokens: maxTokens,
       messages: [...(system ? [{ role: "system", content: system }] : []), ...messages],
       ...(tools?.length ? { tools } : {}),
+      ...streamFlag,
     },
   };
 }
@@ -241,46 +255,145 @@ export async function visionQuery({ imageDataUrl, prompt, maxTokens = 100 }) {
   return text;
 }
 
+// Endpoints seen NOT to stream this session (they refused `stream`, or
+// answered it with plain JSON), keyed by request URL + model: later turns ask
+// them for plain JSON straight away instead of paying a refused request each
+// time. Memory only — a reload tries streaming again.
+const noStream = new Set();
+/** Forget which endpoints refused to stream (tests; a settings change). */
+export function forgetStreamSupport() { noStream.clear(); }
+
+// A runtime that doesn't understand `stream: true` typically rejects the body
+// (400 / 422) or the mode (415 / 501). Those get ONE plain retry; any other
+// status (401, 429, 5xx…) is the endpoint's real answer and is reported.
+const STREAM_REFUSED = new Set([400, 415, 422, 501]);
+const TURN_IDLE_MS = 120000;
+
 /** Send one chat-with-tools request (the agent loop's transport). Same
  *  config/endpoint machinery as visionQuery — the user's own key, their own
- *  endpoint, nothing else; no telemetry. Throws with a plain-language message
- *  on any transport failure; an AbortError from the caller's signal is
- *  re-thrown untouched so the loop can tell "stopped" from "broken".
- *  `cfg`/`fetchFn` are injectable for tests (default: live config + fetch). */
-export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 4096, signal, fetchFn, onWait, sleepFn = waitFor, startWaitMs = AI_START_WAIT_MS, nowFn = Date.now }) {
+ *  endpoint, nothing else; no telemetry.
+ *
+ *  stream: true asks the endpoint to stream (Anthropic Messages SSE /
+ *  OpenAI-style `stream: true`); every piece of answer text then goes to
+ *  onTextDelta as it arrives, tool calls assemble in full, and the resolved
+ *  value is the SAME assistant JSON a non-streaming reply would have been.
+ *  An endpoint that refuses `stream` (400/415/422/501) is retried once
+ *  without it; one that answers plain JSON is simply read as JSON. Either way
+ *  it's remembered for the session (forgetStreamSupport).
+ *
+ *  Throws with a plain-language message on any transport failure; an
+ *  AbortError from the caller's signal (Stop) is re-thrown as an AbortError so
+ *  the loop can tell "stopped" from "broken", mid-stream included. The 2-minute
+ *  timeout is an IDLE timeout: it re-arms on every streamed chunk, so a long
+ *  answer that keeps arriving is never cut off.
+ *
+ *  While the FLOOR360 proxy starts the model on demand it answers 503 {state:
+ *  "starting", retryAfter}: onWait hears AI_STARTING_MESSAGE once, and the
+ *  request is retried for up to startWaitMs. The proxy holds the one wake;
+ *  retries never add another. Any other failure is worded by aiHttpError.
+ *  `cfg`/`fetchFn`/`sleepFn`/`nowFn` are injectable for tests (default: live
+ *  config + fetch + real time).
+ * @param {{
+ *   cfg?: { endpoint: string, apiKey?: string, model: string, provider?: string },
+ *   system?: string, messages: any[], tools?: any[], maxTokens?: number,
+ *   signal?: AbortSignal, fetchFn?: typeof fetch,
+ *   stream?: boolean, onTextDelta?: (text: string) => void,
+ *   onWait?: (text: string) => void, sleepFn?: (ms: number, signal?: AbortSignal) => Promise<void>,
+ *   startWaitMs?: number, nowFn?: () => number,
+ * }} opts */
+export async function chatWithTools({ cfg, system, messages, tools, maxTokens = 4096, signal, fetchFn, stream = false, onTextDelta, onWait, sleepFn = waitFor, startWaitMs = AI_START_WAIT_MS, nowFn = Date.now }) {
   const c = cfg || aiConfig();
   if (!(c.endpoint && c.model)) throw new Error("AI isn't configured — open AI settings first.");
-  const { url, headers, body } = buildChatRequest(c, { system, messages, tools, maxTokens });
-  // 120s per turn — agent turns run longer than the 30s vision reads. The
-  // caller's abort signal still wins whenever the runtime supports combining.
-  let sig = signal;
-  try {
-    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function" && typeof AbortSignal.timeout === "function") {
-      sig = signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000);
-    }
-  } catch { /* keep the caller's signal */ }
-  // While the proxy starts the model on demand it answers 503 {state:
-  // "starting", retryAfter}: say so once (onWait), wait, and retry, for up
-  // to startWaitMs. The proxy holds the one wake; retries never add another.
-  const waitUntil = nowFn() + startWaitMs;
-  let told = false;
-  let res;
-  for (;;) {
+  const provider = c.provider === "anthropic" ? "anthropic" : "openai";
+  const memo = `${aiRequestUrl(c.endpoint, c.provider)}\n${c.model}`;
+  let wantStream = !!stream && !noStream.has(memo);
+
+  // one controller per call: the caller's Stop, or the idle timer, aborts it
+  const ctl = new AbortController();
+  let timedOut = false;
+  let timer = null;
+  const arm = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timedOut = true; ctl.abort(); }, TURN_IDLE_MS);
+  };
+  const onAbort = () => ctl.abort();
+  if (signal) {
+    if (signal.aborted) ctl.abort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  }
+  const stopped = () => !!signal?.aborted;
+  const abortError = () => { const e = new Error("The operation was aborted."); e.name = "AbortError"; return e; };
+  const idle = () => new Error("The endpoint went quiet for more than 2 minutes — check the model is loaded.");
+
+  const send = async (asStream) => {
+    const { url, headers, body } = buildChatRequest(c, { system, messages, tools, maxTokens, stream: asStream });
+    arm();
     try {
-      res = await (fetchFn || fetch)(url, { method: "POST", headers, body: JSON.stringify(body), signal: sig });
+      return await (fetchFn || fetch)(url, { method: "POST", headers, body: JSON.stringify(body), signal: ctl.signal });
     } catch (e) {
-      if (signal?.aborted || e?.name === "AbortError") throw e;
-      if (e?.name === "TimeoutError") throw new Error("The endpoint took more than 2 minutes — check the model is loaded.");
+      if (stopped()) throw abortError();
+      if (timedOut || e?.name === "TimeoutError") throw idle();
+      if (e?.name === "AbortError") throw e;
       throw new Error("Couldn't reach the endpoint — check the URL, and that it allows browser requests (CORS).");
     }
-    if (res.ok) break;
-    const errBody = await res.json().catch(() => null);
-    const wait = startingRetryAfter(res.status, errBody);
-    if (!wait || nowFn() + wait * 1000 > waitUntil) throw new Error(aiHttpError(res.status, errBody));
-    if (!told) { told = true; try { onWait?.(AI_STARTING_MESSAGE); } catch { /* a listener must not break the call */ } }
-    await sleepFn(wait * 1000, signal);
+  };
+
+  try {
+    const waitUntil = nowFn() + startWaitMs;
+    let told = false;
+    let res;
+    for (;;) {
+      res = await send(wantStream);
+      if (wantStream && !res.ok && STREAM_REFUSED.has(res.status)) {
+        // the runtime may not know `stream` — ask again, plainly, once
+        noStream.add(memo);
+        wantStream = false;
+        try { await res.body?.cancel?.(); } catch { /* nothing to drain */ }
+        res = await send(false);
+      }
+      if (res.ok) break;
+      const errBody = await res.json().catch(() => null);
+      const wait = startingRetryAfter(res.status, errBody);
+      if (!wait || nowFn() + wait * 1000 > waitUntil) throw new Error(aiHttpError(res.status, errBody));
+      if (!told) { told = true; try { onWait?.(AI_STARTING_MESSAGE); } catch { /* a listener must not break the call */ } }
+      // the idle timer must not fire while we sleep between start retries
+      if (timer) { clearTimeout(timer); timer = null; }
+      await sleepFn(wait * 1000, signal);
+    }
+
+    const type = typeof res.headers?.get === "function" ? String(res.headers.get("content-type") || "") : "";
+    if (wantStream && /text\/event-stream/i.test(type) && res.body && typeof res.body.getReader === "function") {
+      try {
+        return await readChatStream({ provider, body: res.body, signal: ctl.signal, onTextDelta, onActivity: arm });
+      } catch (e) {
+        if (stopped()) throw abortError();
+        if (timedOut) throw idle();
+        throw e;
+      }
+    }
+
+    // not an event stream (or streaming wasn't asked for): read the body as
+    // text when the response can, so a stream sent with the wrong content
+    // type is still understood; minimal fetch stubs with only json() work too
+    let json = null;
+    try {
+      if (typeof res.text === "function") {
+        const raw = await res.text();
+        if (wantStream && looksLikeSse(raw)) return parseChatStreamText(provider, raw, { onTextDelta });
+        try { json = JSON.parse(raw); } catch { json = null; }
+      } else {
+        json = await res.json().catch(() => null);
+      }
+    } catch (e) {
+      if (stopped()) throw abortError();
+      if (timedOut) throw idle();
+      throw e;
+    }
+    if (wantStream) noStream.add(memo);   // it answered `stream: true` with plain JSON
+    if (!json || typeof json !== "object") throw new Error("The endpoint replied, but not with JSON.");
+    return json;
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener?.("abort", onAbort);
   }
-  const json = await res.json().catch(() => null);
-  if (!json || typeof json !== "object") throw new Error("The endpoint replied, but not with JSON.");
-  return json;
 }

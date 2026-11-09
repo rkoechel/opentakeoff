@@ -67,7 +67,7 @@ import { sanitizeApprovals as sanitizeApprovalsJs, applyApprovalCommand as apply
 // its tombstone rule, one implementation for both surfaces
 import { nextRfiNumber, liveRfis } from "../../web/src/lib/rfi.js";
 import { conditionTotals, grandTotals, sheetTotals, reportJson } from "../../web/src/lib/totals.js";
-import { priceEstimate, sanitizePricing, sanitizeEstimateSettings, priceValue } from "../../web/src/lib/estimate.js";
+import { priceEstimate, sanitizePricing, sanitizeEstimateSettings, priceValue, defaultPriceUnit } from "../../web/src/lib/estimate.js";
 import { sanitizeBidProposal } from "../../web/src/lib/bidProposal.js";
 import { hasRollSetup, mintRollSetup, computeRollTakeoff, rollReportRows, seamLfByShape } from "../../web/src/lib/rollTakeoff.js";
 import { gridPxPerFoot, drawGrid, drawShapes, drawMarks, type Ctx2D, type ToCanvas, type ViewMarks } from "./view.ts";
@@ -210,7 +210,13 @@ export interface Condition {
   materials: MaterialRow[];
 }
 
-export interface ConditionPricing { unit?: "SF" | "SY" | "LF" | "EA"; material?: number; labor?: number }
+export type PriceUnit = "SF" | "SY" | "LF" | "EA";
+/** unit / material / labor price the condition's MAIN line (its first); by_unit
+ * holds the other lines' rates keyed by their unit — a second area line is SF. */
+export interface ConditionPricing {
+  unit?: PriceUnit; material?: number; labor?: number;
+  by_unit?: Partial<Record<PriceUnit, { material?: number; labor?: number }>>;
+}
 /** The project-level estimate records (canvas: estimate_settings, bid_proposal,
  * client_info) — one snapshot type for set_estimate_settings' undo. */
 export interface EstimateRecords { estimate_settings: Record<string, unknown> | null; bid_proposal: Record<string, unknown> | null; client_info: Record<string, string> }
@@ -285,7 +291,10 @@ export interface ShapeOrigin {
    * become shapes. */
   derived?:
     | { from_shape_id: string; gross_lf: number; openings_lf: number }
-    | { between_shape_ids: string[]; between: string[]; case: "butt"; gap_in: number };
+    | { between_shape_ids: string[]; between: string[]; case: "butt"; gap_in: number }
+    // a trade-suite derive (src/suites.ts): the tool, the source shape where
+    // there is one, and the figures it used — never a guessed input
+    | { suite_tool: string; from_shape_id?: string; [k: string]: unknown };
   /** rule_v1 (#88/#207): the correction rule that minted this deduct, the
    * estimator's seed correction it re-ran, and the room it landed in — the
    * same three-way citation the canvas's Apply stamps. */
@@ -2335,6 +2344,55 @@ export class Session {
    * time (net of openings); a later edit_shape re-measure of the polyline is
    * the gross boundary again — the openings deduction lives here and in
    * origin.derived, not in the geometry. */
+  // ── Trade suites (src/suites.ts) ─────────────────────────────────────────
+  // The suite tools are derives: they read what is committed, figure the
+  // trade's quantities with web/src/lib/suiteMath.ts, and commit what follows
+  // as reviewed:false shapes in ONE journal step, exactly like derive_base.
+
+  /** A condition's material rows (id + name), [] when the tag does not exist. */
+  conditionMaterials(tag: string): { id: string; name: string }[] {
+    return (this.conditions.find((x) => x.finish_tag === tag)?.materials ?? []).map((m) => ({ id: m.id, name: m.name }));
+  }
+
+  /** Does a condition with this tag exist? */
+  hasCondition(tag: string): boolean {
+    return this.conditions.some((x) => x.finish_tag === tag);
+  }
+
+  /** A condition's shapes with their geometry in image px and in feet. */
+  suiteShapes(tag: string, roles?: MeasureRole[]): { shape: Shape; upp: number; px: Point[]; ft: Point[] }[] {
+    const c = this.conditions.find((x) => x.finish_tag === tag);
+    if (!c) return [];
+    return this.shapes
+      .filter((x) => x.condition_id === c.id && (!roles || roles.includes(x.measure_role)))
+      .map((shape) => {
+        const s = this.sheet(shape.sheet_id);
+        if (!(s.upp && s.upp > 0)) throw new UserError(`${shape.id} sits on ${s.key}, which has no scale — set_scale first.`);
+        const px: Point[] = shape.verts_norm.map(([x, y]) => [x * s.widthPx, y * s.heightPx]);
+        return { shape, upp: s.upp, px, ft: px.map(([x, y]) => [x * s.upp!, y * s.upp!] as Point) };
+      });
+  }
+
+  /** The report row for one condition (multiplier applied, waste beside it), or null. */
+  suiteTotals(tag: string): { lf: number; ea: number; floor_sf: number; wall_sf: number; total_sf: number; multiplier: number; waste_pct: number } | null {
+    const c = this.conditions.find((x) => x.finish_tag === tag);
+    if (!c) return null;
+    return (conditionTotals([c], this.shapes) as { lf: number; ea: number; floor_sf: number; wall_sf: number; total_sf: number; multiplier: number; waste_pct: number }[])[0];
+  }
+
+  /** Commit a suite derive's shapes as one journal step; returns the new ids in order. */
+  suiteCommit(tool: string, items: { sheet_id: string; tag: string; role: MeasureRole; px: Point[]; computed: Shape["computed"]; derived: Record<string, unknown>; height_ft?: number }[]): string[] {
+    const ids = items.map((it) => {
+      const shape = this.commit(this.sheet(it.sheet_id), it.tag, it.role, it.px, it.computed, {
+        method: "agent_v1", actor: "agent", reviewed: false, derived: { suite_tool: tool, ...it.derived },
+      });
+      if (it.height_ft !== undefined) shape.height_ft = it.height_ft;
+      return shape.id;
+    });
+    this.flushCommits(tool);
+    return ids;
+  }
+
   deriveBase(opts: { source_condition: string; condition: string; openings?: { shape_id: string; lf: number }[] }) {
     const src = this.conditions.find((x) => x.finish_tag === opts.source_condition);
     if (!src) {
@@ -2542,7 +2600,7 @@ export class Session {
    * what to do instead. */
   private cutRunOut(parent: Shape, verts: Point[]) {
     const derived = parent.origin?.derived;
-    if (derived && "openings_lf" in derived && derived.openings_lf > 0) {
+    if (derived && "openings_lf" in derived && Number(derived.openings_lf) > 0) {
       throw new UserError("This derived base already has numeric openings with no stored locations. Use measure_line for the installed runs; clipping this gross perimeter would lose the existing allowance.");
     }
     if (parent.origin?.reviewed === true) {
@@ -5069,9 +5127,9 @@ export class Session {
     return priceEstimate({ rows, conditions: this.conditions, settings: this.estimateSettings });
   }
 
-  setPricing(tag: string, opts: { unit?: ConditionPricing["unit"]; material?: number | null; labor?: number | null; materials?: { name: string; price: number | null }[] }) {
+  setPricing(tag: string, opts: { unit?: PriceUnit; line?: PriceUnit; material?: number | null; labor?: number | null; materials?: { name: string; price: number | null }[] }) {
     if (opts.unit === undefined && opts.material === undefined && opts.labor === undefined && !opts.materials?.length) {
-      throw new UserError("Nothing to change — pass unit, material, labor, or materials: [{name, price}].");
+      throw new UserError(`Nothing to change — pass unit, material, labor, or materials: [{name, price}]${opts.line ? ` (line only says WHICH line material / labor price)` : ""}.`);
     }
     const c = this.conditions.find((x) => x.finish_tag === tag);
     if (!c) {
@@ -5085,13 +5143,27 @@ export class Session {
         throw new UserError(`${tag} has no material row ${JSON.stringify(r.name)}.${rows.size ? ` Its rows: ${[...rows.values()].map((m) => m.name).join(", ")}.` : " It has no material rows — add them with edit_materials first."}`);
       }
     }
-    const before = { pricing: c.pricing ? { ...c.pricing } : undefined, prices: c.materials.map((m) => ({ id: m.id, price: m.price })) };
-    const next: Record<string, unknown> = { ...(sanitizePricing(c.pricing) ?? {}) };
+    const next = { ...(sanitizePricing(c.pricing) ?? {}) } as ConditionPricing;
     if (opts.unit !== undefined) next.unit = opts.unit;
-    for (const k of ["material", "labor"] as const) {
-      if (opts[k] === null) delete next[k];
-      else if (opts[k] !== undefined) next[k] = opts[k];
+    // Which line material / labor price (lib/estimate.js): the MAIN line — the
+    // condition's first, in pricing.unit — unless `line` names another quantity
+    // kind it carries, whose rates live in pricing.by_unit[line]. `unit` keeps
+    // its one meaning (the main line's unit), so every older call is unchanged.
+    const KIND: Record<PriceUnit, string> = { SF: "area", SY: "area", LF: "length", EA: "count" };
+    const row = (conditionTotals([c], this.shapes) as Record<string, unknown>[])[0];
+    const mainUnit = (next.unit ?? defaultPriceUnit(row)) as PriceUnit;
+    const target = opts.line === undefined || opts.line === mainUnit ? null : opts.line;
+    if (target && KIND[target] === KIND[mainUnit]) {
+      throw new UserError(`${tag}'s ${KIND[target]} line is its main line, priced in ${mainUnit}. Pass line "${mainUnit}" (or leave line out) to price it, or unit "${target}" to switch the main line's unit.`);
     }
+    if (target === "SY") throw new UserError(`${tag}'s second area line prices in SF — pass line "SF".`);
+    const rates: Record<string, unknown> = target ? { ...(next.by_unit?.[target] ?? {}) } : (next as Record<string, unknown>);
+    for (const k of ["material", "labor"] as const) {
+      if (opts[k] === null) delete rates[k];
+      else if (opts[k] !== undefined) rates[k] = opts[k];
+    }
+    if (target) next.by_unit = { ...(next.by_unit ?? {}), [target]: rates };
+    const before = { pricing: c.pricing ? structuredClone(c.pricing) : undefined, prices: c.materials.map((m) => ({ id: m.id, price: m.price })) };
     const clean = sanitizePricing(next) as ConditionPricing | undefined;
     if (clean) c.pricing = clean;
     else delete c.pricing;
@@ -5102,12 +5174,18 @@ export class Session {
       else m.price = v;
     }
     this.record({ op: "pricing", tool: "set_pricing", condition_id: c.id, before });
-    const line = this.pricedEstimate().lines.find((l) => l.id === c.id) ?? null;
+    const lines = this.pricedEstimate().lines.filter((l) => l.id === c.id);
+    const line = (target ? lines.find((l) => l.unit === target) : lines.find((l) => l.main)) ?? null;
+    const notes: string[] = [];
+    if (!lines.length) notes.push(`${tag} has no committed shapes yet. The prices are saved; the line prices once it is measured.`);
+    else if (!line) notes.push(`${tag} carries no ${KIND[target as PriceUnit]} quantity yet. The ${target} rates are saved; that line prices once it is measured.`);
+    const open = lines.filter((l) => l !== line && l.missing.length);
+    if (lines.length && open.length) notes.push(`${tag}'s other line${open.length === 1 ? "" : "s"} still need${open.length === 1 ? "s" : ""} prices: ${open.map((l) => `${l.unit} (${l.missing.join(", ")})`).join("; ")} — set_pricing with line "${open[0].unit}".`);
     return {
       condition: tag, condition_id: c.id, pricing: c.pricing ?? {},
       material_prices: c.materials.filter((m) => m && m.name).map((m) => ({ name: m.name, unit: m.unit, price: m.price ?? null })),
-      line,
-      ...(line ? {} : { note: `${tag} has no committed shapes yet. The prices are saved; the line prices once it is measured.` }),
+      line, lines,
+      ...(notes.length ? { note: notes.join(" ") } : {}),
     };
   }
 
@@ -5148,6 +5226,10 @@ export class Session {
     if (!this.docs.size) throw new UserError("No plan loaded — call load_plan first.");
     const est = this.pricedEstimate();
     const missing = est.unpriced.length;
+    const optional = est.lines.filter((l) => l.status === "optional");
+    const optionalNote = optional.length
+      ? ` ${optional.length} optional line${optional.length === 1 ? "" : "s"} (${optional.map((l) => `${l.finish_tag} ${l.unit}`).join(", ")}) — a bordered run's derived quantity, carried in its main line's price — need${optional.length === 1 ? "s" : ""} no price; set_pricing with line prices one only when the estimator gives it a separate rate.`
+      : "";
     return {
       settings: est.settings,
       settings_source: this.estimateSettings ? "project" : "unset — 0% markups until set_estimate_settings",
@@ -5155,11 +5237,11 @@ export class Session {
       material: est.material, labor: est.labor, tax: est.tax, cost: est.cost,
       overhead: est.overhead, profit: est.profit, total: est.total,
       complete: est.complete, unpriced: est.unpriced, warnings: est.warnings,
-      note: !est.lines.length
+      note: (!est.lines.length
         ? "Nothing measured yet — commit shapes under conditions first."
         : est.complete
           ? "Every measured line is priced."
-          : `${missing} line${missing === 1 ? " is" : "s are"} not fully priced; total counts what is missing at $0 ("priced so far"). Get those prices from the estimator — never fill one in yourself.`,
+          : `${missing} line${missing === 1 ? " is" : "s are"} not fully priced; total counts what is missing at $0 ("priced so far"). Get those prices from the estimator — never fill one in yourself; set_pricing with line "LF" / "EA" / "SF" prices a condition's other lines.`) + (est.lines.length ? optionalNote : ""),
     };
   }
 
