@@ -11857,7 +11857,7 @@ export default function TakeoffCanvas() {
       {!scaleReviewOpen && reviewKeys.length > 0 && view === "canvas" && (
         <button data-testid="scale-review-chip" onClick={() => setScaleReviewOpen(true)}
           title="Scale review — confirm each sheet's scale and the finish schedule"
-          style={{ position: "absolute", left: 12, bottom: 40, zIndex: 30, padding: "4px 10px", fontSize: 11.5, background: "var(--paper-bright)", cursor: "pointer",
+          style={{ position: "absolute", left: workspaceLayout && !focusMode ? "calc(var(--pc-rail-w, 56px) + 12px)" : 12, bottom: 40, zIndex: 30, padding: "4px 10px", fontSize: 11.5, background: "var(--paper-bright)", cursor: "pointer",
             border: `1px solid ${scaleSum.review ? "var(--c-warning)" : "var(--c-positive)"}`, color: scaleSum.review ? "var(--c-warning)" : "var(--c-positive)" }}>
           {scaleSum.text}{scaleScan.running ? " …" : ""}
         </button>
