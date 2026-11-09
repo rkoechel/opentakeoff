@@ -87,6 +87,6 @@ export function estimateWorkbook({ est, projectName = "", companyName = "", clie
 }
 
 export function estimateFileName(projectName) {
-  const base = String(projectName || "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "OpenTakeoff";
+  const base = String(projectName || "").replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "FLOOR360 Takeoff";
   return `${base} - estimate.xlsx`;
 }

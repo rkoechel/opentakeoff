@@ -86,7 +86,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
   });
   toolCallSinks.push((tool, okd, ms) => bridge.activity(tool, okd, ms));
   server.registerTool("assistant_open", {
-    description: "Open the OpenTakeoff Assistant window: the person can then talk to YOU from inside the OpenTakeoff canvas (opentakeoff.kentucky-ai.com) instead of only here. Starts a private link on 127.0.0.1 and returns a one-time pairing `code` and a `link`. Give the person the link (or the 6-letter code to type into the canvas's Assistant window), then call assistant_listen and keep calling it: each message they type arrives as its result; do the work with the other tools, answer with assistant_say, then listen again. Call it when the person asks for the OpenTakeoff assistant/window, or says \"listen\" after a pause.",
+    description: "Open the FLOOR360 Takeoff Assistant window: the person can then talk to YOU from inside the FLOOR360 Takeoff canvas (takeoff.floor360.com) instead of only here. Starts a private link on 127.0.0.1 and returns a one-time pairing `code` and a `link`. Give the person the link (or the 6-letter code to type into the canvas's Assistant window), then call assistant_listen and keep calling it: each message they type arrives as its result; do the work with the other tools, answer with assistant_say, then listen again. Call it when the person asks for the FLOOR360 Takeoff assistant/window, or says \"listen\" after a pause.",
     inputSchema: {},
     outputSchema: assistantOpenOutput,
   }, run("assistant_open", async () => {
@@ -96,7 +96,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
       : `Tell the person: open ${o.link} (or, in the canvas, Assistant → enter code ${o.code}). Then call assistant_listen.` };
   }));
   server.registerTool("assistant_listen", {
-    description: `Wait for the person's next message in the OpenTakeoff Assistant window (after assistant_open). Returns status "message" with their text — do what they ask (with the other tools), reply with assistant_say, then call assistant_listen again. Status "timeout" = nothing typed yet: call assistant_listen again right away, saying nothing to the person. Status "sleep" = ${IDLE_SLEEP_MS / 60000} quiet minutes: stop listening and tell the person in one line to say "listen" when they want you back (then call assistant_open, which reconnects without a new code).`,
+    description: `Wait for the person's next message in the FLOOR360 Takeoff Assistant window (after assistant_open). Returns status "message" with their text — do what they ask (with the other tools), reply with assistant_say, then call assistant_listen again. Status "timeout" = nothing typed yet: call assistant_listen again right away, saying nothing to the person. Status "sleep" = ${IDLE_SLEEP_MS / 60000} quiet minutes: stop listening and tell the person in one line to say "listen" when they want you back (then call assistant_open, which reconnects without a new code).`,
     inputSchema: {
       wait_s: z.number().int().min(1).max(LISTEN_MAX_S).optional().describe(`Seconds to wait (default ${LISTEN_DEFAULT_S}, max ${LISTEN_MAX_S}). Keep it under your client's tool timeout.`),
     },
@@ -108,7 +108,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
       const token = extra?._meta?.progressToken;
       // progress pings keep clients that reset their timeout on progress from cutting a long wait short
       const onTick = token !== undefined && extra.sendNotification
-        ? (s: number) => { extra.sendNotification!({ method: "notifications/progress", params: { progressToken: token, progress: s, message: "waiting for the person in the OpenTakeoff window" } }).catch(() => {}); }
+        ? (s: number) => { extra.sendNotification!({ method: "notifications/progress", params: { progressToken: token, progress: s, message: "waiting for the person in the FLOOR360 Takeoff window" } }).catch(() => {}); }
         : undefined;
       reply = ok(await bridge.waitForMessage(args.wait_s ?? LISTEN_DEFAULT_S, onTick));
     } catch (e) { reply = fail(e); }
@@ -116,7 +116,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
     return reply;
   });
   server.registerTool("assistant_say", {
-    description: "Show your reply in the OpenTakeoff Assistant window (Markdown). Use it for every answer to a message that came through assistant_listen — the person is reading the window, not this chat. Then call assistant_listen again.",
+    description: "Show your reply in the FLOOR360 Takeoff Assistant window (Markdown). Use it for every answer to a message that came through assistant_listen — the person is reading the window, not this chat. Then call assistant_listen again.",
     inputSchema: { text: z.string().min(1).describe("Your reply, Markdown") },
     outputSchema: assistantSayOutput,
   }, run("assistant_say", ({ text }) => bridge.say(text)));

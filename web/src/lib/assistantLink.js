@@ -7,7 +7,7 @@
 // person types. Nothing goes anywhere but this computer.
 
 const STORE = "ot.assistant.link.v1";
-export const ASSISTANT_PROMPT = "Open the OpenTakeoff assistant";
+export const ASSISTANT_PROMPT = "Open the FLOOR360 Takeoff assistant";
 export const LISTEN_PROMPT = "listen";
 
 /** The AI app's own name at MCP initialize → the name people know it by. */
@@ -57,7 +57,7 @@ export const BRIDGE_PORTS = [47615, 47616, 47617, 47618, 47619];
 /** Pair with a code. Without a port, tries the bridge's ports in order. */
 export async function pair({ port, code }) {
   const ports = port ? [port] : BRIDGE_PORTS;
-  let last = "No OpenTakeoff assistant is running on this computer — ask your AI to open it first.";
+  let last = "No FLOOR360 Takeoff assistant is running on this computer — ask your AI to open it first.";
   for (const p of ports) {
     let res;
     try {
@@ -87,7 +87,7 @@ export async function send(link, text) {
   const res = await fetch(`${base(link.port)}/send`, {
     method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${link.token}` }, body: JSON.stringify({ text }),
   });
-  if (res.status === 401) throw Object.assign(new Error("The link expired — your AI app restarted. Ask it to open the OpenTakeoff assistant again."), { expired: true });
+  if (res.status === 401) throw Object.assign(new Error("The link expired — your AI app restarted. Ask it to open the FLOOR360 Takeoff assistant again."), { expired: true });
   if (!res.ok) throw new Error(`Couldn't send (${res.status}).`);
   return res.json();
 }

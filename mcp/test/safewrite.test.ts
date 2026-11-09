@@ -84,6 +84,26 @@ test("a directory is refused with its own message, not an EISDIR later", async (
   await refuses(sub, "pdf");
 });
 
+test("a marked set with the legacy OpenTakeoff producer is still ours", async () => {
+  const d = await dir();
+  const p = path.join(d, "legacy - marked set.pdf");
+  const doc = await PDFDocument.create();
+  doc.setProducer("OpenTakeoff");
+  doc.addPage([612, 792]);
+  await writeFile(p, await doc.save());
+  await assertWritable(p, "pdf");
+});
+
+test("a shop-drawing producer that merely starts with FLOOR360 is not ours", async () => {
+  const d = await dir();
+  const p = path.join(d, "shop.pdf");
+  const doc = await PDFDocument.create();
+  doc.setProducer("FLOOR360 takeoff-runner");
+  doc.addPage([612, 792]);
+  await writeFile(p, await doc.save());
+  await refuses(p, "pdf");
+});
+
 test("a marked set we produced is recognized by its Producer and overwrites", async () => {
   const d = await dir();
   const p = path.join(d, "plan - marked set.pdf");

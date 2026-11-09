@@ -89,7 +89,7 @@ export function parseProfile(text) {
   catch { throw new Error("Couldn't apply profile: the file isn't valid JSON."); }
   if (!p || typeof p !== "object" || Array.isArray(p)) throw new Error("Couldn't apply profile: not a profile file.");
   if (p.schema !== PROFILE_SCHEMA) {
-    throw new Error(`Couldn't apply profile: version "${p.schema || "unknown"}" — this build reads ${PROFILE_SCHEMA}. Update OpenTakeoff and try again.`);
+    throw new Error(`Couldn't apply profile: version "${p.schema || "unknown"}" — this build reads ${PROFILE_SCHEMA}. Update FLOOR360 Takeoff and try again.`);
   }
   return p;
 }

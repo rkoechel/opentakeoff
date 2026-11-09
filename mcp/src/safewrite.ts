@@ -15,18 +15,22 @@
 // still do it in one call; one that fat-fingered a path gets told.
 import { open, stat } from "node:fs/promises";
 import { UserError } from "./format.ts";
+import { PDF_PRODUCER } from "../../web/src/lib/pdfProducer.js";
 
-/** Stamped as the PDF Producer on every marked set (web/src/lib/markedset.js),
- * which is what makes a prior marked set recognizable as ours here. Also plain
- * provenance: a distributed deliverable should say what produced it.
- *
- * The optional "Prepared with OpenTakeoff" footer is not authorship. It is
- * drawn only when OT_WATERMARK is "1" or "true" (default off), so a file that
- * lacks the footer is still ours when the Producer matches, and a stranger's
- * PDF is still not ours when it happens to contain the line. When an xlsx
- * export lands, do not treat a missing footer as proof the workbook is not ours.
- */
-export const PDF_PRODUCER = "OpenTakeoff";
+export { PDF_PRODUCER };
+
+/** Producer values this server still treats as its own.
+ *  New files stamp PDF_PRODUCER ("FLOOR360"). Files written before that
+ *  stamp "OpenTakeoff" and must keep overwriting without overwrite:true.
+ *  "FLOOR360 takeoff-runner" (shop drawings) is a different producer and
+ *  is not ours here. */
+const LEGACY_PDF_PRODUCER = "OpenTakeoff";
+
+export function isOwnPdfProducer(producer: string | null | undefined): boolean {
+  const value = producer ?? "";
+  if (value.includes(LEGACY_PDF_PRODUCER)) return true;
+  return value === PDF_PRODUCER || value.startsWith(`${PDF_PRODUCER} v`) || value.startsWith(`${PDF_PRODUCER}/`);
+}
 
 export type ExportKind = "json" | "pdf" | "dxf" | "xlsx";
 
@@ -73,7 +77,7 @@ async function isOwnExport(outPath: string, kind: ExportKind): Promise<boolean> 
       ignoreEncryption: true,
       updateMetadata: false,
     });
-    return (doc.getProducer() ?? "").includes(PDF_PRODUCER);
+    return isOwnPdfProducer(doc.getProducer());
   } catch {
     return false;
   }

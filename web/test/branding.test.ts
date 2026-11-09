@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { resolveBranding, OT_NAME, OT_CREDIT } from "../src/lib/branding.js";
+import { resolveBranding, APP_NAME, OT_CREDIT } from "../src/lib/branding.js";
 import { totalsToCsv } from "../src/lib/totals.js";
 import { shapesToCsv } from "../src/lib/shapesExport.js";
 import { rfisToCsv } from "../src/lib/rfi.js";
@@ -14,11 +14,11 @@ const PROFILES = [
   { id: "b", name: "Fin Workspaces", address: "2 B St" },
 ];
 
-test("default mode → OpenTakeoff, no company, no credit", () => {
+test("default mode → FLOOR360 Takeoff, no company, no credit", () => {
   const b = resolveBranding({ mode: "default", profileId: "a", profiles: PROFILES });
   assert.equal(b.clear, false);
   assert.equal(b.company, null);
-  assert.equal(b.brandName, OT_NAME);
+  assert.equal(b.brandName, APP_NAME);
   assert.equal(b.credit, null);
   assert.equal(b.coverTitle, "Marked Set");
 });
@@ -40,7 +40,7 @@ test("clear-label carries the logo when the profile has one", () => {
 test("clear-label with no profiles falls back to default (nothing to brand as)", () => {
   const b = resolveBranding({ mode: "clearlabel", profileId: "a", profiles: [] });
   assert.equal(b.clear, false);
-  assert.equal(b.brandName, OT_NAME);
+  assert.equal(b.brandName, APP_NAME);
   assert.equal(b.coverTitle, "Marked Set");
 });
 
@@ -50,10 +50,10 @@ test("clear-label with a stale profileId falls back to the first profile", () =>
   assert.equal(b.brandName, "345 Flooring");
 });
 
-test("clear-label profile without a name → brandName degrades to OpenTakeoff, company kept", () => {
+test("clear-label profile without a name → brandName degrades to FLOOR360 Takeoff, company kept", () => {
   const b = resolveBranding({ mode: "clearlabel", profileId: "c", profiles: [{ id: "c", logo: "data:x" }] });
   assert.equal(b.clear, true);
-  assert.equal(b.brandName, OT_NAME);
+  assert.equal(b.brandName, APP_NAME);
   assert.equal(b.company?.logo, "data:x");
 });
 
@@ -89,16 +89,16 @@ test("the MCP marked-set cover uses the same watermark gate", () => {
 test("garbage / missing mode → default", () => {
   assert.equal(resolveBranding({}).clear, false);
   assert.equal(resolveBranding({ mode: "nonsense", profiles: PROFILES }).clear, false);
-  assert.equal(resolveBranding(undefined).brandName, OT_NAME);
+  assert.equal(resolveBranding(undefined).brandName, APP_NAME);
 });
 
 // export titles follow the brand name (decision: exports follow the mode) — the
-// resolver hands brandName to each CSV, defaulting to OpenTakeoff when unbranded
-test("CSV export titles carry the brand name (default OpenTakeoff)", () => {
-  assert.match(totalsToCsv([], "Proj"), /^# Proj — OpenTakeoff report/);
+// resolver hands brandName to each CSV, defaulting to FLOOR360 Takeoff when unbranded
+test("CSV export titles carry the brand name (default FLOOR360 Takeoff)", () => {
+  assert.match(totalsToCsv([], "Proj"), /^# Proj — FLOOR360 Takeoff report/);
   assert.match(totalsToCsv([], "Proj", null, null, null, null, null, "345 Flooring"), /^# Proj — 345 Flooring report/);
-  assert.match(shapesToCsv([], "Proj"), /^# Proj — OpenTakeoff shapes/);
+  assert.match(shapesToCsv([], "Proj"), /^# Proj — FLOOR360 Takeoff shapes/);
   assert.match(shapesToCsv([], "Proj", "345 Flooring"), /^# Proj — 345 Flooring shapes/);
-  assert.match(rfisToCsv([], [], "Proj"), /^# Proj — OpenTakeoff RFI log/);
+  assert.match(rfisToCsv([], [], "Proj"), /^# Proj — FLOOR360 Takeoff RFI log/);
   assert.match(rfisToCsv([], [], "Proj", null, "345 Flooring"), /^# Proj — 345 Flooring RFI log/);
 });

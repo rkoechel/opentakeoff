@@ -170,7 +170,7 @@ test("shapesToCsv: title, semantics line, exact header, quoting, negative deduct
   ];
   const csv = shapesToCsv(shapesDetail(conds2, shapes), "Job 42");
   const lines = csv.split("\n");
-  assert.equal(lines[0], "# Job 42 — OpenTakeoff shapes");
+  assert.equal(lines[0], "# Job 42 — FLOOR360 Takeoff shapes");
   assert.equal(lines[1], "# Per-shape measured quantities — no multiplier or waste; standalone deducts negative; reconciled cutouts stay as audit rows with zero additive area because the parent is already net; LF on floor/deduct/surface rows is trace reference only (incl. openings) — linear rows alone sum to condition LF; a linear row's LF includes its Rise + Drop");
   assert.equal(lines[2], "Shape,Sheet,Sheet ID,Finish,Role,Area SF,LF,EA,Height ft,Height override,Rise ft,Drop ft,Origin");
   assert.ok(lines[3].includes('"CT-1, honed"'));
@@ -214,7 +214,7 @@ test("shapesToJson: schema envelope wraps the rows", () => {
   const j = shapesToJson(rows, "Job 42");
   assert.equal(j.schema, "opentakeoff.shapes.v1");
   assert.equal(j.project_name, "Job 42");
-  assert.equal(j.generated_with, "OpenTakeoff");
+  assert.equal(j.generated_with, "FLOOR360 Takeoff");
   assert.deepEqual(j.shapes, rows);
   assert.equal(shapesToJson(rows, "").project_name, null);
 });

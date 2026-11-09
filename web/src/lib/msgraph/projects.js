@@ -136,7 +136,7 @@ export async function createProject(graph, rootId, raw, group = "") {
 export function projectErrorMessage(e) {
   const status = e?.status;
   if (status === 403) {
-    return "SharePoint said no (HTTP 403): OpenTakeoff doesn't have write access to the Estimating site yet. "
+    return "SharePoint said no (HTTP 403): FLOOR360 Takeoff doesn't have write access to the Estimating site yet. "
       + "An admin has to finish the Sites.Selected write grant for this app, or your account can't open that library. Nothing was changed.";
   }
   if (status === 401) return "Your Microsoft 365 sign-in expired. Sign in again.";

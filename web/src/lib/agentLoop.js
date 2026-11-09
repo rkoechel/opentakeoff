@@ -33,7 +33,7 @@ export const MAX_AGENT_ITERATIONS = 24;
 export function agentSystemPrompt() {
   const oneClick = oneClickEnabled();   // the TEMPORARY gate (lib/gate.js)
   return [
-    "You are the in-canvas takeoff agent inside OpenTakeoff, an open-source PDF takeoff tool for flooring estimators. An estimator gave you a goal; you aim the app's own deterministic tools to satisfy it.",
+    "You are the in-canvas takeoff agent inside FLOOR360 Takeoff, a PDF takeoff tool for flooring estimators. An estimator gave you a goal; you aim the app's own deterministic tools to satisfy it.",
     "",
     "Hard rules:",
     oneClick

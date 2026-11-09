@@ -17,10 +17,10 @@ export const STRIPPED_HOSTS = [
   "googleapis.com",
   "accounts.google.com",
 ];
-// opentakeoff.kentucky-ai.com is not stripped. The plan-set home screen must
-// keep the AGPL section 7(b) attribution link to that host, and the optional
-// document footer uses the same host. It is a notice the program displays,
-// not a service this build calls.
+// opentakeoff.kentucky-ai.com is not stripped. The optional document watermark
+// footer (web/src/lib/branding.js, default off) uses that host. The plan-set
+// home screen does not link it. It is a notice the program can display, not a
+// service this build calls.
 
 export const ALLOWED_MICROSOFT_HOSTS = [
   "login.microsoftonline.com",

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadCompany, saveCompany, LOGO_LIMIT, loadProfiles, saveProfiles, addProfile, setActiveProfile, updateActiveProfile, removeProfile, activeProfile } from "../src/lib/identity.js";
-import { resolveBranding, OT_NAME } from "../src/lib/branding.js";
+import { resolveBranding, APP_NAME } from "../src/lib/branding.js";
 import { buildBidProposal } from "../src/lib/bidProposal.js";
 import { estimateWorkbook } from "../src/lib/estimateExport.js";
 
@@ -150,7 +150,7 @@ test("documents trim company text and omit a blank-only name", () => {
   });
   assert.equal(blank.company?.name, undefined);
   assert.equal(blank.company?.address, undefined);
-  assert.equal(blank.brandName, OT_NAME);
+  assert.equal(blank.brandName, APP_NAME);
 
   const est = { total: 0, lines: [], complete: true, unpriced: [] };
   const proposal = buildBidProposal({

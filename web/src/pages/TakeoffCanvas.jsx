@@ -2170,7 +2170,7 @@ export default function TakeoffCanvas() {
     catch (e) { setCommitMsg(`Couldn't read those files: ${e.message || e}`); return; }
     if (!pdfs.length) {
       setCommitMsg(skipped.length
-        ? `Nothing to open — ${skipped.length} file${skipped.length === 1 ? "" : "s"} skipped. OpenTakeoff reads PDFs, images, and .zip plan sets.`
+        ? `Nothing to open — ${skipped.length} file${skipped.length === 1 ? "" : "s"} skipped. FLOOR360 Takeoff reads PDFs, images, and .zip plan sets.`
         : "No supported files found. Drop a PDF, an image, or a .zip plan set.");
       return;
     }
@@ -3679,7 +3679,7 @@ export default function TakeoffCanvas() {
       await backupProfileFile();
       await resetProfileDefaults();
       await refreshLibraries();
-      setCommitMsg("Profile reset to OpenTakeoff defaults — your previous setup downloaded as opentakeoff-profile-backup.otprofile (Import profile restores it). Project takeoffs are untouched.");
+      setCommitMsg("Profile reset to FLOOR360 Takeoff defaults — your previous setup downloaded as opentakeoff-profile-backup.otprofile (Import profile restores it). Project takeoffs are untouched.");
     } catch (e) { setCommitMsg(`Couldn't reset profile: ${e?.message || e}`); }
   };
 
@@ -9432,7 +9432,7 @@ export default function TakeoffCanvas() {
   });
   sheetMenuItems.push({
     id: "reset-profile", icon: "undo", label: "Reset profile to defaults",
-    title: "Back to a stock OpenTakeoff setup — empty template/material libraries, the default stamps, no report customization. Your company setup is kept. Your current setup downloads as a backup first; project takeoffs are untouched.",
+    title: "Back to a stock FLOOR360 Takeoff setup — empty template/material libraries, the default stamps, no report customization. Your company setup is kept. Your current setup downloads as a backup first; project takeoffs are untouched.",
     onSelect: resetProfile,
   });
 
@@ -9578,7 +9578,7 @@ export default function TakeoffCanvas() {
     { id: "estimate", label: "Estimate — price the takeoff", group: "Workspace", run: openEstimate },
     { id: "company-setup", label: "Company setup — logo, markups, proposal terms", group: "Workspace", run: () => setCompanySetupOpen(true) },
     { id: "tour", label: "Guided first takeoff — learn it on the sample plan", group: "Help", run: startTour },
-    { id: "guide", label: "How OpenTakeoff works — shortcuts and the five-minute path", group: "Help", shortcut: "?", run: () => setGuideOpen(true) },
+    { id: "guide", label: "How FLOOR360 Takeoff works — shortcuts and the five-minute path", group: "Help", shortcut: "?", run: () => setGuideOpen(true) },
     { id: "connect-ai", label: "Connect your AI — Claude, Codex, Cursor", group: "Help", run: () => setConnectOpen(true) },
     { id: "work", label: "Open work and review", group: "Workspace", run: () => setAgentOpen(true) },
     { id: "layout", label: "Arrange and save your layout", group: "Workspace", run: () => setWorkspaceLayoutOpen(true) },
@@ -10696,7 +10696,7 @@ export default function TakeoffCanvas() {
         onCollapse={toggleFocusMode} onLayout={() => setWorkspaceLayoutOpen(true)}
         helpItems={[
           { id: "tour", label: "Guided first takeoff", onSelect: startTour },
-          { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+          { id: "guide", label: "How FLOOR360 Takeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
           { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
           { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },
         ]} />}
@@ -10946,7 +10946,7 @@ export default function TakeoffCanvas() {
           items={[
             ...(premiumUpsell ? [{ id: "premium-interest", label: "Request Premium — join the early-access list", highlight: true, onSelect: () => setPremiumOpen(true) }] : []),
             { id: "workspace-preview", label: workspaceLayout ? "Classic layout" : "Premium layout — compact controls", onSelect: () => workspacePrefs.setEnabled(!workspaceLayout) },
-            { id: "guide", label: "How OpenTakeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
+            { id: "guide", label: "How FLOOR360 Takeoff works", shortcut: "?", onSelect: () => setGuideOpen(true) },
             { id: "tour", label: "Guided first takeoff", onSelect: startTour },
             { id: "assistant", label: "Assistant — talk to your own AI here", onSelect: openAssistant },
           { id: "connect-ai", label: "Connect your AI", onSelect: () => setConnectOpen(true) },

@@ -33,7 +33,7 @@ export function registerResources(server: McpServer, session: Session): void {
   for (const page of WIKI_PAGES) {
     server.registerResource(`wiki-${page.key}`, page.uri, {
       title: page.title,
-      description: `OpenTakeoff ${WIKI_VERSION} knowledge: ${page.title}. Read only when relevant; no session mutation.`,
+      description: `FLOOR360 Takeoff ${WIKI_VERSION} knowledge: ${page.title}. Read only when relevant; no session mutation.`,
       mimeType: "text/markdown",
     }, async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown",
       text: `Packaged with MCP ${WIKI_VERSION}. Source: ${page.source} (SHA-256 of LF-normalized text: ${page.source_sha256}). Repository source links browse main and may be newer.\n\n${page.text}`,

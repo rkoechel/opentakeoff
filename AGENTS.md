@@ -37,7 +37,18 @@ conventions. Key requirements:
   MCP/protocol checks. A merge to `main` deploys production; verify the changed
   app behavior and wait for required checks before merging.
 - Scheduled jobs run from Azure with alerts to Ryan. GitHub Actions is CI and
-  builds only — do not add a schedule or cron workflow.
+  builds only — do not add a schedule or cron workflow. FLOOR360 scheduled jobs
+  run from Azure only.
+- A branding guard runs in the existing web test job
+  (`web/test/floor360Branding.test.ts`). It fails if user-facing web source or
+  assets, including the privacy and terms pages, show "OpenTakeoff", "Kentucky
+  AI", "Michael Edlin", a Kentucky AI URL, the split `open`/`takeoff` wordmark,
+  or the marked-set cover star (`drawSvgPath(starPath…)`). The commented
+  allowlist in that test is only for internal exceptions: package names,
+  imports, protocol and MCP ids, the registry id
+  `io.github.Kentucky-ai/opentakeoff`, env vars, the SharePoint folder
+  "OpenTakeoff Projects", the DXF stamp `OpenTakeoff DXF export`, and the
+  watermark strings in `web/src/lib/branding.js` (default off).
 - The OpenTakeoff document watermark is off unless the web build is made with
   `VITE_OT_WATERMARK=1` or `true`, or the MCP server is started with
   `OT_WATERMARK=1` or `true`. `stampWatermark` returns immediately when the flag

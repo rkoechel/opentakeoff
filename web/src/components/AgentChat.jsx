@@ -95,12 +95,12 @@ function ConnectState({ onOpenSettings, onOpenConnect, compact = false }) {
       <h3>Connect your model to chat</h3>
       <p>
         The chat runs on a model you bring — your own API key and endpoint, or a local runtime.
-        It reads this project with OpenTakeoff's own tools and stages dashed proposals you accept or reject.
+        It reads this project with FLOOR360 Takeoff's own tools and stages dashed proposals you accept or reject.
         Nothing is sent anywhere until you connect one.
       </p>
       <button type="button" className="ac-btn ac-btn-primary" onClick={onOpenSettings}>AI settings…</button>
       <p className="ac-muted">
-        Using Claude Desktop, Codex or Cursor? Connect them to OpenTakeoff over MCP instead.{" "}
+        Using Claude Desktop, Codex or Cursor? Connect them to FLOOR360 Takeoff over MCP instead.{" "}
         <button type="button" className="ac-link" onClick={onOpenConnect}>Connect your AI</button>
       </p>
     </div>
@@ -211,7 +211,7 @@ export default function AgentChat({
             <div className="ac-empty">
               <div className="ac-hello">
                 <h3>What should we work on?</h3>
-                <p>Ask about this project. Your model reads the sheets with OpenTakeoff's tools; anything it measures lands as a dashed proposal for you to accept or reject.</p>
+                <p>Ask about this project. Your model reads the sheets with FLOOR360 Takeoff's tools; anything it measures lands as a dashed proposal for you to accept or reject.</p>
               </div>
               <div className="ac-starters">
                 {CHAT_SUGGESTIONS.map((s) => (
