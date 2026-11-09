@@ -2786,7 +2786,7 @@ test("RFIs in the marked set: an agent-raised RFI prints exactly like a panel-ra
   // it on the LAST page), never on the row
   const agentLast = (await pageText(agentPdf.data.path, 3)).join(" ");
   const panelLast = (await pageText(panelPdf.data.path, 3)).join(" ");
-  assert.match(agentLast, /Agent-raised via FLOOR360 Takeoff — 1 agent-raised RFI pending acceptance/);
+  assert.match(agentLast, /Agent-raised via OpenTakeoff MCP — 1 agent-raised RFI pending acceptance/);
   assert.doesNotMatch(panelLast, /pending acceptance/);
   const agentRec = (await call(agent, "export_takeoff", {})).data.rfis[0];
   const panelRec = (await call(panel, "export_takeoff", {})).data.rfis[0];
