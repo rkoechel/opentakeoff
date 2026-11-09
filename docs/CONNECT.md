@@ -63,13 +63,9 @@ Any client that runs local ("stdio") MCP servers takes the same entry. In Cursor
 
 ## Claude Desktop
 
-1. Download **[opentakeoff-mcp.mcpb](https://github.com/Kentucky-ai/opentakeoff/releases/latest/download/opentakeoff-mcp.mcpb)**
-   (this link always points at the newest release).
-2. Double-click it. Claude Desktop opens an install prompt; confirm it.
-
-The bundle carries its own dependencies, so no Node or npm install is needed. It leaves out
-the optional native renderer on purpose: every measuring and export tool works, but
-`view_sheet` cannot draw sheet images and says so when asked.
+Claude Desktop reads a local config. Open Settings → Developer → Edit Config and add the
+same JSON as Cursor, above. Restart Claude Desktop. The server installs from npm
+(`opentakeoff-mcp`), so Node 20+ is required and there is no separate download.
 
 ## claude.ai, the Claude mobile app, and ChatGPT
 
@@ -84,12 +80,12 @@ The repository's demo plan is a real public floor finish plan (VA St. Cloud, she
 with its finish schedule on AF600). Download it into a folder:
 
 ```bash
-curl -LO https://github.com/Kentucky-ai/opentakeoff/raw/main/demo/sample-finish-plan.pdf
+curl -LO https://github.com/rkoechel/opentakeoff/raw/main/demo/sample-finish-plan.pdf
 ```
 
 Start your agent in that folder and ask:
 
-> Using OpenTakeoff, load sample-finish-plan.pdf and tell me how many sheets it has, each
+> Using FLOOR360 Takeoff, load sample-finish-plan.pdf and tell me how many sheets it has, each
 > sheet's number, and the detected scale.
 
 You should get two sheets: **AF101** at **1/8" = 1'-0"** and **AF600** with no scale found.

@@ -198,6 +198,15 @@ test("putJson creates when no existingId, updates when given one", async () => {
   assert.match(calls[1].url, /uploadType=media/);
 });
 
+test("getItem reads the folder's own name", async () => {
+  const { fetch, calls } = stubFetch([makeRes({ json: { id: "job1", name: "Acme HQ", mimeType: "application/vnd.google-apps.folder" } })]);
+  const drive = createDrive({ getToken, fetch });
+  assert.deepEqual(await drive.getItem("job1"), { id: "job1", name: "Acme HQ", mimeType: "application/vnd.google-apps.folder", modifiedTime: undefined });
+  assert.match(calls[0].url, /\/files\/job1\?/);
+  assert.match(calls[0].url, /fields=id%2Cname%2CmimeType%2CmodifiedTime|fields=id,name,mimeType,modifiedTime/);
+  assert.equal(calls[0].headers.Authorization, "Bearer tok");
+});
+
 test("non-2xx responses throw with the HTTP status and body", async () => {
   const { fetch } = stubFetch([makeRes({ ok: false, status: 403, text: "insufficientPermissions" })]);
   const drive = createDrive({ getToken, fetch });

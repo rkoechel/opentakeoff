@@ -80,6 +80,17 @@ export function createDrive({ getToken, fetch = globalThis.fetch }) {
     return f ? { id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime } : null;
   }
 
+  async function getItem(fileId) {
+    const params = new URLSearchParams({
+      fields: "id,name,mimeType,modifiedTime",
+      supportsAllDrives: "true",
+    });
+    const res = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}?${params}`, { headers: await authHeaders() });
+    await assertOk(res, "get");
+    const f = await res.json();
+    return { id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime };
+  }
+
   async function getFileBytes(fileId) {
     const params = new URLSearchParams({ alt: "media", supportsAllDrives: "true" });
     const res = await fetch(`${FILES_URL}/${encodeURIComponent(fileId)}?${params}`, { headers: await authHeaders() });
@@ -165,5 +176,5 @@ export function createDrive({ getToken, fetch = globalThis.fetch }) {
     await assertOk(res, "delete");
   }
 
-  return { listChildren, findChild, getFileBytes, getJson, createFolder, uploadFile, updateFileBytes, putJson, deleteFile };
+  return { listChildren, findChild, getItem, getFileBytes, getJson, createFolder, uploadFile, updateFileBytes, putJson, deleteFile };
 }

@@ -4,7 +4,7 @@
 // fail-safe, exercised directly.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { floor360PrivateBuild, floor360M365Env, lockSyncConfig, lockedEndpoint, FLOOR360_TENANT_ID, M365_SYNC_ENV_KEYS, PRIVATE_LOCKED_ENV_KEYS } from "../src/lib/privateBuild.js";
+import { floor360PrivateBuild, floor360M365Env, lockSyncConfig, lockedEndpoint, showContributeFlow, FLOOR360_TENANT_ID, M365_SYNC_ENV_KEYS, PRIVATE_LOCKED_ENV_KEYS } from "../src/lib/privateBuild.js";
 import { oneClickDecision } from "../src/lib/gate.js";
 import { m365Config } from "../src/lib/msgraph/config.js";
 import { sourceHref, sourceLabel } from "../src/lib/sourceLink.js";
@@ -12,7 +12,7 @@ import { sourceHref, sourceLabel } from "../src/lib/sourceLink.js";
 test("node is not the private build, so source falls back to the repo", () => {
   assert.equal(floor360PrivateBuild(), false);
   assert.equal(sourceHref(), "https://github.com/rkoechel/opentakeoff");
-  assert.equal(sourceLabel(), "Source");
+  assert.equal(sourceLabel(), "Source code (AGPL)");
 });
 
 test("one-click follows the build's VITE_ONE_CLICK on a private build and ignores the runtime lift", () => {
@@ -41,6 +41,11 @@ test("an unlocked env object still configures M365", () => {
   const cfg = m365Config({ VITE_MSAL_CLIENT_ID: "app", VITE_GRAPH_DRIVE_ID: "d1" });
   assert.equal(cfg?.clientId, "app");
   assert.equal(cfg?.driveId, "d1");
+});
+
+test("the private build hides the upstream contribute control", () => {
+  assert.equal(showContributeFlow(true), false);
+  assert.equal(showContributeFlow(false), true);
 });
 
 test("contribute ignores storage and the build endpoint when locked", () => {

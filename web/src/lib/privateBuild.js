@@ -52,6 +52,12 @@ export function showPremiumUpsell(privateBuild = floor360PrivateBuild()) {
   return !privateBuild;
 }
 
+/** The report's Contribute control posts derived takeoff data to the upstream
+ *  open-flooring-model endpoint. The FLOOR360 private build never shows it. */
+export function showContributeFlow(privateBuild = floor360PrivateBuild()) {
+  return !privateBuild;
+}
+
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Graph drive ids for SharePoint libraries are "b!" + url-safe base64.
 const DRIVE_ID = /^b![A-Za-z0-9_-]{20,200}$/;

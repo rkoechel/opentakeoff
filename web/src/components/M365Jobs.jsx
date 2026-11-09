@@ -22,17 +22,14 @@ import { byteBudget } from "../lib/pdfBytes";
 import { UNASSIGNED_GROUP, createProject, filterProjectGroups, jobHref, listProjectGroups, projectErrorMessage } from "../lib/msgraph/projects.js";
 import { floor360PrivateBuild } from "../lib/privateBuild.js";
 import AiDraftsSection from "./AiDraftsSection.jsx";
+import { Wordmark } from "../brand/marks.jsx";
 
 const centered = {
   minHeight: "100vh", display: "flex", flexDirection: "column",
   alignItems: "center", justifyContent: "center", gap: 14, padding: 24,
   textAlign: "center", background: "var(--paper-bright)", color: "var(--ink)",
 };
-const brand = (
-  <strong style={{ fontFamily: "var(--f-display)", fontSize: 20, letterSpacing: "-0.02em" }}>
-    open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span>
-  </strong>
-);
+const brand = <Wordmark size={20} />;
 const primaryBtn = {
   padding: "9px 16px", border: "1px solid var(--ink)", background: "var(--ink)",
   color: "var(--paper-bright)", cursor: "pointer", fontWeight: 600, fontSize: 13.5,

@@ -277,6 +277,19 @@ export function createCloudStore(folderId, drive, { local = localStore, maxPdfBy
     return new Uint8Array(bytes);
   }
 
+  // The job folder's display name (SharePoint or Drive). The takeoff document's
+  // project_name is an optional report label and is often blank; the folder
+  // the user opened is the name on the projects list.
+  async function folderName() {
+    if (typeof drive.getItem !== "function") return "";
+    try {
+      const it = await drive.getItem(folderId);
+      return typeof it?.name === "string" ? it.name.trim() : "";
+    } catch {
+      return "";
+    }
+  }
+
   return {
     async listSheets() {
       // Metadata/JSON only — deliberately NO getFileBytes on any PDF. Read the
@@ -480,6 +493,7 @@ export function createCloudStore(folderId, drive, { local = localStore, maxPdfBy
     // in different `.opentakeoff` folders. main.jsx injects THIS store's memoized
     // create-once resolver (and the non-creating read-path variant) into both sync
     // layers so they all agree on one folder. Additive; unused on the legacy path.
+    folderName,
     ensureSidecarId,
     findSidecarFolder,
   };

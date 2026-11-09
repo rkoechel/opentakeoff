@@ -151,6 +151,12 @@ export function createGraphDrive({ getToken, driveId, fetch = globalThis.fetch, 
     return record(await res.json());
   }
 
+  async function getItem(id) {
+    const res = await graphFetch(`${item(id)}?$select=id,name,folder,file,lastModifiedDateTime,size`, { headers: await authHeaders() });
+    await assertOk(res, "get");
+    return record(await res.json());
+  }
+
   async function getFileBytes(fileId) {
     // The item's pre-authenticated download URL, fetched BARE (no bearer): the
     // documented browser path, and the one that does not depend on what a
@@ -243,5 +249,5 @@ export function createGraphDrive({ getToken, driveId, fetch = globalThis.fetch, 
     await assertOk(res, "delete");
   }
 
-  return { listChildren, findChild, getFileBytes, getJson, createFolder, uploadFile, updateFileBytes, putJson, deleteFile };
+  return { listChildren, findChild, getItem, getFileBytes, getJson, createFolder, uploadFile, updateFileBytes, putJson, deleteFile };
 }

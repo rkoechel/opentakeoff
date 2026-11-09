@@ -6,6 +6,7 @@ import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/print.css";   // OT-only print block — kept out of app.css so tokens/app stay byte-synced with Spline
 import TakeoffCanvas from "./pages/TakeoffCanvas.jsx";
+import { Wordmark } from "./brand/marks.jsx";
 import ProjectHome from "./components/ProjectHome.jsx";
 import { GoogleAuthProvider, useGoogleAuth } from "./lib/google/AuthContext.jsx";
 import { projectIdFromUrl, setActiveStore, metaGet, metaDelete } from "./lib/store.js";
@@ -50,11 +51,7 @@ const centered = {
   alignItems: "center", justifyContent: "center", gap: 14, padding: 24,
   textAlign: "center", background: "var(--paper-bright)", color: "var(--ink)",
 };
-const brand = (
-  <strong style={{ fontFamily: "var(--f-display)", fontSize: 20, letterSpacing: "-0.02em" }}>
-    open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span>
-  </strong>
-);
+const brand = <Wordmark size={20} />;
 
 function Centered({ title, body }) {
   return (

@@ -21,6 +21,7 @@ import { buildSheetDxf, dxfFileName, DXF_MIME } from "../lib/dxf.js";
 import { rfisToCsv, rfisToJson } from "../lib/rfi.js";
 import { reportWorkbook, buildXlsx } from "../lib/xlsx.js";
 import { buildContribution, sendContribution, isContributeConfigured } from "../lib/contribute.js";
+import { showContributeFlow } from "../lib/privateBuild.js";
 import { activeTheme, saveActiveThemeFile, clearActiveTheme } from "../lib/reportTheme.js";
 import { activeProfile, loadProfiles } from "../lib/identity.js";
 import { useCompanyProfiles, CompanyIdentityFields } from "./CompanyIdentity.jsx";
@@ -636,10 +637,12 @@ export default function ReportPanel({ projectName, onProjectName, conditions, sh
               title="RFI log as JSON"><Icon name="rfi" size={13} />RFI JSON</button>
           </>
         )}
-        <button className="btn-primary" onClick={() => setShowContribute(true)} disabled={!rows.length}
-          title="Optionally contribute this takeoff's derived data to the open flooring model">
-          <Icon name="oneClick" size={13} />Contribute
-        </button>
+        {showContributeFlow() && (
+          <button className="btn-primary" onClick={() => setShowContribute(true)} disabled={!rows.length}
+            title="Optionally contribute this takeoff's derived data to the open flooring model">
+            <Icon name="oneClick" size={13} />Contribute
+          </button>
+        )}
         <button onClick={onClose} title="Back to the canvas (Esc)"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink)", cursor: "pointer", fontSize: 12.5 }}>
           <Icon name="close" size={12} />Close
@@ -953,7 +956,7 @@ export default function ReportPanel({ projectName, onProjectName, conditions, sh
         </td></tr></tbody></table>
       </div>
 
-      {showContribute && (
+      {showContributeFlow() && showContribute && (
         <ContributeModal conditions={conditions} shapes={shapes} scaleInfo={scaleInfo} provenanceCounters={provenanceCounters} onClose={() => setShowContribute(false)} />
       )}
       {showInfo && (

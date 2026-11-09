@@ -1,7 +1,7 @@
-// OpenTakeoff brand marks. Neutral, paper/ink/cobalt — the same token palette as
-// the rest of the app. (No relation to any private branding.)
+// FLOOR360 Takeoff wordmark. Neutral, paper/ink/cobalt — the same token palette
+// as the rest of the app.
 
-export function Wordmark({ size = 96, color = "var(--ink)", weight = 800, letterSpacing = "-0.03em" }) {
+export function Wordmark({ size = 20, color = "var(--ink)", weight = 800, letterSpacing = "-0.03em" }) {
   return (
     <span
       style={{
@@ -13,11 +13,12 @@ export function Wordmark({ size = 96, color = "var(--ink)", weight = 800, letter
         color,
         display: "inline-flex",
         alignItems: "baseline",
-        gap: "0.12em",
+        gap: "0.28em",
         fontOpticalSizing: "auto",
       }}
     >
-      open<span style={{ fontStyle: "italic", color: "var(--cobalt)" }}>takeoff</span>
+      <span>FLOOR<span style={{ color: "var(--cobalt)" }}>360</span></span>
+      <span style={{ fontWeight: 650 }}>Takeoff</span>
     </span>
   );
 }
