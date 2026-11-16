@@ -4,6 +4,7 @@
 
 import { PDFDocument, degrees } from "pdf-lib";
 import { normalizeAngle } from "./pageTransforms.ts";
+import { PDF_PRODUCER } from "./pdfProducer.js";
 
 /**
  * Rotate a single page in a PDF document by 90°, 180°, or 270° clockwise.
@@ -30,7 +31,7 @@ export async function rotatePdfPage(
   const currentAngle = page.getRotation().angle;
   const newAngle = ((currentAngle + normAngle) % 360 + 360) % 360;
   page.setRotation(degrees(newAngle));
-  doc.setProducer("OpenTakeoff");
+  doc.setProducer(PDF_PRODUCER);
 
   return await doc.save({ useObjectStreams: false });
 }
@@ -83,7 +84,7 @@ export async function reorderPdfPages(
   for (let i = 0; i < totalPages; i++) {
     doc.removePage(0);
   }
-  doc.setProducer("OpenTakeoff");
+  doc.setProducer(PDF_PRODUCER);
 
   return await doc.save({ useObjectStreams: false });
 }
@@ -110,7 +111,7 @@ export async function deletePdfPage(
   }
 
   doc.removePage(pageNumber - 1);
-  doc.setProducer("OpenTakeoff");
+  doc.setProducer(PDF_PRODUCER);
   return await doc.save({ useObjectStreams: false });
 }
 
@@ -147,7 +148,7 @@ export async function extractPdfPages(
   for (let i = 0; i < totalPages; i++) {
     doc.removePage(0);
   }
-  doc.setProducer("OpenTakeoff");
+  doc.setProducer(PDF_PRODUCER);
 
   return await doc.save({ useObjectStreams: false });
 }
@@ -187,7 +188,7 @@ export async function mergePdfDocuments(
     }
   }
 
-  mergedDoc.setProducer("OpenTakeoff");
+  mergedDoc.setProducer(PDF_PRODUCER);
   return await mergedDoc.save({ useObjectStreams: false });
 }
 
@@ -215,7 +216,7 @@ export async function insertPdfPages(
     targetDoc.insertPage(insertIndex + i, copiedPages[i]);
   }
 
-  targetDoc.setProducer("OpenTakeoff");
+  targetDoc.setProducer(PDF_PRODUCER);
   const pdfBytes = await targetDoc.save({ useObjectStreams: false });
   return { pdfBytes, insertedCount: copiedPages.length };
 }

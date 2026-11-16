@@ -11,6 +11,7 @@ import {
   mergePdfDocuments,
   insertPdfPages,
 } from "../src/lib/pdfPageTools.ts";
+import { PDF_PRODUCER } from "../src/lib/pdfProducer.js";
 
 const SAMPLE_PATH = fileURLToPath(new URL("../public/demo/sample-finish-plan.pdf", import.meta.url));
 const sampleBytes = new Uint8Array(readFileSync(SAMPLE_PATH));
@@ -107,4 +108,20 @@ test("PDF layers (/OCProperties) are preserved across reorder, extract, delete, 
   const docMerged = await PDFDocument.load(merged);
   assert.equal(docMerged.getPageCount(), 3);
   assert.ok(docMerged.catalog.has(ocProps), "merge must preserve /OCProperties");
+});
+
+test("every page tool stamps the FLOOR360 Producer on the PDF it writes", async () => {
+  const outputs: Record<string, Uint8Array> = {
+    rotate: await rotatePdfPage(sampleBytes, 1, 90),
+    reorder: await reorderPdfPages(sampleBytes, [2, 1]),
+    delete: await deletePdfPage(sampleBytes, 1),
+    extract: await extractPdfPages(sampleBytes, [1]),
+    merge: await mergePdfDocuments([sampleBytes, sampleBytes]),
+    insert: (await insertPdfPages(sampleBytes, sampleBytes, 1)).pdfBytes,
+  };
+  for (const [tool, bytes] of Object.entries(outputs)) {
+    const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+    assert.equal(doc.getProducer(), PDF_PRODUCER, tool);
+  }
+  assert.equal(readFileSync(new URL("../src/lib/pdfPageTools.ts", import.meta.url), "utf8").includes('"OpenTakeoff"'), false);
 });
