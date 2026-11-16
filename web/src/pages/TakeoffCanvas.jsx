@@ -3912,6 +3912,8 @@ export default function TakeoffCanvas() {
       const prevScaleUnconfirmed = scaleUnconfirmed;
       const prevDetectedScales = detectedScales;
       const prevDoorAnswers = doorAnswers;
+      const prevNtsSheets = ntsSheets;
+      const prevAutoTakeoff = autoTakeoff;
       const prevSheetLevels = sheetLevels;
       const prevSheetGroup = sheetGroup;
       const prevLastGroup = lastGroup;
@@ -3930,7 +3932,7 @@ export default function TakeoffCanvas() {
         {
           shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
           sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis,
-          sheetRotations: prevRotations, doorAnswers,
+          sheetRotations: prevRotations, doorAnswers, ntsSheets, autoTakeoff,
         },
         remap
       );
@@ -3948,6 +3950,8 @@ export default function TakeoffCanvas() {
       setScaleUnconfirmed(remapped.scaleUnconfirmed);
       setDetectedScales(remapped.detectedScales || {});
       setDoorAnswers(remapped.doorAnswers || {});
+      setNtsSheets(remapped.ntsSheets);
+      setAutoTakeoff(remapped.autoTakeoff ?? null);
       setSheetLevels(remapped.sheetLevels);
       setSheetGroup(remapped.sheetGroup);
       setLastGroup(remapped.lastGroup);
@@ -3978,6 +3982,8 @@ export default function TakeoffCanvas() {
             setScaleUnconfirmed(prevScaleUnconfirmed);
             setDetectedScales(prevDetectedScales);
             setDoorAnswers(prevDoorAnswers);
+            setNtsSheets(prevNtsSheets);
+            setAutoTakeoff(prevAutoTakeoff);
             setSheetLevels(prevSheetLevels);
             setSheetGroup(prevSheetGroup);
             setLastGroup(prevLastGroup);
@@ -4029,6 +4035,8 @@ export default function TakeoffCanvas() {
       const prevScaleUnconfirmed = scaleUnconfirmed;
       const prevDetectedScales = detectedScales;
       const prevDoorAnswers = doorAnswers;
+      const prevNtsSheets = ntsSheets;
+      const prevAutoTakeoff = autoTakeoff;
       const prevSheetLevels = sheetLevels;
       const prevSheetGroup = sheetGroup;
       const prevLastGroup = lastGroup;
@@ -4045,7 +4053,7 @@ export default function TakeoffCanvas() {
         {
           shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
           sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis,
-          sheetRotations: prevRotations, doorAnswers,
+          sheetRotations: prevRotations, doorAnswers, ntsSheets, autoTakeoff,
         },
         remap
       );
@@ -4063,6 +4071,8 @@ export default function TakeoffCanvas() {
       setScaleUnconfirmed(remapped.scaleUnconfirmed);
       setDetectedScales(remapped.detectedScales || {});
       setDoorAnswers(remapped.doorAnswers || {});
+      setNtsSheets(remapped.ntsSheets);
+      setAutoTakeoff(remapped.autoTakeoff ?? null);
       setSheetLevels(remapped.sheetLevels);
       setSheetGroup(remapped.sheetGroup);
       setLastGroup(remapped.lastGroup);
@@ -4090,6 +4100,8 @@ export default function TakeoffCanvas() {
             setScaleUnconfirmed(prevScaleUnconfirmed);
             setDetectedScales(prevDetectedScales);
             setDoorAnswers(prevDoorAnswers);
+            setNtsSheets(prevNtsSheets);
+            setAutoTakeoff(prevAutoTakeoff);
             setSheetLevels(prevSheetLevels);
             setSheetGroup(prevSheetGroup);
             setLastGroup(prevLastGroup);
@@ -4174,7 +4186,7 @@ export default function TakeoffCanvas() {
       const carriedState = remapWorkspaceState(
         {
           shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
-          sheetLevels, layerOverrides, rfis, stitches, doorAnswers,
+          sheetLevels, layerOverrides, rfis, stitches, doorAnswers, ntsSheets,
         },
         remap
       );
@@ -4199,6 +4211,9 @@ export default function TakeoffCanvas() {
         sheet_tabs: [outName],
         stitches: carriedState.stitches || [],
         door_answers: carriedState.doorAnswers || carriedState.door_answers || {},
+        nts_sheets: carriedState.ntsSheets || [],
+        // the draft's run and bid belong to the open project, not to a copy of some of its pages
+        floor360AutoTakeoff: null,
       });
 
       const otkData = await buildProjectArchive({
@@ -4267,6 +4282,8 @@ export default function TakeoffCanvas() {
       const prevScaleUnconfirmed = scaleUnconfirmed;
       const prevDetectedScales = detectedScales;
       const prevDoorAnswers = doorAnswers;
+      const prevNtsSheets = ntsSheets;
+      const prevAutoTakeoff = autoTakeoff;
       const prevSheetLevels = sheetLevels;
       const prevSheetGroup = sheetGroup;
       const prevLastGroup = lastGroup;
@@ -4282,7 +4299,7 @@ export default function TakeoffCanvas() {
         {
           shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
           sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis,
-          sheetRotations: prevRotations, doorAnswers,
+          sheetRotations: prevRotations, doorAnswers, ntsSheets, autoTakeoff,
         },
         remap
       );
@@ -4305,6 +4322,8 @@ export default function TakeoffCanvas() {
       setScaleUnconfirmed(remapped.scaleUnconfirmed);
       setDetectedScales(remapped.detectedScales || {});
       setDoorAnswers(remapped.doorAnswers || {});
+      setNtsSheets(remapped.ntsSheets);
+      setAutoTakeoff(remapped.autoTakeoff ?? null);
       setSheetLevels(remapped.sheetLevels);
       setSheetGroup(remapped.sheetGroup);
       setLastGroup(remapped.lastGroup);
@@ -4336,6 +4355,8 @@ export default function TakeoffCanvas() {
             setScaleUnconfirmed(prevScaleUnconfirmed);
             setDetectedScales(prevDetectedScales);
             setDoorAnswers(prevDoorAnswers);
+            setNtsSheets(prevNtsSheets);
+            setAutoTakeoff(prevAutoTakeoff);
             setSheetLevels(prevSheetLevels);
             setSheetGroup(prevSheetGroup);
             setLastGroup(prevLastGroup);
@@ -4393,6 +4414,8 @@ export default function TakeoffCanvas() {
         const prevScaleUnconfirmed = scaleUnconfirmed;
         const prevDetectedScales = detectedScales;
         const prevDoorAnswers = doorAnswers;
+        const prevNtsSheets = ntsSheets;
+        const prevAutoTakeoff = autoTakeoff;
         const prevSheetLevels = sheetLevels;
         const prevSheetGroup = sheetGroup;
         const prevLastGroup = lastGroup;
@@ -4411,7 +4434,7 @@ export default function TakeoffCanvas() {
           {
             shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
             sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis,
-            sheetRotations: prevRotations, doorAnswers,
+            sheetRotations: prevRotations, doorAnswers, ntsSheets, autoTakeoff,
           },
           remap
         );
@@ -4429,6 +4452,8 @@ export default function TakeoffCanvas() {
         setScaleUnconfirmed(remapped.scaleUnconfirmed);
         setDetectedScales(remapped.detectedScales || {});
         setDoorAnswers(remapped.doorAnswers || {});
+        setNtsSheets(remapped.ntsSheets);
+        setAutoTakeoff(remapped.autoTakeoff ?? null);
         setSheetLevels(remapped.sheetLevels);
         setSheetGroup(remapped.sheetGroup);
         setLastGroup(remapped.lastGroup);
@@ -4456,6 +4481,8 @@ export default function TakeoffCanvas() {
               setScaleUnconfirmed(prevScaleUnconfirmed);
               setDetectedScales(prevDetectedScales);
               setDoorAnswers(prevDoorAnswers);
+              setNtsSheets(prevNtsSheets);
+              setAutoTakeoff(prevAutoTakeoff);
               setSheetLevels(prevSheetLevels);
               setSheetGroup(prevSheetGroup);
               setLastGroup(prevLastGroup);

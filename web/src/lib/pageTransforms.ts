@@ -298,6 +298,10 @@ export interface WorkspaceSheetState {
   sheetRotations?: Record<string, { angle: number; hash: string }>;
   doorAnswers?: Record<string, any>;
   door_answers?: Record<string, any>;
+  ntsSheets?: string[];
+  nts_sheets?: string[];
+  autoTakeoff?: Record<string, any> | null;
+  floor360AutoTakeoff?: Record<string, any> | null;
   sheet_tabs?: string[];
   sheet_group?: string[];
   last_group?: string[];
@@ -308,7 +312,8 @@ export interface WorkspaceSheetState {
 /**
  * Pure function that remaps EVERY per-sheet data structure in OpenTakeoff
  * (shapes, markups, approvals, scales, scaleSources, scaleUnconfirmed, detectedScales,
- * sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis, sheets).
+ * sheetLevels, sheetGroup, lastGroup, openTabs, stitches, layerOverrides, rfis, sheets,
+ * the FLOOR360 NTS sheets and the auto-takeoff draft's findings).
  * Items mapped to null are dropped (deleted).
  */
 export function remapWorkspaceState<T extends WorkspaceSheetState>(
@@ -460,8 +465,33 @@ export function remapWorkspaceState<T extends WorkspaceSheetState>(
     }
   }
 
+  // FLOOR360 scale review: a sheet marked NTS keeps the mark through a move,
+  // and a deleted page leaves the list.
+  const rawNts = state.ntsSheets || state.nts_sheets || [];
+  const ntsSheets = [...new Set(rawNts
+    .map(remapKey)
+    .filter((k): k is string => typeof k === "string" && k.length > 0))];
+
+  // FLOOR360 auto-takeoff draft: each finding names its sheet. A finding on a
+  // deleted page is dropped; one with no sheet stays.
+  const remapDraft = (at: Record<string, any> | null | undefined) => {
+    if (!at || typeof at !== "object" || !Array.isArray(at.findings)) return at;
+    const findings = at.findings
+      .map((f: any) => {
+        if (!f || typeof f !== "object" || typeof f.sheet !== "string" || !f.sheet) return f;
+        const nextKey = remapKey(f.sheet);
+        return nextKey ? { ...f, sheet: nextKey } : null;
+      })
+      .filter((f: any) => f !== null);
+    return { ...at, findings };
+  };
+  const draftKeys: Record<string, any> = {};
+  if ("autoTakeoff" in state) draftKeys.autoTakeoff = remapDraft(state.autoTakeoff);
+  if ("floor360AutoTakeoff" in state) draftKeys.floor360AutoTakeoff = remapDraft(state.floor360AutoTakeoff);
+
   return {
     ...state,
+    ...draftKeys,
     shapes,
     markups,
     approvals,
@@ -480,6 +510,8 @@ export function remapWorkspaceState<T extends WorkspaceSheetState>(
     sheetRotations,
     doorAnswers,
     door_answers: doorAnswers,
+    ntsSheets,
+    nts_sheets: ntsSheets,
     sheet_tabs: openTabs,
     sheet_group: sheetGroup,
     last_group: lastGroup,

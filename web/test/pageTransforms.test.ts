@@ -394,3 +394,56 @@ test("remapWorkspaceState: doorAnswers added:<sheetKey> entries follow remapped 
   assert.equal(del.doorAnswers["added:doc.pdf"], "2026-11-13T12:05:00.000Z");
   assert.equal(del.doorAnswers["check:101"], "ok");
 });
+
+test("remapWorkspaceState: NTS sheets follow their page on reorder, drop on delete, and shift later pages", () => {
+  const state = { ntsSheets: ["doc.pdf#2", "doc.pdf#3", "other.pdf"] };
+  // reorder 3 pages: [3, 1, 2]
+  const reorder = buildKeyRemap("doc.pdf", (p) => ({ 1: 2, 2: 3, 3: 1 } as Record<number, number>)[p], 3);
+  const moved = remapWorkspaceState(state, reorder);
+  assert.deepEqual(moved.ntsSheets, ["doc.pdf#3", "doc.pdf", "other.pdf"]);
+  assert.deepEqual(moved.nts_sheets, moved.ntsSheets);
+  // delete page 2: page 3 becomes page 2
+  const del = remapWorkspaceState(state, buildKeyRemap("doc.pdf", (p) => (p === 2 ? null : p > 2 ? p - 1 : p), 3));
+  assert.deepEqual(del.ntsSheets, ["doc.pdf#2", "other.pdf"]);
+  // the persisted key name reads the same way
+  assert.deepEqual(remapWorkspaceState({ nts_sheets: ["doc.pdf#3"] }, reorder).ntsSheets, ["doc.pdf"]);
+  assert.deepEqual(remapWorkspaceState({}, reorder).ntsSheets, []);
+});
+
+test("remapWorkspaceState: extracting pages carries only their NTS marks, under the new file", () => {
+  const remap = new Map<string, string | null>([
+    ["doc.pdf", null], ["doc.pdf#2", "doc_extracted.pdf"], ["doc.pdf#3", "doc_extracted.pdf#2"], ["other.pdf", null],
+  ]);
+  const out = remapWorkspaceState({ ntsSheets: ["doc.pdf", "doc.pdf#3", "other.pdf"] }, remap);
+  assert.deepEqual(out.ntsSheets, ["doc_extracted.pdf#2"]);
+});
+
+test("remapWorkspaceState: merging files keeps each NTS mark on its page in the merged set", () => {
+  const remap = new Map<string, string | null>([
+    ["a.pdf", "set.pdf"], ["a.pdf#2", "set.pdf#2"], ["b.pdf", "set.pdf#3"],
+  ]);
+  assert.deepEqual(remapWorkspaceState({ ntsSheets: ["a.pdf#2", "b.pdf"] }, remap).ntsSheets, ["set.pdf#2", "set.pdf#3"]);
+});
+
+test("remapWorkspaceState: the auto-takeoff draft's findings follow their sheet and leave with a deleted page", () => {
+  const autoTakeoff = {
+    status: "draft", runId: "r1",
+    findings: [
+      { kind: "no_scale", sheet: "doc.pdf#2", message: "No scale" },
+      { kind: "missing_finish", sheet: "doc.pdf#3", message: "Room 101" },
+      { kind: "general", message: "No sheet" },
+    ],
+  };
+  const del = remapWorkspaceState({ autoTakeoff }, buildKeyRemap("doc.pdf", (p) => (p === 2 ? null : p > 2 ? p - 1 : p), 3));
+  assert.deepEqual(del.autoTakeoff?.findings.map((f: any) => f.sheet ?? null), ["doc.pdf#2", null]);
+  assert.equal(del.autoTakeoff?.runId, "r1");
+  assert.equal(autoTakeoff.findings.length, 3, "the input is not mutated");
+  assert.equal(remapWorkspaceState({ autoTakeoff: null }, new Map()).autoTakeoff, null);
+  assert.equal("autoTakeoff" in remapWorkspaceState({}, new Map()), false);
+});
+
+test("rotating a sheet leaves its NTS mark on the same key", () => {
+  const state = { shapes: [], markups: [], approvals: [], ntsSheets: ["doc.pdf#2"] };
+  const rotated = rotateTakeoffOnSheet(state, "doc.pdf#2", 90);
+  assert.deepEqual(rotated.ntsSheets, ["doc.pdf#2"]);
+});
