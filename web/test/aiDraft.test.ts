@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   AUTO_TAKEOFF_KEY, CHECKLIST_ITEMS, WALL_TILE_ITEM, approveAutoTakeoff, canApprove, checkOf, checklistItems,
-  isWallTileCondition, markBidsNotified, missingChecks, needsBidsNotice, readAutoTakeoff, setCheck,
+  draftFindings, isFinding, isWallTileCondition, markBidsNotified, missingChecks, needsBidsNotice, readAutoTakeoff, setCheck,
 } from "../src/lib/aiDraft.js";
 import { claimDraft, claimText, formatCt, loadAiDrafts, notifyApproved } from "../src/lib/bidsDrafts.js";
 import { buildTakeoffDocument, TAKEOFF_DOCUMENT_KEYS } from "../src/lib/takeoffDocument.js";
@@ -208,4 +208,26 @@ test("Open uses the job folder id only when ?job= would accept it", () => {
   assert.equal(isJobFolderId("../../etc"), false);
   assert.equal(isJobFolderId(""), false);
   assert.equal(isJobFolderId(undefined), false);
+});
+
+const FINDINGS = [
+  { kind: "no_scale", sheet: "a.pdf#2", message: "No scale" },
+  { kind: "missing_finish", sheet: "a.pdf#3", message: "Room 101" },
+  { kind: "general", message: "No sheet" },
+  null,
+  [],
+  { kind: "", message: "x" },
+  { kind: "k" },
+];
+
+test("isFinding: a non-empty kind and a string message", () => {
+  assert.equal(isFinding(FINDINGS[0]), true);
+  assert.equal(isFinding(FINDINGS[2]), true);
+  for (const bad of [null, [], FINDINGS[5], FINDINGS[6], "x"]) assert.equal(isFinding(bad), false);
+});
+
+test("draftFindings keeps every well-formed finding, on any sheet, in order", () => {
+  assert.deepEqual(draftFindings(FINDINGS).map((f) => f.message), ["No scale", "Room 101", "No sheet"]);
+  assert.deepEqual(draftFindings(undefined), []);
+  assert.deepEqual(draftFindings({ kind: "x", message: "y" }), []);
 });

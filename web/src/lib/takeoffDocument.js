@@ -12,11 +12,13 @@
 //   core collections are always present, even when empty.
 // - Every additive key (`client_info`, `estimate_settings`, `bid_proposal`, `condition_columns`, `shape_labels`,
 //   `palette`, `approvals`, `proposals`, `condition_edit_proposals`, `rules`,
-//   `stitches`, `sheet_levels`, `layer_overrides`, `provenance_counters`) is
+//   `stitches`, `sheet_levels`, `layer_overrides`, `provenance_counters`, `door_answers`) is
 //   omitted when empty, so a document that never used the feature is
 //   byte-identical to one written before the feature existed.
 // - `floor360AutoTakeoff` (FLOOR360 AI draft status, lib/aiDraft.js) rides
 //   only when it is an object with a string `status`, written back as-is.
+// - `hidden_sheets` (the retired FLOOR360 Hide sheet list) is never written:
+//   an older document that carries it still loads, and loses it on next save.
 // - `palette` (pinned condition ids) drops ids that no longer resolve.
 import { TAKEOFF_SCHEMA } from "./takeoffConstants.ts";
 
@@ -28,7 +30,7 @@ export const TAKEOFF_DOCUMENT_KEYS = Object.freeze([
   "schema", "project_name", "units", "client_info", "estimate_settings", "bid_proposal", "sheets", "conditions", "condition_columns",
   "shape_labels", "palette", "shapes", "markups", "rfis", "approvals", "proposals",
   "condition_edit_proposals", "rules", "sheet_group", "last_group", "sheet_tabs", "split_view", "stitches",
-  "sheet_levels", "layer_overrides", "provenance_counters", "nts_sheets", "hidden_sheets", "floor360AutoTakeoff",
+  "sheet_levels", "layer_overrides", "provenance_counters", "door_answers", "nts_sheets", "floor360AutoTakeoff",
 ]);
 
 /** One `sheets[]` entry. `scale_source` rides only when known; `scale_confirmed`
@@ -87,8 +89,9 @@ export function buildTakeoffDocument(f = {}) {
     ...(Object.keys(sheetLevels).length ? { sheet_levels: sheetLevels } : {}),
     ...(Object.keys(layerOverrides).length ? { layer_overrides: layerOverrides } : {}),
     ...(hasProv ? { provenance_counters: prov } : {}),
+    // additive `door_answers` (Doors suite: question id → answer)
+    ...(Object.keys(obj(f.door_answers)).length ? { door_answers: obj(f.door_answers) } : {}),
     ...(arr(f.nts_sheets).length ? { nts_sheets: f.nts_sheets } : {}),
-    ...(arr(f.hidden_sheets).length ? { hidden_sheets: f.hidden_sheets } : {}),
     ...(hasAutoTakeoff ? { floor360AutoTakeoff: autoTakeoff } : {}),
   };
 }

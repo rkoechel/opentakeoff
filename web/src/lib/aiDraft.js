@@ -110,3 +110,13 @@ export const needsBidsNotice = (at) => isAiApproved(at) && typeof at.runId === "
 export function markBidsNotified(at, nowIso) {
   return isAiApproved(at) ? { ...at, bidsNotifiedAt: nowIso } : at;
 }
+
+/** A runner finding: a non-empty string `kind` and a string `message`. */
+export function isFinding(f) {
+  return isObj(f) && typeof f.kind === "string" && f.kind !== "" && typeof f.message === "string";
+}
+
+/** The well-formed findings of a draft, in order; anything else reads as none. */
+export function draftFindings(findings) {
+  return Array.isArray(findings) ? findings.filter(isFinding) : [];
+}
