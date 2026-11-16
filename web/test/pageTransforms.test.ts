@@ -13,6 +13,7 @@ import {
   remapTakeoffSheetKeys,
   remapWorkspaceState,
   formatSheetKey,
+  type WorkspaceSheetState,
 } from "../src/lib/pageTransforms.ts";
 import { computeShapeMetrics } from "../src/lib/shapeMetrics.js";
 
@@ -396,7 +397,7 @@ test("remapWorkspaceState: doorAnswers added:<sheetKey> entries follow remapped 
 });
 
 test("remapWorkspaceState: NTS sheets follow their page on reorder, drop on delete, and shift later pages", () => {
-  const state = { ntsSheets: ["doc.pdf#2", "doc.pdf#3", "other.pdf"] };
+  const state: WorkspaceSheetState = { ntsSheets: ["doc.pdf#2", "doc.pdf#3", "other.pdf"] };
   // reorder 3 pages: [3, 1, 2]
   const reorder = buildKeyRemap("doc.pdf", (p) => ({ 1: 2, 2: 3, 3: 1 } as Record<number, number>)[p], 3);
   const moved = remapWorkspaceState(state, reorder);
@@ -406,8 +407,8 @@ test("remapWorkspaceState: NTS sheets follow their page on reorder, drop on dele
   const del = remapWorkspaceState(state, buildKeyRemap("doc.pdf", (p) => (p === 2 ? null : p > 2 ? p - 1 : p), 3));
   assert.deepEqual(del.ntsSheets, ["doc.pdf#2", "other.pdf"]);
   // the persisted key name reads the same way
-  assert.deepEqual(remapWorkspaceState({ nts_sheets: ["doc.pdf#3"] }, reorder).ntsSheets, ["doc.pdf"]);
-  assert.deepEqual(remapWorkspaceState({}, reorder).ntsSheets, []);
+  assert.deepEqual(remapWorkspaceState<WorkspaceSheetState>({ nts_sheets: ["doc.pdf#3"] }, reorder).ntsSheets, ["doc.pdf"]);
+  assert.deepEqual(remapWorkspaceState<WorkspaceSheetState>({}, reorder).ntsSheets, []);
 });
 
 test("remapWorkspaceState: extracting pages carries only their NTS marks, under the new file", () => {
