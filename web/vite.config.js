@@ -69,6 +69,14 @@ define["import.meta.env.VITE_OT_WATERMARK"] = JSON.stringify(
   watermarkFlag === "1" || watermarkFlag === "true" ? watermarkFlag : "",
 );
 
+// Door detector ("Find more doors"). Default off: its model is downloaded
+// from huggingface.co, which public/_headers does not allow. "1" or "true"
+// in the build shell turns the switch on; anything else stays off.
+const doorDetectorFlag = process.env.VITE_DOOR_DETECTOR;
+define["import.meta.env.VITE_DOOR_DETECTOR"] = JSON.stringify(
+  doorDetectorFlag === "1" || doorDetectorFlag === "true" ? doorDetectorFlag : "",
+);
+
 // Microsoft 365 sync — the one sync path this build may turn on. Deployment
 // sets VITE_MSAL_CLIENT_ID / VITE_GRAPH_DRIVE_ID / VITE_GRAPH_FOLDER_ID
 // (and optionally VITE_MSAL_TENANT / VITE_GRAPH_SCOPES) in the BUILD shell.

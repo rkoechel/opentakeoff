@@ -258,7 +258,7 @@ import { approveAutoTakeoff, draftFindings, markBidsNotified, readAutoTakeoff } 
 import { loadAiDrafts, notifyApproved } from "../lib/bidsDrafts.js";
 import { floor360PrivateBuild, showPremiumUpsell } from "../lib/privateBuild.js";
 import AiDraftPanel from "../components/AiDraftPanel.jsx";
-import { oneClickEnabled, ONE_CLICK_GATE_MESSAGE, commandBoxEnabled, ocrEnabled } from "../lib/gate.js";
+import { oneClickEnabled, ONE_CLICK_GATE_MESSAGE, commandBoxEnabled, ocrEnabled, doorDetectorEnabled } from "../lib/gate.js";
 import { computeShapeMetrics, needsMetrics, recalibrateShapes, linearVerticalFt } from "../lib/shapeMetrics.js";
 import { fmtCheckLen, parseLenInput, checkVerdict, M_PER_FT, areaVal, areaUnit, lenVal, lenUnit, calInputToFeet, heightVal, heightUnit, heightInputToFeet, heightStep, dimInputStr, dimLabel, volVal, volUnit } from "../lib/units";
 import * as panelGeom from "../lib/panelGeometry.js";
@@ -8122,7 +8122,9 @@ export default function TakeoffCanvas() {
   const [doorReads, setDoorReads] = useState({});   // sheet key → { status, doors, withheld, rot, w0, h0 }
   // "Find more doors": the door detector (lib/doorDetect), off by default. The switch is remembered; the model
   // downloads once, on the click that turns it on, and runs on WebGPU in a worker. Nothing is uploaded.
-  const [doorDetectOn, setDoorDetectOn] = useState(() => { try { return localStorage.getItem("opentakeoff_doors_detector") === "on"; } catch { return false; } });
+  // Off in this build unless VITE_DOOR_DETECTOR is set (lib/gate.js): the model is fetched from huggingface.co, which the CSP does not allow.
+  const doorDetectorAllowed = doorDetectorEnabled();
+  const [doorDetectOn, setDoorDetectOn] = useState(() => { if (!doorDetectorAllowed) return false; try { return localStorage.getItem("opentakeoff_doors_detector") === "on"; } catch { return false; } });
   const [doorDetect, setDoorDetect] = useState({ gpu: null, cached: null, load: "idle", progress: null, error: null });
   const [doorFound, setDoorFound] = useState({});   // sheet key → { status, doors, withheld, hidden, added, … } (lib/doorDetect/apply.ts)
   const doorDetectClientRef = useRef(null);
@@ -8269,7 +8271,7 @@ export default function TakeoffCanvas() {
   }, [doorSuiteOn, doorPanelSig]);
   // Find more doors. Probe once per suite visit: is there WebGPU, is the model already in this browser.
   useEffect(() => {
-    if (!doorSuiteOn) return;
+    if (!doorSuiteOn || !doorDetectorAllowed) return;
     let live = true;
     (async () => {
       const { webGpuAvailable, modelCached } = await import("../lib/doorDetect/client.ts");
@@ -8277,8 +8279,9 @@ export default function TakeoffCanvas() {
       if (live) setDoorDetect((d) => ({ ...d, gpu, cached }));
     })();
     return () => { live = false; };
-  }, [doorSuiteOn]);
+  }, [doorSuiteOn, doorDetectorAllowed]);
   const toggleDoorDetect = () => {
+    if (!doorDetectorAllowed) return;
     const on = !doorDetectOn;
     if (on) doorDetectConsentRef.current = true;
     else { doorDetectClientRef.current?.cancel(); setDoorDetect((d) => (d.load === "loading" || d.load === "error" ? { ...d, load: "idle", progress: null, error: null } : d)); }
@@ -8288,7 +8291,7 @@ export default function TakeoffCanvas() {
   // Switch on: load the model (from the cache, or downloading it when the switch was clicked in this session),
   // then run it on each open sheet the reader has finished.
   useEffect(() => {
-    if (!doorSuiteOn || !doorDetectOn || doorDetect.gpu !== true || doorDetect.load === "error") return;
+    if (!doorDetectorAllowed || !doorSuiteOn || !doorDetectOn || doorDetect.gpu !== true || doorDetect.load === "error") return;
     let live = true;
     (async () => {
       const { DoorDetectClient, findMoreDoors } = await import("../lib/doorDetect/client.ts");
@@ -13303,10 +13306,10 @@ export default function TakeoffCanvas() {
           const rd = doorKey ? doorReads[doorKey] : null;
           const reading = !rd || rd.status === "reading";
           const found = doorKey ? doorFound[doorKey] : null;
-          const detect = {
+          const detect = doorDetectorAllowed ? {
             on: doorDetectOn, gpu: doorDetect.gpu, cached: doorDetect.cached, load: doorDetect.load, progress: doorDetect.progress, error: doorDetect.error,
             sheet: doorDetectOn && found ? found : null, canRun: !!(rd?.status === "done" && rd.doors.length),
-          };
+          } : null;
           const docsBusy = !doorDocs || doorDocs.status === "reading";
           const status = rd?.status === "failed" ? { busy: true, text: `Couldn't read this sheet's doors: ${rd.error}` }
             : reading ? { busy: true, text: "Reading the doors on this sheet…" }
