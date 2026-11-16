@@ -20,6 +20,7 @@ which retain their own licenses:
 | [ppu-ocv](https://github.com/PT-Perkasa-Pilar-Utama/ppu-ocv) | MIT | Canvas image processing for ppu-paddle-ocr, bundled with the OCR worker's code |
 | [PP-OCRv5 mobile detection model](https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_det_onnx) (PaddlePaddle) | Apache-2.0 (model card) | On-device OCR text detection; staged by `web/scripts/stage-ocr-model.mjs`, not committed |
 | [PP-OCRv5 mobile English recognition model](https://huggingface.co/PaddlePaddle/en_PP-OCRv5_mobile_rec_onnx) (PaddlePaddle) | Apache-2.0 (model card) | On-device OCR text recognition; staged by `web/scripts/stage-ocr-model.mjs`, not committed |
+| [OpenTakeoff door detector](https://huggingface.co/Kentucky-ai/opentakeoff-door-detector) (Kentucky AI), revision `1ea0a850a52cfe9ef19931b37fcc2c2a69981465` | AGPL-3.0 (model card) | On-device door detection; staged by `web/scripts/stage-door-model.mjs`, not committed. The FLOOR360 build serves the file from its own origin. Find more doors stays off unless `VITE_DOOR_DETECTOR=1` |
 
 The optional AI sandbox (`/server`) additionally uses
 [FastAPI](https://github.com/fastapi/fastapi) (MIT), [Starlette](https://github.com/encode/starlette) (BSD-3-Clause),

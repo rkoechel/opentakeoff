@@ -38,6 +38,17 @@ export function commandBoxEnabled() {
   try { return import.meta.env?.VITE_COMMAND_BOX === "1"; } catch { return false; }
 }
 
+// Door detector ("Find more doors" in the Doors suite) — off by default. The
+// model is a same-origin file staged by scripts/stage-door-model.mjs (122 MB).
+// VITE_DOOR_DETECTOR=1 (or true) at build time turns the switch on. There is
+// no runtime override. The linework door reader and the rest of the suite do
+// not depend on it.
+export function doorDetectorEnabled() {
+  let vite = "";
+  try { vite = import.meta.env?.VITE_DOOR_DETECTOR || ""; } catch { /* node, no import.meta.env */ }
+  return vite === "1" || vite === "true";
+}
+
 /** The one sentence every surface uses when something reaches for the tool. */
 export const ONE_CLICK_GATE_MESSAGE =
   "One-Click Area is temporarily gated while the flood engine is re-validated against a wider plan corpus. Trace the room with Area (A) meanwhile.";
