@@ -597,7 +597,6 @@ export function checkSeamLinework(
         const p0 = horizontal ? s.x0 : s.y0;
         const p1 = horizontal ? s.x1 : s.y1;
         const q0 = Math.round(p0 * 2) / 2;
-        const q1 = Math.round(p1 * 2) / 2;
         if (Math.abs(p0 - p1) <= 1.0 && p0 >= minBand && p0 <= maxBand && s.len >= 20) {
           flushCoords.add(q0);
         }
