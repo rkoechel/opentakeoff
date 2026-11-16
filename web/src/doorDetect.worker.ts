@@ -1,12 +1,12 @@
 // Door-detector worker: runs the RF-DETR door model (ONNX) on WebGPU, off the
 // main thread. A thin shell: the download, integrity check, tile
 // preprocessing and decoding live in lib/doorDetect/workerCore.ts, tested
-// under Node. `worker-src 'self'` in the CSP covers this file; the model
-// download from huggingface.co is covered by the open connect-src.
+// under Node. `worker-src 'self'` in the CSP covers this file.
 //
 // The runtime is the same onnxruntime-web build voice and OCR use. Its wasm
-// and .mjs glue are served from this site (Vite `?url` imports), so nothing
-// but the model itself is fetched from another host.
+// and .mjs glue are served from this site (Vite `?url` imports). The model
+// is too: scripts/stage-door-model.mjs downloads the pinned file at build
+// time and the worker fetches model.served, a path on this origin.
 import ortWasmUrl from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
 import ortMjsUrl from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url";
 import { createDetectCore, type DetectInMsg, type SessionLike } from "./lib/doorDetect/workerCore.ts";
@@ -41,7 +41,7 @@ const core = createDetectCore({
   post: (msg) => self.postMessage(msg),
   close: () => self.close(),
 }, {
-  url: `https://huggingface.co/${S.model.repo}/resolve/${S.model.revision}/${S.model.file}`,
+  url: S.model.served,
   bytes: S.model.bytes, sha256: S.model.sha256, nClasses: S.model.classes.length,
 }, S.detect);
 

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { PRIVATE_LOCKED_ENV_KEYS, floor360M365Env } from "./src/lib/privateBuild.js";
+import { DOOR_MODEL } from "./scripts/stage-door-model.mjs";
 import { STRIPPED_HOSTS, stripPrivateHosts } from "./scripts/strip-private-hosts.mjs";
 
 // The one source of truth for the app version — package.json — inlined as
@@ -69,9 +70,9 @@ define["import.meta.env.VITE_OT_WATERMARK"] = JSON.stringify(
   watermarkFlag === "1" || watermarkFlag === "true" ? watermarkFlag : "",
 );
 
-// Door detector ("Find more doors"). Default off: its model is downloaded
-// from huggingface.co, which public/_headers does not allow. "1" or "true"
-// in the build shell turns the switch on; anything else stays off.
+// Door detector ("Find more doors"). Default off. The model file is staged
+// onto this origin by scripts/stage-door-model.mjs. "1" or "true" in the
+// build shell turns the switch on; anything else stays off.
 const doorDetectorFlag = process.env.VITE_DOOR_DETECTOR;
 define["import.meta.env.VITE_DOOR_DETECTOR"] = JSON.stringify(
   doorDetectorFlag === "1" || doorDetectorFlag === "true" ? doorDetectorFlag : "",
@@ -171,6 +172,13 @@ export default defineConfig({
         // Without them the site would say "OCR not installed".
         if (process.env.FLOOR360_ALLOW_NO_OCR_MODELS !== "1" && !existsSync(path.join(dist, "models", "ocr", "manifest.json"))) {
           throw new Error("FLOOR360 build has no OCR models: run `npm run build:floor360` (stages PP-OCRv5 with pinned sha256, then builds).");
+        }
+        // The door detector model is staged the same way. The switch stays
+        // off unless VITE_DOOR_DETECTOR is set; the file still has to be on
+        // this origin so turning the switch on does not fetch it elsewhere.
+        const doorFile = DOOR_MODEL.served.replace(/^\//, "");
+        if (process.env.FLOOR360_ALLOW_NO_OCR_MODELS !== "1" && !existsSync(path.join(dist, doorFile))) {
+          throw new Error("FLOOR360 build has no door-detector model: run `npm run build:floor360` (stages the pinned ONNX, checks its sha256, then builds).");
         }
       },
     },

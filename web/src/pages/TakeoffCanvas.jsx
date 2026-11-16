@@ -8122,7 +8122,7 @@ export default function TakeoffCanvas() {
   const [doorReads, setDoorReads] = useState({});   // sheet key → { status, doors, withheld, rot, w0, h0 }
   // "Find more doors": the door detector (lib/doorDetect), off by default. The switch is remembered; the model
   // downloads once, on the click that turns it on, and runs on WebGPU in a worker. Nothing is uploaded.
-  // Off in this build unless VITE_DOOR_DETECTOR is set (lib/gate.js): the model is fetched from huggingface.co, which the CSP does not allow.
+  // Off in this build unless VITE_DOOR_DETECTOR is set (lib/gate.js). The model file is on this origin, staged at build time.
   const doorDetectorAllowed = doorDetectorEnabled();
   const [doorDetectOn, setDoorDetectOn] = useState(() => { if (!doorDetectorAllowed) return false; try { return localStorage.getItem("opentakeoff_doors_detector") === "on"; } catch { return false; } });
   const [doorDetect, setDoorDetect] = useState({ gpu: null, cached: null, load: "idle", progress: null, error: null });

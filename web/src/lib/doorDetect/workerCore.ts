@@ -2,10 +2,10 @@
 // Node can test it. src/doorDetect.worker.ts is the thin shell that wires in
 // the real fetch, Cache Storage and onnxruntime-web.
 //
-// The model is one ONNX file (about 117 MB) on Hugging Face. The worker
-// downloads it once, checks its length and sha256 against the pinned values
-// in doorDetectSettings.json, and keeps it in Cache Storage, so every later
-// visit starts from the cache with no network. Nothing is uploaded: the
+// The model is one ONNX file (122,154,402 bytes) served from this site. The
+// worker downloads it once, checks its length and sha256 against the pinned
+// values in doorDetectSettings.json, and keeps it in Cache Storage, so every
+// later visit starts from the cache with no network. Nothing is uploaded: the
 // worker's only request is that download.
 //
 // Protocol:

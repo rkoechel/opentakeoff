@@ -2,7 +2,7 @@
 // a page's tiles, and run the fusion pipeline on what comes back.
 //
 // Everything runs in the browser. The only network request is the one-time
-// model download from Hugging Face (the worker caches it); a plan never
+// model download from this site (the worker caches it); a plan never
 // leaves the machine. WebGPU is required: on a browser without it the suite
 // carries on with the linework reader alone, because the same model on
 // WebAssembly takes close to a minute per sheet.

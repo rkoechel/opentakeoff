@@ -92,6 +92,8 @@ test("cache headers: hashed assets and OCR models for a year, everything else re
   assert.equal(cacheControlFor("/assets/ort-wasm-simd-threaded.asyncify-DMmc6YqF.wasm"), "public, max-age=31536000, immutable");
   assert.equal(cacheControlFor("/models/ocr/det.onnx"), "public, max-age=31536000");
   assert.equal(cacheControlFor("/models/ocr/dict.txt"), "public, max-age=31536000");
+  assert.equal(cacheControlFor("/models/door/door-detector-1ea0a850a52cfe9ef19931b37fcc2c2a69981465.onnx"), "public, max-age=31536000");
+  assert.equal(cacheControlFor("/models/door/manifest.json"), "no-cache");
   assert.equal(cacheControlFor("/models/ocr/manifest.json"), "no-cache");
   assert.equal(cacheControlFor("/index.html"), "no-cache");
   assert.equal(cacheControlFor("/"), "no-cache");

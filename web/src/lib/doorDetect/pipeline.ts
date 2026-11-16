@@ -18,7 +18,7 @@ import type { DetectParams } from "./tiles.ts";
 
 export interface DoorDetectSettings {
   version: string;
-  model: { repo: string; revision: string; file: string; bytes: number; sha256: string; classes: string[] };
+  model: { repo: string; revision: string; file: string; bytes: number; sha256: string; served: string; classes: string[] };
   detect: DetectParams;
   fusion: FusionParams & { swing_box: SwingBoxParams };
   tags: TagParams;

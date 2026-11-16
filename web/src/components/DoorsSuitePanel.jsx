@@ -48,7 +48,7 @@ function FindMore({ detect, onToggle, onRetry }) {
   const { on, gpu, cached, load, progress, error, sheet, canRun } = detect;
   let line;
   if (!gpu) line = "Needs WebGPU, which this browser doesn't have. The doors here come from the linework reader alone; a current Chrome or Edge can find more.";
-  else if (!on) line = `Also looks for cased openings, sliding, bifold and overhead doors, and swings the linework reader missed. ${cached ? "The model is already on this computer." : "Downloads a 117 MB model once from Hugging Face."} It runs on this computer; nothing is uploaded.`;
+  else if (!on) line = `Also looks for cased openings, sliding, bifold and overhead doors, and swings the linework reader missed. ${cached ? "The model is already on this computer." : "Downloads a 116 MB model once from this site."} It runs on this computer; nothing is uploaded.`;
   else if (load === "error") line = error === "no-webgpu" ? "This browser could not start WebGPU, so the detector can't run here." : `The door model couldn't start: ${error}`;
   else if (load !== "ready") line = progress && progress.total ? `Downloading the door model: ${MB(progress.loaded)} of ${MB(progress.total)} MB…` : "Starting the door model…";
   else if (!canRun) line = "Waiting for the doors on this sheet.";

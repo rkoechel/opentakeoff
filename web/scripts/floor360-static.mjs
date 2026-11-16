@@ -97,12 +97,15 @@ export const MIME = {
 // Cache rules. Vite's /assets/* names carry a content hash, so they never
 // change: cache for a year. The OCR model files are pinned by sha256 in the
 // manifest and the app's own Cache Storage keys them by hash, so a model
-// change gets a new MODEL_REV; cache them a year too. Everything else
+// change gets a new MODEL_REV; cache them a year too. The door-detector
+// ONNX carries its revision in the file name, so a new pin is a new URL;
+// cache that for a year as well. Everything else
 // (index.html, the manifest, public pages) revalidates on every load so a
 // deploy is picked up at once.
 export function cacheControlFor(pathname) {
   if (/^\/assets\/[^/]+$/.test(pathname)) return "public, max-age=31536000, immutable";
   if (/^\/models\/ocr\/[^/]+\.(onnx|txt)$/.test(pathname)) return "public, max-age=31536000";
+  if (/^\/models\/door\/[^/]+\.onnx$/.test(pathname)) return "public, max-age=31536000";
   return "no-cache";
 }
 

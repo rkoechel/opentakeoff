@@ -7,6 +7,7 @@
     "file": "onnx/door-detector-r4-medium-fp32.onnx",
     "bytes": 122154402,
     "sha256": "7626ef625206c0ef1ee7cd89e4b027599e0cee05d5dc56d4c2f6e58047e7b0a5",
+    "served": "/models/door/door-detector-1ea0a850a52cfe9ef19931b37fcc2c2a69981465.onnx",
     "classes": ["swing", "sliding", "pocket", "bifold", "overhead", "elevator", "opening", "swing doorway strip"]
   },
   "detect": {

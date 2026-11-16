@@ -33,12 +33,13 @@ jobs:
       # is the cache key, so bumping MODEL_REV/files in it invalidates cleanly.
       # With the model staged, the corpus + privacy voice tests run for real
       # (they skip loudly when it's absent, e.g. on forks with cache misses).
-      # models/ocr is excluded: the OCR entry below owns it.
+      # models/ocr and models/door are excluded: the entries below own them.
       - uses: actions/cache@v4
         with:
           path: |
             web/public/models
             !web/public/models/ocr
+            !web/public/models/door
           key: voice-model-${{ hashFiles('web/scripts/fetch-voice-model.mjs') }}
       - run: node scripts/fetch-voice-model.mjs
       # On-device OCR models (#469): ~12.7 MB, in their own cache entry keyed on
@@ -50,6 +51,16 @@ jobs:
           path: web/public/models/ocr
           key: ocr-model-${{ hashFiles('web/scripts/stage-ocr-model.mjs') }}
       - run: node scripts/stage-ocr-model.mjs
+      # Door detector: one 122 MB ONNX, pinned to a commit in
+      # stage-door-model.mjs. Its own cache entry, excluded from the voice
+      # entry above. The script re-checks the sha256 and rewrites the manifest.
+      # The browser fetches the staged file from this origin; the switch stays
+      # off unless the build sets VITE_DOOR_DETECTOR.
+      - uses: actions/cache@v4
+        with:
+          path: web/public/models/door
+          key: door-model-${{ hashFiles('web/scripts/stage-door-model.mjs') }}
+      - run: node scripts/stage-door-model.mjs
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run test:coverage
@@ -76,6 +87,7 @@ jobs:
       # One ORT wasm in dist, no OpenCV or @napi-rs/canvas code, and a staged
       # manifest that matches the wasm actually shipped (#469).
       - run: node scripts/check-ocr-dist.mjs
+      - run: node scripts/check-door-dist.mjs
 
   mcp:
     runs-on: ${{ matrix.os }}

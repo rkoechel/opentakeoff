@@ -121,8 +121,9 @@ test("the private build turns on-device OCR on and requires staged models", asyn
   const cfg = readFileSync(new URL("../vite.config.js", import.meta.url), "utf8");
   assert.match(cfg, /"import\.meta\.env\.VITE_OCR": JSON\.stringify\("on"\)/);
   assert.match(cfg, /no OCR models: run `npm run build:floor360`/);
+  assert.match(cfg, /no door-detector model: run `npm run build:floor360`/);
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  assert.equal(pkg.scripts["build:floor360"], "node scripts/stage-ocr-model.mjs && vite build && node scripts/check-ocr-dist.mjs");
+  assert.equal(pkg.scripts["build:floor360"], "node scripts/stage-ocr-model.mjs && node scripts/stage-door-model.mjs && vite build && node scripts/check-ocr-dist.mjs && node scripts/check-door-dist.mjs");
 });
 
 test("the private build defines VITE_ONE_CLICK=1 and VITE_ONE_CLICK is not on the locked list", async () => {
