@@ -9,6 +9,8 @@ which retain their own licenses:
 | [React](https://github.com/facebook/react) / `react-dom` | MIT | UI runtime |
 | [React Router](https://github.com/remix-run/react-router) | MIT | Routing |
 | [Vite](https://github.com/vitejs/vite) | MIT | Build tool / dev server |
+| [three.js](https://github.com/mrdoob/three.js) (`three`) | MIT | The 3D view's renderer and orbit controls (lazy-loaded) |
+| Kevin Murphy's OpenTakeoff 3D takeoff view (`feat/3d-takeoff-view`) | Apache-2.0 | Origin of `web/src/lib/scene3d.js`, `scene3dScope.js`, `scene3dThree.js` and `web/src/components/View3D.jsx` (attribution kept in each file header; distributed here under AGPL-3.0-only) |
 | [fflate](https://github.com/101arrowz/fflate) | MIT | Unzipping dropped `.zip` plan sets (lazy-loaded) |
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | MIT | Wrapping dropped images into PDFs (lazy-loaded) |
 | [TypeScript](https://github.com/microsoft/TypeScript) | Apache-2.0 | Type-checking the geometry libs |
