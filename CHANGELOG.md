@@ -9,6 +9,11 @@
 - **No cost to anyone who never opens it.** three.js and the view are a separate chunk (634 kB, 169 kB gzip) fetched on the first click; the main bundle grows 6.6 kB (2.2 kB gzip) for the button, the ceiling-height fields and the wiring.
 - Built from Kevin Murphy's `feat/3d-takeoff-view` (Apache-2.0) with Michael Edlin's Spline improvements: the north-south handedness fix, batched meshes with picking, the accuracy panel, isolation that is fast at 2,000 rooms, and stairs. Tests: `web/test/scene3d.test.ts`.
 
+## 2026-11-16 — visual revision overlay and compare_sheets (MCP 0.9.111)
+
+- **Compare sheets and revisions over MCP.** `compare_sheets` visualizes drawing changes between two sheets or bid revisions: aligns drawings automatically, computes segment diffs (added/removed/unchanged), groups changed ink into convex hulls, and flags takeoff shapes intersecting modified regions (#579).
+- **Visual Revision Overlay in browser.** Fading revision comparison slider, 2-point manual alignment calibration, raster fallback mode, and one-click slip-sheeting carrying takeoff shapes forward with `Check after revision` review badges on changed areas.
+
 ## 2026-11-15 — large plan sets open and flip faster, in far less memory (#580, part 1)
 
 - **A stored PDF is read by byte range.** Opening a sheet reads the file's index and that page, not the whole set, and the render workers share the one stored copy where each used to get its own.
@@ -103,6 +108,7 @@ Click **Pin** beside **Sheets** in the top toolbar, then click two corners aroun
   - **Delete and undo:** Click `×` on a sheet row or choose **File → Delete current page…**. Confirms with takeoff count before removing; `⌘Z` restores the page and its measurements.
   - **Extract, merge, and insert:** **File → Extract pages from set…** pulls page ranges into a new PDF carrying their takeoffs; **File → Merge PDF sets…** combines multiple open PDFs into a single multi-page set; **File → Insert pages from PDF…** appends external pages behind the active sheet; and **File → Export edited PDF…** downloads the modified PDF bytes.
   - **MCP tools:** Four published tools on stdio: `rotate_page`, `reorder_pages`, `extract_pages`, and `merge_documents`.
+- **Visual revision overlay and slip-sheeting (#579).** Choose two revisions of a sheet to see what moved on the drawing: removed ink in red, added in cobalt, and unchanged in gray, with a cross-fade slider. Slip-sheet an addendum or revision set: sheets match 1-to-1 by title-block sheet number (unread and ambiguous sheets are never guessed), existing takeoffs carry forward, and shapes crossing changed ink are flagged "Check after revision" with the changed region outlined. MCP exposes `compare_sheets`, returning changed region bounding hulls and affected shape IDs.
 
 - **A non-roll condition's roll cells stay blank in metric.** With display units set to metric, the Report table, CSV and Excel printed 0 in **Roll Order m** and **Seam m** for every condition without a roll layout; imperial left them blank. Those cells are now blank in both unit systems.
 - **An agent answer with a labeled code fence renders whole.** A fence that opens with more than a bare language, such as ```` ```csv title=takeoff.csv ```` or ```` ```c# ````, was not read as a fence: its code ran into the paragraph above, and the closing ```` ``` ```` opened a code block that swallowed the rest of the answer. The first word after the backticks is now the language, and only a bare ```` ``` ```` closes the block.
