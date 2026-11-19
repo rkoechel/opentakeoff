@@ -9,6 +9,10 @@
 - **No cost to anyone who never opens it.** three.js and the view are a separate chunk (634 kB, 169 kB gzip) fetched on the first click; the main bundle grows 6.6 kB (2.2 kB gzip) for the button, the ceiling-height fields and the wiring.
 - Built from Kevin Murphy's `feat/3d-takeoff-view` (Apache-2.0) with Michael Edlin's Spline improvements: the north-south handedness fix, batched meshes with picking, the accuracy panel, isolation that is fast at 2,000 rooms, and stairs. Tests: `web/test/scene3d.test.ts`.
 
+## 2026-11-15 — gable starter strip (MCP 0.9.112)
+
+- `siding_takeoff`: a wall's bottom edge that lies on another SD-WALL shape's edge on the same sheet gets no starter, so a gable traced as its own shape above a wall or a wall split at a floor line figures the same starter as a single shape (#619).
+
 ## 2026-11-16 — visual revision overlay and compare_sheets (MCP 0.9.111)
 
 - **Compare sheets and revisions over MCP.** `compare_sheets` visualizes drawing changes between two sheets or bid revisions: aligns drawings automatically, computes segment diffs (added/removed/unchanged), groups changed ink into convex hulls, and flags takeoff shapes intersecting modified regions (#579).
