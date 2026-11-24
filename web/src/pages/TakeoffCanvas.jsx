@@ -3962,7 +3962,7 @@ export default function TakeoffCanvas() {
         markups.filter((m) => m.sheet_id === target).length +
         approvals.filter((a) => a.sheet_id === target).length;
 
-      const pageTitle = pageLabels[targetPage] || namer?.number(file, targetPage) || (targetPage > 1 ? `page ${targetPage}` : file);
+      const pageTitle = labelsForFile(labelsByFile, file)[targetPage] || namer?.number(file, targetPage) || (targetPage > 1 ? `page ${targetPage}` : file);
       setDeleteSheetPrompt({
         target,
         file,

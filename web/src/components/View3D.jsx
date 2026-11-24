@@ -498,7 +498,7 @@ export default function View3D({
           </>
         )}
         <div style={{ ...S.panelSection, marginTop: "auto", fontSize: 11, color: "var(--ink-muted)", lineHeight: 1.5 }}>
-          {LIMITATIONS_TEXT} 3D view by Kevin Murphy and Michael Edlin.
+          {LIMITATIONS_TEXT}
         </div>
       </div>
     </div>
