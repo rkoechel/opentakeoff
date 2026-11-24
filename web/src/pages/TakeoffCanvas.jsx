@@ -60,6 +60,7 @@ import RevisionsPanel from "../components/RevisionsPanel.jsx";
 import UserGuide from "../components/UserGuide.jsx";
 import CopyTextReceipt from "../components/CopyTextReceipt.jsx";
 import OcrDownloadNotice from "../components/OcrDownloadNotice.jsx";
+import { DeleteSheetModal } from "../components/DeleteSheetModal.jsx";
 import PageReadControl, { readControlPlacement, READ_CONTROL_LEFT } from "../components/PageReadControl.jsx";
 import TakeoffsPanel, { clampPanelW, CONDITION_DND_MIME, ConditionAppearanceEditor } from "../components/TakeoffsPanel.jsx";
 import { HATCHES, PALETTE, NO_FILL, HatchPattern, HatchSwatch } from "../components/hatches.jsx";
@@ -96,6 +97,8 @@ import { getOcrClient } from "../lib/ocr/client";
 import { pageTextIndex } from "../lib/pageTextIndex";
 import { measurePage } from "../lib/pictures";
 import { normalizeLoadedGroups } from "../lib/sheetGroups";
+import { isCeilingCondition } from "../lib/ceilingKind.js";
+import Lazy3D from "../components/Lazy3D.jsx";   // the 3D view: three.js loads only when the 3D button is pressed
 import { isStitchKey, mintStitchId, sanitizeStitches, autoButt, stitchExtent, alignMembers, seamClips, mergePoints, mergeSegs, stitchAlive, stitchLayoutSig, pinnedFiles } from "../lib/stitches";
 import { isCanvasBusy } from "../lib/canvasBusy";
 import { rowToSeed } from "../lib/scheduleRows";   // the reader (scheduleRead, which loads the sheet graph) is import()ed on use
@@ -796,6 +799,40 @@ export default function TakeoffCanvas() {
     draftStatsRef.current.cross = dCross;
   }
   const [guideOpen, setGuideOpen] = useState(false);   // the in-app manual overlay (? / the toolbar button)
+  const [deleteSheetPrompt, setDeleteSheetPrompt] = useState(null);
+  const viewControlsRef = useRef(null);
+  const viewControlsDragRef = useRef(null);
+  const [viewControlsDragging, setViewControlsDragging] = useState(false);
+  const [viewControlsTop, setViewControlsTop] = useState(() => {
+    try {
+      const saved = localStorage.getItem("opentakeoff:view-controls-top");
+      if (saved != null) {
+        const n = parseFloat(saved);
+        if (Number.isFinite(n)) {
+          const minTop = 48;
+          const maxTop = Math.max(minTop, (typeof window !== "undefined" ? window.innerHeight : 800) - 180 - 16);
+          return Math.max(minTop, Math.min(maxTop, n));
+        }
+      }
+    } catch { /* ignore */ }
+    return null;
+  });
+
+  const clampViewControlsTop = useCallback((rawTop) => {
+    const height = viewControlsRef.current?.offsetHeight || 180;
+    const minTop = 48;
+    const maxTop = Math.max(minTop, (typeof window !== "undefined" ? window.innerHeight : 800) - height - 16);
+    return Math.max(minTop, Math.min(maxTop, rawTop));
+  }, []);
+
+  useEffect(() => {
+    setViewControlsTop((prev) => (prev == null ? null : clampViewControlsTop(prev)));
+    const onResize = () => {
+      setViewControlsTop((prev) => (prev == null ? null : clampViewControlsTop(prev)));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [clampViewControlsTop]);
   // Guided first takeoff (components/FirstTakeoffTour.jsx): null when off, else
   // { done: step ids, baseline: floor shapes that existed before it started }.
   // Session-only on purpose — a reload ends the tour rather than resuming a
@@ -2696,6 +2733,45 @@ export default function TakeoffCanvas() {
   // Only for a file the canvas pins (on screen, or a tab): anything else
   // leases it (docCache.withDoc, withSheetPage).
   const docFor = useCallback((file) => docCache.doc(file), [docCache]);
+  // ── 3D view (components/View3D.jsx, lazy) — one sheet, feet-true, read-only ───────────
+  // The page raster is rendered once per open as the ground underlay (≤ 4096 px long side), off
+  // the canvas's own render path; the "level above" is another open sheet stacked at the stair's top.
+  const [show3d, setShow3d] = useState(null);          // { sheetId } while the 3D view is open
+  const [planSkin3d, setPlanSkin3d] = useState(null);
+  const [upperSheet3d, setUpperSheet3d] = useState(null);
+  const [upperSkin3d, setUpperSkin3d] = useState(null);
+  const open3d = () => {
+    if (show3d) { setShow3d(null); return; }
+    const key = focusPanel?.key;
+    if (!key || isStitchKey(key)) { setCommitMsg("3D shows one sheet at a time — open a single sheet."); return; }
+    if (!uppFor(key)) { setCommitMsg("Set the sheet scale first — 3D is feet-true or nothing."); return; }
+    if (!focusPanel.img?.w) { setCommitMsg("The sheet is still loading — try 3D again in a moment."); return; }
+    setShow3d({ sheetId: key, dims: { w: focusPanel.img.w, h: focusPanel.img.h } });
+  };
+  const rasterSheet3d = useCallback(async (key) => {
+    const { file, page } = parseSheetKey(key);
+    const pdf = await docFor(file);
+    const pg = await pdf.getPage(Math.min(Math.max(1, page || 1), pdf.numPages || 1));
+    const vp0 = pg.getViewport({ scale: 1 });
+    const k = Math.min(4096 / Math.max(vp0.width, vp0.height), 4);
+    const vp = pg.getViewport({ scale: k });
+    const cv = document.createElement("canvas");
+    cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+    await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp, background: "#ffffff" }).promise;
+    return cv;
+  }, [docFor]);
+  useEffect(() => {
+    if (!show3d) { setPlanSkin3d(null); return undefined; }
+    let dead = false;
+    rasterSheet3d(show3d.sheetId).then((cv) => { if (!dead) setPlanSkin3d({ canvas: cv, sheetId: show3d.sheetId }); }).catch(() => { /* no underlay — the 3D view still draws */ });
+    return () => { dead = true; };
+  }, [show3d, rasterSheet3d]);
+  useEffect(() => {
+    if (!show3d || !upperSheet3d) { setUpperSkin3d(null); return undefined; }
+    let dead = false;
+    rasterSheet3d(upperSheet3d).then((cv) => { if (!dead) setUpperSkin3d({ canvas: cv, sheetId: upperSheet3d }); }).catch(() => { /* no stacked level */ });
+    return () => { dead = true; };
+  }, [show3d, upperSheet3d, rasterSheet3d]);
   // A rendered sheet's page, its file held until release: a one-off that
   // awaits can outlive a switch away, after which nothing pins that file.
   // No page (not rendered, or a stitch): nothing held.
@@ -3850,7 +3926,7 @@ export default function TakeoffCanvas() {
     }
   };
 
-  const deleteCurrentSheet = async (targetKey = sheetKey) => {
+  const deleteCurrentSheet = async (targetKey = sheetKey, { skipConfirm = false } = {}) => {
     const target = targetKey || sheetKey;
     if (!target) return;
     if (isStitchKey(target)) {
@@ -3880,16 +3956,21 @@ export default function TakeoffCanvas() {
       return;
     }
 
-    const takeoffsOnPage =
-      shapes.filter((s) => s.sheet_id === target).length +
-      markups.filter((m) => m.sheet_id === target).length +
-      approvals.filter((a) => a.sheet_id === target).length;
+    if (!skipConfirm) {
+      const takeoffsOnPage =
+        shapes.filter((s) => s.sheet_id === target).length +
+        markups.filter((m) => m.sheet_id === target).length +
+        approvals.filter((a) => a.sheet_id === target).length;
 
-    if (takeoffsOnPage > 0) {
-      const ok = window.confirm(
-        `Sheet "${target}" has ${takeoffsOnPage} takeoff measurement(s)/markup(s). Delete this page? (Undo restores both page and takeoffs)`
-      );
-      if (!ok) return;
+      const pageTitle = labelsForFile(labelsByFile, file)[targetPage] || namer?.number(file, targetPage) || (targetPage > 1 ? `page ${targetPage}` : file);
+      setDeleteSheetPrompt({
+        target,
+        file,
+        targetPage,
+        pageTitle,
+        takeoffsOnPage,
+      });
+      return;
     }
 
     try {
@@ -3997,7 +4078,7 @@ export default function TakeoffCanvas() {
             setCommitMsg(`Restored page ${targetPage} and its takeoffs.`);
           },
           redo: async () => {
-            await deleteCurrentSheet(target);
+            await deleteCurrentSheet(target, { skipConfirm: true });
           },
         },
       ];
@@ -9400,7 +9481,7 @@ export default function TakeoffCanvas() {
   // routes through the `review` command (ONE undo entry), which flips reviewed
   // + stamps accepted_ts and nothing else: affirmation, not an edit. Rejecting
   // one is just deleting it — select and Delete, like any shape.
-  const pendingCommitted = useMemo(() => visibleShapes.filter((s) => s.origin?.reviewed === false), [visibleShapes]);
+  const pendingCommitted = useMemo(() => visibleShapes.filter((s) => s.origin?.reviewed === false || s.flagged_for_revision || s.origin?.flagged_for_revision), [visibleShapes]);
   // proposals (#365): the visible pending shapes grouped by batch — one pill
   // per proposal on the Accept surface, the un-batched remainder as its own
   // pill. Accept is the SAME review command as the single pill (one undo
@@ -9415,6 +9496,15 @@ export default function TakeoffCanvas() {
     return p ? { w: p.img.w, h: p.img.h, upp: uppFor(key) || 0 } : null;
   }), [shapes, conditions, panels, scales]);   // eslint-disable-line react-hooks/exhaustive-deps -- uppFor reads scales + the render-scale ref
   const scopeByCond = useMemo(() => collisionsByCondition(scopeResult), [scopeResult]);
+  const revisionFlaggedByCond = useMemo(() => {
+    const set = new Set();
+    for (const s of shapes) {
+      if (s.flagged_for_revision || s.origin?.flagged_for_revision) {
+        set.add(s.condition_id);
+      }
+    }
+    return set;
+  }, [shapes]);
   function acceptProposalGroup(g) {
     if (!g?.ids.length) return;
     dispatchShape({ type: "review", ids: g.ids });
@@ -10358,6 +10448,11 @@ export default function TakeoffCanvas() {
       return { ...next, computed: recomputeShape(next) };
     }));
   };
+  // a ceiling area's own height AFF (a soffit) — display only (the 3D view); no quantity reads it
+  const setShapeCeiling = (raw) => {
+    const v = raw === "" ? null : Math.max(0, heightInputToFeet(parseFloat(raw) || 0, units));
+    setShapes((ss) => ss.map((s) => (s.id !== selectedId ? s : v ? { ...s, ceiling_ft: v } : (({ ceiling_ft: _drop, ...rest }) => rest)(s))));
+  };
   const clearShapeHeight = () => {
     setShapeHDraft(null);
     setShapes((ss) => ss.map((s) => {
@@ -10734,12 +10829,14 @@ export default function TakeoffCanvas() {
   // filled cobalt (+ HUD glow) when armed. Tooltip = label · shortcut.
   const railTile = (id, iconName, label, shortcut, onArm, opts = {}) => {
     const armed = opts.armed ?? (tool === id);
+    const resolvedShortcut = shortcut ? keyText(shortcut) : null;
+    const showBadge = opts.badge ?? (opts.hideBadge ? false : (resolvedShortcut && resolvedShortcut.length <= 2));
     return (
       <button key={id} type="button" onClick={onArm || (() => setTool(id))}
         title={shortcut ? keyText(`${label} · ${shortcut}`) : label} aria-label={label} aria-pressed={armed}
         style={{ position: "relative", width: "var(--ctl-l)", height: "var(--ctl-l)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid transparent", borderRadius: "var(--r-1)", background: armed ? (opts.tint || "var(--cobalt)") : "transparent", color: armed ? "var(--accent-contrast)" : (opts.tint || "var(--ink)"), boxShadow: armed ? "var(--glow)" : "none", cursor: "pointer", lineHeight: 1 }}>
         <Icon name={iconName} size={17} />
-        {shortcut && <span aria-hidden="true" style={{ position: "absolute", bottom: 1, right: 3, fontFamily: "var(--f-mono)", fontSize: 8, color: armed ? "var(--accent-contrast)" : "var(--ink-muted)", opacity: armed ? 0.75 : 1 }}>{keyText(shortcut)}</span>}
+        {showBadge && <span aria-hidden="true" style={{ position: "absolute", bottom: 1, right: 3, fontFamily: "var(--f-mono)", fontSize: 8, color: armed ? "var(--accent-contrast)" : "var(--ink-muted)", opacity: armed ? 0.75 : 1, pointerEvents: "none", userSelect: "none" }}>{resolvedShortcut}</span>}
       </button>
     );
   };
@@ -11815,15 +11912,106 @@ export default function TakeoffCanvas() {
               so the composed click never reaches these buttons); right/middle/
               Space presses still bubble so a pan can start on top, and dblclick
               is stopped so rapid clicks can't finishShape() */}
-          <div data-view-controls onPointerDown={(e) => { if (e.button === 0 && !spaceRef.current) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}
+          <div data-view-controls
+            ref={viewControlsRef}
+            role="toolbar"
+            aria-label="View controls"
+            title={dockBottom ? "View controls — drag up or down to reposition; double-click to reset" : "View controls"}
+            onPointerDown={(e) => {
+              if (e.button === 0 && !spaceRef.current) {
+                e.stopPropagation();
+                if (dockBottom) {
+                  const rect = viewControlsRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    viewControlsDragRef.current = {
+                      startY: e.clientY,
+                      startTop: rect.top,
+                      pointerId: e.pointerId,
+                      didDrag: false,
+                    };
+                  }
+                }
+              }
+            }}
+            onPointerMove={(e) => {
+              if (!dockBottom) return;
+              const d = viewControlsDragRef.current;
+              if (!d) return;
+              const deltaY = e.clientY - d.startY;
+              if (!d.didDrag) {
+                if (Math.abs(deltaY) > 4) {
+                  d.didDrag = true;
+                  setViewControlsDragging(true);
+                  try { viewControlsRef.current?.setPointerCapture(d.pointerId); } catch { /* gone */ }
+                } else {
+                  return;
+                }
+              }
+              const nextTop = clampViewControlsTop(d.startTop + deltaY);
+              setViewControlsTop(nextTop);
+            }}
+            onPointerUp={(_e) => {
+              if (!dockBottom) return;
+              const d = viewControlsDragRef.current;
+              if (d) {
+                try { viewControlsRef.current?.releasePointerCapture(d.pointerId); } catch { /* gone */ }
+                if (d.didDrag) {
+                  setViewControlsDragging(false);
+                  if (viewControlsTop != null) {
+                    try { localStorage.setItem("opentakeoff:view-controls-top", String(viewControlsTop)); } catch { /* quota/private */ }
+                  }
+                }
+                viewControlsDragRef.current = null;
+              }
+            }}
+            onPointerCancel={() => {
+              if (!dockBottom) return;
+              const d = viewControlsDragRef.current;
+              if (d) {
+                try { viewControlsRef.current?.releasePointerCapture(d.pointerId); } catch { /* gone */ }
+                setViewControlsDragging(false);
+                viewControlsDragRef.current = null;
+              }
+            }}
+            onClickCapture={(e) => {
+              if (viewControlsDragRef.current?.didDrag) {
+                e.preventDefault();
+                e.stopPropagation();
+                viewControlsDragRef.current.didDrag = false;
+              }
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (dockBottom) {
+                setViewControlsTop(null);
+                try { localStorage.removeItem("opentakeoff:view-controls-top"); } catch { /* quota/private */ }
+              }
+            }}
             style={dockBottom
-              ? { position: "absolute", left: 14, top: "50%", transform: "translateY(-50%)", display: "flex", flexDirection: "column", gap: 2, padding: 4, border: "1px solid var(--ink-faint)", borderRadius: 10, background: "var(--paper-cream)", boxShadow: "var(--shadow-2)", zIndex: 24 }
+              ? {
+                  position: "absolute",
+                  left: 14,
+                  top: viewControlsTop != null ? `${viewControlsTop}px` : "50%",
+                  transform: viewControlsTop != null ? "none" : "translateY(-50%)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
+                  padding: 4,
+                  border: "1px solid var(--ink-faint)",
+                  borderRadius: 10,
+                  background: "var(--paper-cream)",
+                  boxShadow: "var(--shadow-2)",
+                  zIndex: viewControlsDragging ? 35 : 24,
+                  cursor: viewControlsDragging ? "grabbing" : "grab",
+                  userSelect: "none",
+                  touchAction: "none",
+                }
               : { position: "absolute", left: 14, bottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
             {(() => {
               // Premium's view group: zoom in / out about the canvas centre, fit, focus, and the
               // open source's sheet invert. The wheel and pinch still zoom toward the cursor.
               const face = (on) => dockBottom
-                ? { width: 32, height: 32, borderRadius: 7, border: "1px solid transparent", background: on ? "var(--cobalt)" : "transparent", color: on ? "var(--accent-contrast)" : "var(--ink)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }
+                ? { width: 32, height: 32, borderRadius: 7, border: "1px solid transparent", background: on ? "var(--cobalt)" : "transparent", color: on ? "var(--accent-contrast)" : "var(--ink)", cursor: viewControlsDragging ? "grabbing" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }
                 : { width: 34, height: 34, borderRadius: 0, border: `1px solid ${on ? "var(--cobalt)" : "var(--ink-faint)"}`, background: on ? "var(--cobalt)" : "var(--paper-bright)", color: on ? "var(--accent-contrast)" : "var(--ink)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 };
               const zoomStep = (f) => {
                 const el = containerRef.current;
@@ -11838,10 +12026,24 @@ export default function TakeoffCanvas() {
                 {dockBottom && <button onClick={() => zoomStep(0.8)} title="Zoom out" aria-label="Zoom out" style={face(false)}><Icon name="zoomOut" size={16} /></button>}
                 <button onClick={() => stage.w && fitToView(stage.w, stage.h)} title="Fit sheet to view" aria-label="Fit sheet to view" style={face(false)}>{dockBottom ? <Icon name="fit" size={16} /> : "fit"}</button>
                 <button onClick={() => toggleFocusMode()} title={focusMode ? "Focus off — show all chrome (F)" : "Focus — trade chrome for canvas height (F)"} aria-label="Focus mode" aria-pressed={focusMode} style={face(focusMode)}>{dockBottom ? <Icon name="focus" size={16} /> : "⛶"}</button>
+                <button name="view-3d" onClick={open3d} title="3D — this sheet's takeoff stood up: floors, base, transitions, wall runs, stairs. Read-only." aria-label="3D view" aria-pressed={!!show3d} style={{ ...face(!!show3d), fontSize: 11, fontWeight: 700 }}>3D</button>
                 <button onClick={() => setDarkMode((d) => !d)} title={darkMode ? "Sheet back to positive print" : "Invert sheet — negative print (affects marked-set export)"} aria-label="Invert sheet" aria-pressed={darkMode} style={face(darkMode)}>{dockBottom ? <Icon name="invert" size={16} /> : (darkMode ? "☀" : "☾")}</button>
               </>);
             })()}
           </div>
+          {show3d && uppFor(show3d.sheetId) > 0 && (
+            <Lazy3D shapes={shapes} conditions={conditions} sheetId={show3d.sheetId}
+              sheet={{ widthPx: show3d.dims.w, heightPx: show3d.dims.h, upp: uppFor(show3d.sheetId) }}
+              sheetLabel={tabLabel(show3d.sheetId)} projectName={projectName}
+              scaleLabel={STANDARD_SCALES.find((x) => Math.abs(x.upp - uppFor(show3d.sheetId)) < 1e-9)?.label || ""}
+              planSkin={planSkin3d?.sheetId === show3d.sheetId ? planSkin3d : null} hiddenConds={viewHidden}
+              initialSelectedId={selectedId}
+              onSelectShape={(sid) => { if (shapes.some((x) => x.id === sid)) selectShape(sid); }}
+              onFail={(msg) => setCommitMsg(`The 3D view could not load (${msg}) — reload the page.`)}
+              levelSheets={openTabs.filter((k) => !isStitchKey(k)).map((k) => ({ id: k, label: tabLabel(k) }))}
+              upperSheetId={upperSheet3d} upperSkin={upperSkin3d?.sheetId === upperSheet3d ? upperSkin3d : null} onPickUpperSheet={setUpperSheet3d}
+              onClose={() => { setShow3d(null); setUpperSheet3d(null); }} />
+          )}
 
         {/* Read page text (#471) and Read picture text (#489) — beside the
               corner cluster, above the status bar (and above the rule banner
@@ -12052,6 +12254,17 @@ export default function TakeoffCanvas() {
             {condH > 0 && Number(selShape.height_ft) !== condH && (
               <button onClick={clearShapeHeight} title="Set this wall to the condition height" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--ink-muted)", padding: 0 }}>↺</button>
             )}
+          </div>
+        )}
+        {selShape && (selShape.measure_role || "floor_area") === "floor_area" && isCeilingCondition(condById[selShape.condition_id]) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }} title="Ceiling height for THIS area only (a soffit or bulkhead) — where it sits in the 3D view. Blank = the condition's Ceiling AFF.">
+            <Icon name="height" size={12} />
+            <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>ceiling AFF</span>
+            <input name="shape-ceiling-ft" type="number" min="0" step={heightStep(units)} value={selShape.ceiling_ft != null ? dimInputStr(selShape.ceiling_ft, units, "height") : ""}
+              placeholder={condById[selShape.condition_id]?.ceiling_ft ? dimInputStr(condById[selShape.condition_id].ceiling_ft, units, "height") : "9"}
+              onChange={(e) => setShapeCeiling(e.target.value)}
+              style={{ width: 56, padding: "2px 5px", border: "1px solid var(--ink-faint)", fontSize: 12 }} />
+            <span style={{ fontSize: 11, color: "var(--ink-muted)" }}>{heightUnit(units)}</span>
           </div>
         )}
         {selShape?.measure_role === "linear" && (() => {
@@ -12301,6 +12514,7 @@ export default function TakeoffCanvas() {
           onBell={() => setAgentOpen((v) => !v)} pending={pendingN} />;
       })()}
       {workspaceLayout && !workspaceArrangement.readout && selShape?.measure_role === "surface_area" && <div className="calm-property-editor"><label>Selected wall height <input aria-label="Selected wall height" type="number" min="0" step={heightStep(units)} value={shapeHDraft ?? dimInputStr(selShape.height_ft, units, "height")} onChange={(e) => { setShapeHDraft(e.target.value); setShapeHeight(e.target.value); }} onBlur={() => { if (shapeHDraft != null) setShapeHeight(shapeHDraft); setShapeHDraft(null); }} /></label><span>{heightUnit(units)} → {fa(selShape.computed?.area_sf || 0)}</span><button type="button" onClick={clearShapeHeight}>Use condition height</button></div>}
+      {workspaceLayout && !workspaceArrangement.readout && selShape && (selShape.measure_role || "floor_area") === "floor_area" && isCeilingCondition(condById[selShape.condition_id]) && <div className="calm-property-editor"><label>Selected ceiling AFF <input name="shape-ceiling-ft" aria-label="Selected ceiling height" type="number" min="0" step={heightStep(units)} value={selShape.ceiling_ft != null ? dimInputStr(selShape.ceiling_ft, units, "height") : ""} placeholder={condById[selShape.condition_id]?.ceiling_ft ? dimInputStr(condById[selShape.condition_id].ceiling_ft, units, "height") : "condition"} onChange={(e) => setShapeCeiling(e.target.value)} /></label><span>{heightUnit(units)} · 3D only (a soffit) · blank = the condition</span></div>}
       {!focusMode && workspaceLayout && workspaceDetailsOpen && aCond && <div className="calm-property-editor"><strong>{aCond.finish_tag}</strong><ConditionAppearanceEditor cond={aCond} onUpdateCond={updateCond} onSetCondParam={setCondParam} onAssignAttr={assignAttr} conditionColumns={conditionColumns} layout="row" units={units} /><button type="button" onClick={() => setWorkspaceDetailsOpen(false)}>Close properties</button></div>}
       {workspaceLayout && <><WorkspaceCommandMenu open={workspaceSearchOpen} onClose={() => setWorkspaceSearchOpen(false)} actions={workspaceActions} onOpenChange={onMenuDepth} /><WorkspaceLayoutDialog open={workspaceLayoutOpen} onClose={() => setWorkspaceLayoutOpen(false)} prefs={workspacePrefs} onOpenChange={onMenuDepth} /></>}
       {!focusMode && (!workspaceLayout || workspaceControlsOpen) && (
@@ -12791,8 +13005,8 @@ export default function TakeoffCanvas() {
                  <Icon name="more" size={18} />
                </button>
                {sep("s3")}
-               {railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false })}
-               {railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false })}
+               {railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false, hideBadge: true })}
+               {railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false, hideBadge: true })}
              </nav>
            </div>
          );
@@ -12861,8 +13075,8 @@ export default function TakeoffCanvas() {
          {railLabel("CAL")}
          {railTile("calibrate", "calibrate", "Calibrate — click two points of a known dimension", null)}
          {dockBottom && railLabel("HIST")}
-         {dockBottom && railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false })}
-         {dockBottom && railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false })}
+         {dockBottom && railTile("dock-undo", "undo", "Undo", "⌘Z", () => (poly.length ? dropLastPoint() : undoShapeCommand()), { armed: false, hideBadge: true })}
+         {dockBottom && railTile("dock-redo", "redo", "Redo", "⇧⌘Z", () => redoShapeCommand(), { armed: false, hideBadge: true })}
        </nav>
        )}
        {/* docked LEFT panel — one of Markups/Stamps/RFIs at a time. Reflows the
@@ -13367,6 +13581,7 @@ export default function TakeoffCanvas() {
           conditions={conditions}
           conditionEditProposals={conditionEditProposals} onAcceptConditionEdit={acceptConditionEdit} onRejectConditionEdit={rejectConditionEdit}
           collisionsByCond={scopeByCond} onLookAtCollision={lookAtCollision}
+          revisionFlaggedByCond={revisionFlaggedByCond}
           activeCond={activeCond}
           visRowById={visRowById} projRowById={projRowById}
           conditionColumns={conditionColumns}
@@ -13705,6 +13920,17 @@ export default function TakeoffCanvas() {
           style={{ position: "fixed", inset: 0, zIndex: Z.modal, background: "var(--scrim)", display: "flex", alignItems: "center", justifyContent: "center", padding: "var(--sp-4)" }}>
           <OcrDownloadNotice downloadBytes={ocrNotice.downloadBytes} progress={ocrNotice.progress} onDownload={ocrHost.download} onCancel={ocrHost.cancel} />
         </div>
+      )}
+      {deleteSheetPrompt && (
+        <DeleteSheetModal
+          sheet={deleteSheetPrompt}
+          onCancel={() => setDeleteSheetPrompt(null)}
+          onConfirm={() => {
+            const target = deleteSheetPrompt.target;
+            setDeleteSheetPrompt(null);
+            deleteCurrentSheet(target, { skipConfirm: true });
+          }}
+        />
       )}
     </div>
   );

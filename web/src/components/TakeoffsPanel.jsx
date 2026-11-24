@@ -40,6 +40,7 @@ import { itemRule, itemWastePct, coverageLabel } from "../lib/totals.js";
 import { loadAssemblies, saveAssemblies, conditionToAssembly, ASSEMBLY_EVENT, ASSEMBLY_STORAGE_KEY } from "../lib/assemblies.js";
 import { mintUuid } from "../lib/provenance.js";
 import { ROLL_FLOORING_TYPES } from "../lib/rollgoods.js";
+import { isCeilingCondition } from "../lib/ceilingKind.js";
 import { hasRollSetup, mintRollSetup } from "../lib/rollTakeoff.js";
 import { Z } from "../lib/ui.js";
 import { ftIn } from "../lib/units";
@@ -546,6 +547,13 @@ export function ConditionAppearanceEditor({ cond: c, onUpdateCond, onSetCondPara
           <DimParamInput name="condition-height-ft" internal={c.height_ft} units={units} kind="height" width={54}
             onCommit={(v) => onSetCondParam("height_ft", v)} />
         </span>
+        {isCeilingCondition(c) && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }} title={`Ceiling height AFF (${heightUnit(units)}) — where this ceiling sits in the 3D view (the RCP height tag, e.g. 9'-0"). Display only: no quantity reads it. Blank = a 9'-0" allowance, flagged. Select an area to give it its own height (a soffit).`}>
+            <span style={{ color: "var(--ink-muted)" }}>Ceiling AFF</span>
+            <DimParamInput name="condition-ceiling-ft" internal={c.ceiling_ft} units={units} kind="height" width={54}
+              onCommit={(v) => onUpdateCond({ ceiling_ft: v === "" ? null : v })} />
+          </span>
+        )}
         <span style={{ display: "flex", alignItems: "center", gap: 4 }} title={`Thickness (${thickUnit(units)}) — a Linear run with thickness also computes border/feature-strip SF = LF × T/12. Changing it re-flows existing linear runs.`}>
           <Icon name="thickness" size={13} /><span style={{ color: "var(--ink-muted)" }}>T</span>
           <DimParamInput name="condition-thickness-in" internal={c.thickness_in} units={units} kind="thickness" width={50}
@@ -923,7 +931,7 @@ function TakeoffsPanel({
   onActivate, onSetActive, onLocate,
   onAddCondition, onDeleteCondition, onUpdateCond, onSetCondParam, onAssignAttr,
   conditionEditProposals = [], onAcceptConditionEdit, onRejectConditionEdit,
-  collisionsByCond = null, onLookAtCollision,
+  collisionsByCond = null, onLookAtCollision, revisionFlaggedByCond = null,
   onAddMaterial, onUpdateMaterial, onRemoveMaterial, onApplyAssembly,
   onDuplicateCondition, onSplitCondition, onFollowFamilyRow, onRestoreDroppedRow,
   onDeriveTransitions, onLocateTransition,
@@ -1163,6 +1171,10 @@ function TakeoffsPanel({
           {collisionsByCond?.get(c.id)?.length ? (
             <span data-collision-badge={c.id} title={`${collisionsByCond.get(c.id).length} shared-floor pair${collisionsByCond.get(c.id).length === 1 ? "" : "s"} — another condition claims the same floor, or a room is traced twice. Activate the row to see each pair.`}
               style={{ flexShrink: 0, fontFamily: "var(--f-mono,monospace)", fontSize: 10, fontWeight: 700, color: "var(--c-danger)", border: "1px solid var(--c-danger)", borderRadius: 3, padding: "0 4px" }}>⚠ {collisionsByCond.get(c.id).length}</span>
+          ) : null}
+          {revisionFlaggedByCond?.has(c.id) ? (
+            <span data-revision-badge={c.id} title="Shapes in this condition touch changed ink from a drawing revision. Check after revision."
+              style={{ flexShrink: 0, fontFamily: "var(--f-mono,monospace)", fontSize: 10, fontWeight: 700, color: "var(--c-warning, #d97706)", border: "1px solid var(--c-warning, #d97706)", borderRadius: 3, padding: "0 4px" }}>Δ Check</span>
           ) : null}
           <button onClick={(e) => { e.stopPropagation(); onLocate(c.id); }} title="Zoom the canvas to this condition's takeoffs"
             style={{ flexShrink: 0, padding: "2px 6px", borderRadius: 0, border: "1px solid var(--ink-faint)", background: "transparent", color: "var(--ink-muted)", cursor: "pointer", fontSize: 12, lineHeight: 1 }}>⌖</button>

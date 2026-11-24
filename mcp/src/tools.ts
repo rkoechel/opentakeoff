@@ -29,6 +29,7 @@ import {
   assistantOpenOutput, assistantListenOutput, assistantSayOutput,
   rotatePageOutput, reorderPagesOutput, extractPagesOutput, mergeDocumentsOutput,
   stitchSheetsOutput, alignStitchOutput, listStitchesOutput,
+  compareSheetsOutput,
 } from "./outputs.ts";
 import { exportMarkedPdf } from "./marked.ts";
 import { exportEstimateFile, exportProposalFile } from "./estimateFiles.ts";
@@ -186,6 +187,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
         min_area_sf: z.number().positive().default(5).describe("Plausibility floor: enclosed non-bubble regions smaller than this are withheld as cavities, not rooms. Default 5 SF — below any real finished space (a broom closet is ~10 SF). Lower it to inspect what was skipped."),
         sensitivity: z.number().min(0).max(1).optional().describe("Fill sensitivity, the same knob the canvas has: 0 strict (hatch/light linework always blocks), 0.5 balanced (default), 1 aggressive (crosses more hatch, tolerates more growth). Raise it when a flood stops short at hatching INSIDE the room; verify the grown ring with view_sheet overlay before committing"),
         layers: layersFilterSchema,
+        label_prefixes: z.array(z.string().regex(/^[A-Za-z]{1,2}$/)).max(8).optional().describe("Letter prefixes the set's room numbers carry, read off the plan: [\"A\"] for A2521, A2532; [\"B\"] for B101. Absent = numeric room numbers only (134, 139A). A prefixed token that is a loaded sheet's number (A101) is never a room"),
       },
       outputSchema: detectRoomsOutput,
     }, run("detect_rooms", (a) => {
@@ -194,7 +196,7 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
       if (a.assign_from_schedule && a.condition !== undefined) {
         throw new UserError("Provide at most one of: condition (every room under one stated tag) or assign_from_schedule (each room's own schedule row decides).");
       }
-      return session.detectRooms(a.sheet, { condition: a.condition, role: a.role, returnVerts: a.return_verts, minAreaSf: a.min_area_sf, sensitivity: a.sensitivity, layers: a.layers, assignFromSchedule: a.assign_from_schedule });
+      return session.detectRooms(a.sheet, { condition: a.condition, role: a.role, returnVerts: a.return_verts, minAreaSf: a.min_area_sf, sensitivity: a.sensitivity, layers: a.layers, assignFromSchedule: a.assign_from_schedule, labelPrefixes: a.label_prefixes });
     }));
   }
 
@@ -455,6 +457,19 @@ export function registerTools(realServer: McpServer, session: Session, opts: { o
     },
     outputSchema: setEstimateSettingsOutput,
   }, run("set_estimate_settings", (a) => session.setEstimateSettings(a)));
+
+  server.registerTool("compare_sheets", {
+    description: `Visual revision comparison of two sheets (or revisions of a sheet): discovers what moved between them. Automatically aligns vector linework, computes segment differences, groups modified/added/removed ink into changed region bounding hulls, and returns existing takeoff shape IDs on sheet_a that intersect changed ink so an agent can re-check only what moved. ${COORDS}`,
+    inputSchema: {
+      sheet_a: z.string().describe("Base sheet key or filename (e.g. 'plans.pdf#1')"),
+      sheet_b: z.string().describe("Incoming/revised sheet key or filename"),
+      alignment: z.object({
+        dx: z.number().optional().describe("Manual translation X offset"),
+        dy: z.number().optional().describe("Manual translation Y offset"),
+      }).optional().describe("Optional manual translation offset; defaults to auto-alignment by title-block/drawing frame"),
+    },
+    outputSchema: compareSheetsOutput,
+  }, run("compare_sheets", (a) => session.compareSheets(a.sheet_a, a.sheet_b, a.alignment)));
 
   server.registerTool("estimate_summary", {
     description: `The priced estimate — the canvas Estimate panel as data: one line per quantity kind each measured condition carries — its area, LF and EA are separate lines (unit, order and measured quantities, rates, material / labor / supply cost, main marks each condition's first line; status priced | partial | unpriced with what is missing, or optional — a bordered linear run's derived line nobody priced, carried in its main line and never missing; set_pricing prices any line: the main one by default, the others with line "LF" / "EA" / "SF"), then material, labor, sales tax, cost, overhead, profit and the base bid. complete is false while anything is unentered: the total then counts the missing pieces at $0 and is "priced so far", and unpriced lists every hole — report it to the estimator, never fill it. Read-only.`,
